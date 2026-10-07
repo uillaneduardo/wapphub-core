@@ -6,34 +6,47 @@ O ecossistema é composto inicialmente por três repositórios:
 
 | Repositório | Responsabilidade |
 |---|---|
-| `wapphub-core` | Backend, domínio, persistência, segurança, integrações e API |
+| `wapphub-core` | Backend, domínio, persistência, segurança, realtime, integrações e API |
 | `wapphub-chat` | Operação de atendimento |
 | `wapphub-platform` | WappHub Admin + Minha Conta |
 
 A separação é de responsabilidade e ciclo de evolução. Não implica microserviços.
 
+Um futuro aplicativo Android nativo deverá consumir os mesmos contratos do Core, sem duplicar regras de domínio.
+
 ## 2. Arquitetura inicial
 
 O Core deve ser implementado como **monólito modular**.
 
+Processos de execução previstos:
+- API HTTP;
+- Realtime Gateway/WebSocket;
+- Worker assíncrono.
+
+Eles podem compartilhar o mesmo código/imagem e escalar separadamente quando necessário.
+
 Fluxo conceitual:
 
 ```
-HTTP/API
-  ↓
-Controllers / Routes
-  ↓
-Application / Use Cases
-  ↓
-Domain
-  ↓
-Repositories / Ports
-  ↓
-Infrastructure
-  ├─ MariaDB
-  ├─ Redis (quando necessário)
-  ├─ Object Storage
-  └─ Providers externos
+Clientes Web / Android futuro
+        │
+        ├─ REST /api/v1
+        └─ Realtime/WebSocket
+                ↓
+           WappHub Core
+      ┌─────────┼──────────┐
+      │         │          │
+     API     Realtime    Worker
+      │         │          │
+      └──── Application ───┘
+                ↓
+              Domain
+                ↓
+      Repositories / Ports
+      ├─ MariaDB
+      ├─ Redis
+      ├─ Object Storage
+      └─ Providers externos
 ```
 
 Controllers não devem conter regra de negócio relevante.
@@ -72,18 +85,20 @@ Business Rule
 Login é global por usuário.
 
 Após autenticação:
-
 - se houver uma única organização acessível, ela pode ser selecionada automaticamente;
 - se houver várias, o usuário escolhe;
 - o usuário pode alternar a organização durante a sessão;
-- a troca de organização invalida/cacheia novamente todos os dados tenant-scoped.
+- a troca de organização invalida todos os dados/cache tenant-scoped e muda os escopos realtime.
 
 Perfis pertencem à Membership, não ao User.
+
+Para a aplicação web, a preferência é sessão server-side revogável por cookie seguro. Clientes nativos terão fluxo apropriado documentado separadamente, mantendo revogação e regras server-side.
+
+Detalhes: `docs/SECURITY_PRIVACY.md`.
 
 ## 5. RBAC
 
 Perfis padrão iniciais:
-
 - OWNER
 - SUPERVISOR
 - AGENT
@@ -94,7 +109,7 @@ O código não deve espalhar verificações por nome de perfil. Regras devem ser
 
 A aplicação nunca deve liberar funcionalidade por nome de plano.
 
-Proibido como regra de domínio:
+Proibido:
 
 ```ts
 if (plan.name === "Advanced") { ... }
@@ -118,8 +133,7 @@ Entitlement Resolver
 Effective Entitlements
 ```
 
-Tipos iniciais de feature:
-
+Tipos iniciais:
 - BOOLEAN
 - QUANTITY
 - USAGE
@@ -130,75 +144,138 @@ Tipos iniciais de feature:
 `users.seats` é um recurso quantitativo.
 
 Regra inicial:
-
 - convite pendente não consome;
 - Membership ativa e marcada como consumidora de assento consome 1;
 - Membership suspensa/revogada não consome;
 - o mesmo User pode consumir um assento em cada Organization da qual participe.
 
-## 8. Conversas
+## 8. Conversas e mensagens
 
 Conversas, mensagens normalizadas, atribuições, tags, notas e mídia pertencem ao WappHub.
 
 A Meta não é o banco de domínio.
 
-Entrada:
+Mensagens devem suportar:
+- `clientMessageId` para UI otimista/idempotência do cliente;
+- `messageId` WappHub;
+- `providerMessageId` externo;
+- estados locais/remotos;
+- retry/reconciliação.
 
-```
-Meta Webhook
-  ↓
-Provider Adapter
-  ↓
-Integration Event
-  ↓
-Normalization
-  ↓
-Message/Conversation Use Case
-  ↓
-Persistence
-```
+Histórico e inbox usam paginação por cursor, não OFFSET profundo.
 
-Saída:
+## 9. Realtime
 
-```
-User action
-  ↓
-Message Use Case
-  ↓
-Messaging Provider Port
-  ↓
-Meta Adapter
-```
+O Chat é realtime-first.
 
-## 9. Providers
+- REST para consultas/comandos/bootstrap;
+- WebSocket para eventos operacionais;
+- sem polling frequente como estratégia principal;
+- eventos segmentados por Organization/conversa/usuário;
+- sem broadcast global;
+- reconexão com recuperação de eventos perdidos.
 
-O domínio deve depender de interfaces/ports, não da Meta diretamente.
+Detalhes: `docs/REALTIME_AVAILABILITY.md`.
 
-Exemplo conceitual:
+## 10. Processamento assíncrono
+
+Chamadas externas e webhooks devem suportar padrões Outbox/Inbox/IntegrationEvent.
+
+Objetivos:
+- idempotência;
+- retry;
+- tolerância a falha de processo;
+- resposta rápida de webhook;
+- desacoplamento da latência da Meta.
+
+## 11. Providers e Meta
+
+O domínio depende de ports, não da Meta diretamente.
 
 ```
 MessagingProvider
   └─ MetaWhatsAppProvider
 ```
 
-Isso preserva a possibilidade de outros canais futuramente.
+Cada Organization configura sua própria integração Meta e seus próprios canais/credenciais.
 
-## 10. Auditoria e observabilidade
+Webhook físico pode ser compartilhado, mas todo evento deve ser resolvido para Organization + Channel antes de processamento de domínio.
+
+Detalhes: `docs/META_INTEGRATION.md`.
+
+## 12. Diagnóstico e capabilities
+
+Toda integração externa deve oferecer diagnóstico estruturado.
 
 Separar:
+- Permission;
+- Entitlement;
+- Provider Capability;
+- Channel Configuration;
+- Health.
 
-- **Application Log**: diagnóstico técnico.
-- **Audit Event**: ação humana ou administrativa.
-- **Integration Event**: eventos de provedores externos.
+Não representar integração somente como "conectada/desconectada".
 
-Erros de infraestrutura não devem vazar ao frontend como códigos internos de ORM.
+Detalhes: `docs/INTEGRATION_DIAGNOSTICS.md`.
 
-## 11. Rotas
+## 13. Mídia e storage
+
+Mídia deve usar abstração de object storage.
+
+Quando possível, Core autoriza e registra enquanto o object storage transporta arquivos, evitando manter arquivos grandes em memória da API.
+
+Mídia sempre permanece tenant-scoped e associada ao contexto da conversa/mensagem.
+
+## 14. API e clientes
+
+API versionada desde a fundação:
+
+```
+/api/v1/...
+```
+
+OpenAPI é o contrato REST oficial.
+
+O realtime também precisa de contrato documentado/versionado.
+
+O futuro Android nativo deve reutilizar estes contratos.
+
+Detalhes: `docs/API_CLIENTS.md`.
+
+## 15. Performance e disponibilidade
+
+O Core deve ser stateless onde possível e permitir múltiplas instâncias futuramente.
+
+Redis pode suportar cache, sessão, pub/sub, presença efêmera, rate limiting, locks e filas; não é fonte da verdade de conversas.
+
+A arquitetura deve ser testada para baseline inicial de ~100 agentes simultâneos antes de considerar microserviços.
+
+Detalhes: `docs/PERFORMANCE_BASELINE.md`.
+
+## 16. Auditoria e observabilidade
+
+Separar:
+- **Application Log**: diagnóstico técnico;
+- **Audit Event**: ação humana/administrativa;
+- **Security Event**: evento de autenticação/segurança;
+- **Integration Event**: provider externo.
+
+Erros de infraestrutura não devem vazar códigos internos de ORM, stack traces ou segredos ao cliente.
+
+## 17. Segurança e privacidade
+
+Segurança multi-tenant, sessão revogável, proteção de segredos, sanitização de logs, retenção e privacy by design são requisitos de fundação, não hardening opcional tardio.
+
+Detalhes: `docs/SECURITY_PRIVACY.md`.
+
+## 18. Rotas
 
 Frontends usam URLs reais visíveis na barra de navegação.
 
 O Chat deverá usar History API/BrowserRouter e o servidor precisa suportar SPA fallback para refresh em rotas profundas.
 
-## 12. Evolução
+## 19. Evolução
 
-Não introduzir microserviços, event bus distribuído ou CQRS sem necessidade comprovada e ADR aprovada.
+Não introduzir microserviços, event bus distribuído, CQRS ou Kubernetes sem necessidade comprovada e decisão arquitetural registrada.
+
+A arquitetura deve permitir escalar API e Worker horizontalmente sem reescrever o domínio.
