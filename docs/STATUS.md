@@ -11,38 +11,65 @@ Legenda:
 ## Estado geral
 
 **Milestone ativo:** M0 — Fundação  
-**Estado:** documentação inicial concluída; implementação ainda não iniciada.
+**Estado:** arquitetura e requisitos pré-implementação consolidados; código funcional ainda não iniciado.
+
+## Documentação arquitetural
+
+| Documento | Estado |
+|---|---:|
+| Arquitetura geral | ✅ |
+| Modelo de domínio | ✅ |
+| Features/Entitlements | ✅ |
+| Realtime/Disponibilidade | ✅ |
+| Integração Meta por Organization | ✅ |
+| Diagnóstico/Capabilities | ✅ |
+| Segurança/Privacidade/LGPD baseline | ✅ |
+| API/Clientes/Android futuro | ✅ |
+| Performance baseline | ✅ |
+| Milestones | ✅ |
 
 ## M0 — Fundação
 
 | Item | Estado | Evidência |
 |---|---:|---|
-| Documentação arquitetural inicial | ✅ | docs/ |
 | Estrutura de código do Core | ⬜ | — |
 | Runtime/TypeScript | ⬜ | — |
 | Prisma/MariaDB | ⬜ | — |
+| Redis | ⬜ | — |
 | User | ⬜ | — |
 | Organization | ⬜ | — |
 | Membership | ⬜ | — |
 | Invitation | ⬜ | — |
 | RBAC | ⬜ | — |
 | Autenticação | ⬜ | — |
+| Sessão revogável | ⬜ | — |
 | Organization Context | ⬜ | — |
+| SecurityEvent | ⬜ | — |
+| Rate limiting auth | ⬜ | — |
+| CSRF/CORS/security headers | ⬜ | — |
 | Error handling | ⬜ | — |
 | AuditEvent | ⬜ | — |
+| Segredos/criptografia base | ⬜ | — |
 | Testes multi-tenant | ⬜ | — |
+| /api/v1 | ⬜ | — |
+| OpenAPI inicial | ⬜ | — |
+| Contrato realtime inicial | ⬜ | — |
+| Estrutura API/Worker | ⬜ | — |
 
 ## Funcionalidades posteriores
 
 | Domínio | Estado |
 |---|---:|
-| Chat operacional | ⬜ |
+| Chat operacional realtime | ⬜ |
 | Entitlements | ⬜ |
 | WappHub Admin | ⬜ |
 | Minha Conta | ⬜ |
-| Meta/WhatsApp | ⬜ |
+| Meta por Organization | ⬜ |
+| Diagnóstico de integração | ⬜ |
 | Imagem/áudio | ⬜ |
+| Performance 100 agentes | ⬜ |
 | MVP comercial | ⬜ |
+| Android nativo | ⛔ Pós-MVP |
 
 ## Regra de atualização
 
