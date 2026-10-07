@@ -4,11 +4,11 @@ Os milestones são sequenciais. Um milestone não deve ser considerado concluíd
 
 ## M0 — Fundação
 
-Objetivo: estabelecer base segura para desenvolvimento.
+Objetivo: estabelecer uma base segura, multi-tenant e preparada para clientes web e futuros clientes nativos.
 
 Entregas:
 - estrutura inicial do Core;
-- configuração TypeScript/runtime;
+- TypeScript/runtime;
 - Prisma + MariaDB;
 - migrations;
 - User;
@@ -16,30 +16,46 @@ Entregas:
 - Membership;
 - OrganizationInvitation;
 - Role/Permission;
-- sessão/autenticação;
+- autenticação;
+- sessão server-side web revogável;
 - contexto de Organization;
 - tratamento padronizado de erros;
 - AuditEvent básico;
-- testes de isolamento multi-tenant;
-- contrato inicial de API;
+- SecurityEvent básico;
+- rate limiting de autenticação;
+- proteção CSRF/CORS/headers conforme arquitetura web;
+- isolamento multi-tenant testado;
+- sanitização de logs;
+- base de proteção/criptografia de segredos;
+- API versionada em `/api/v1`;
+- OpenAPI inicial;
+- contrato inicial de realtime/eventos;
+- estrutura que permita API + Worker;
+- Redis disponível para responsabilidades aprovadas;
 - documentação executável/local.
 
 Critério de aceite:
 - usuário autentica;
-- consulta organizações das quais participa;
+- consulta organizações;
 - seleciona/troca contexto;
-- backend impede acesso a organização sem Membership ativa;
-- Owner/Supervisor/Agent possuem permissions iniciais resolvidas;
-- rotas base respondem com erros de domínio estáveis.
+- sessão pode ser revogada;
+- backend impede acesso sem Membership ativa;
+- permissions são resolvidas pela Membership;
+- tenant A não acessa recursos de tenant B;
+- endpoints sensíveis possuem proteção básica contra abuso;
+- erros/segredos internos não vazam na API;
+- contrato `/api/v1` está documentado.
 
 ## M1 — Chat interno independente da Meta
 
-Objetivo: validar o domínio operacional sem dependência externa.
+Objetivo: validar domínio e experiência realtime sem provider externo.
 
 Entregas:
 - Contacts;
 - Conversations;
-- Messages simuladas/internas;
+- Messages internas;
+- `clientMessageId`;
+- status locais;
 - Tags;
 - Notes;
 - arquivamento;
@@ -48,13 +64,22 @@ Entregas:
 - supervisão;
 - frontend Chat com rotas reais;
 - seleção/troca de Organization;
-- UI inicial por permissions.
+- UI por permissions;
+- REST + WebSocket;
+- eventos tenant-scoped;
+- reconexão/sincronização;
+- paginação por cursor;
+- UI otimista;
+- bootstrap da aplicação;
+- baseline visual/design tokens.
 
 Critério de aceite:
-- duas organizações permanecem isoladas;
-- usuário com Memberships múltiplas alterna contexto;
+- Organizations permanecem isoladas;
+- usuário multi-Organization alterna contexto sem vazamento visual/realtime;
 - conversa pode ser criada, atribuída, transferida, tageada, anotada e arquivada;
-- refresh em rota profunda do frontend funciona.
+- duas sessões observam atualização realtime coerente;
+- queda/reconexão não perde estado persistido;
+- refresh em rota profunda funciona.
 
 ## M2 — SaaS e Entitlements
 
@@ -74,78 +99,104 @@ Entregas:
 - fluxo de convite condicionado a assentos;
 - WappHub Admin mínimo;
 - Minha Conta mínimo;
-- plano com preço zero suportado.
+- plano com preço zero;
+- `accentColor`/personalização básica por Organization quando aplicável.
 
 Critério de aceite:
 - Admin cria produto/plano/recurso;
 - associa recursos ao plano sem alteração de código;
-- cria assinatura para Organization;
-- entitlement efetivo é resolvido;
+- cria assinatura;
+- entitlement efetivo é explicável;
 - convite aceito só ativa Membership quando existe assento;
-- organização WappHub pode usar plano interno de R$ 0,00.
+- WappHub pode usar plano interno R$ 0,00.
 
 ## M3 — Integração Meta / WhatsApp
 
-Objetivo: substituir mensagens simuladas por mensagens reais do provider.
+Objetivo: operar texto real usando integração própria de cada Organization.
 
 Entregas:
+- MetaIntegration tenant-scoped;
 - Channel WhatsApp;
-- armazenamento seguro de credenciais;
+- armazenamento criptografado de segredos;
 - MetaWhatsAppProvider;
-- webhook;
+- webhook compartilhável com resolução segura de Organization + Channel;
+- Inbox/IntegrationEvent;
+- Outbox/Worker;
 - idempotência;
-- IntegrationEvent;
 - TEXT bidirecional;
-- status básico de mensagens;
-- diagnóstico de integração.
+- estados de mensagem;
+- validação de credenciais;
+- validação de WABA/número;
+- capability matrix;
+- light health check;
+- deep diagnostic;
+- diagnóstico de webhook;
+- saúde da fila;
+- teste funcional de texto;
+- histórico de Diagnostic Runs.
 
 Critério de aceite:
-- mensagem recebida no WhatsApp aparece na Organization correta;
-- resposta enviada pelo Chat chega ao WhatsApp;
+- duas Organizations usam credenciais Meta distintas;
+- mensagem recebida é resolvida para tenant/canal correto;
+- resposta chega ao WhatsApp;
 - webhook repetido não duplica mensagem;
-- falha externa não expõe detalhes internos ao usuário.
+- falha de uma Organization/provider não bloqueia outra;
+- diagnóstico identifica a etapa com falha sem expor segredo.
 
 ## M4 — Mídia MVP
 
-Objetivo: completar capacidades mínimas de atendimento.
+Objetivo: entregar experiência de imagem e áudio próxima de um mensageiro moderno.
 
 Entregas:
 - IMAGE;
 - AUDIO;
-- object storage;
+- object storage abstrato/S3-compatible;
 - Media;
-- upload/download;
+- upload/download autorizado;
 - gerenciador de arquivos;
-- limites por entitlement quando definidos.
+- mídia da conversa;
+- visualização ampliada de imagem;
+- gravação de áudio no Chat web;
+- preview/player de áudio;
+- normalização de mídia quando necessária;
+- processamento assíncrono;
+- diagnóstico funcional de imagem/áudio.
 
 Critério de aceite:
 - imagem e áudio funcionam nos dois sentidos;
-- mídia permanece associada à conversa e organização;
-- acesso entre tenants é impossível.
+- envio não bloqueia UI;
+- mídia permanece associada ao tenant/conversa/mensagem;
+- "ir para mensagem" preserva contexto;
+- acesso cross-tenant é impossível.
 
 ## M5 — MVP Comercializável
 
-Objetivo: fechar fluxo completo de uso real.
+Objetivo: fechar fluxo completo e validar disponibilidade/segurança.
 
 Entregas:
-- refinamento de onboarding;
+- onboarding;
 - atribuição automática round-robin;
 - supervisão final;
-- diagnóstico;
+- diagnóstico operacional;
 - auditoria mínima completa;
-- hardening de segurança;
+- security/privacy hardening final;
 - documentação de deploy;
+- backups/restore testados;
+- healthchecks;
 - smoke tests;
+- baseline de carga para ~100 agentes;
 - experiência Owner/Supervisor/Agent;
-- validação da própria WappHub como organização cliente.
+- validação da própria WappHub como Organization cliente.
 
 Critério de aceite:
-- fluxo completo produto → plano → assinatura → convite → assento → atendimento WhatsApp funciona sem intervenção no banco;
-- WappHub consegue operar internamente usando a mesma arquitetura oferecida a clientes.
+- fluxo produto → plano → assinatura → convite → assento → integração → atendimento funciona sem intervenção no banco;
+- WappHub opera internamente usando a mesma arquitetura;
+- carga/realtime possuem métricas registradas;
+- falhas comuns possuem diagnóstico acionável.
 
 ## Pós-MVP
 
-Não implementar sem novo milestone:
+Não implementar sem milestone próprio:
 - vídeo;
 - Status;
 - chamadas;
@@ -157,4 +208,14 @@ Não implementar sem novo milestone:
 - outros canais;
 - billing recorrente completo;
 - SSO;
-- apps nativos.
+- app Android nativo.
+
+### Android nativo
+
+Embora pós-MVP, a API atual deve permanecer preparada desde M0/M1 para um cliente Android:
+- contratos versionados;
+- OpenAPI;
+- realtime documentado;
+- paginação por cursor;
+- clientMessageId/idempotência;
+- autenticação móvel desenhável sem alterar domínio.
