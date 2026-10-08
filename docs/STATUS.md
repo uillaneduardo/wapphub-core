@@ -1,5 +1,13 @@
 # Status de Implementação
 
+> Produção atual — 2026-10-08, 18:00 Recife: M1 contatos/conversas publicado.
+> Core/API/Worker `a45fb33` (`wapphub-core:m1-contacts-a45fb33`), Chat `6b04e65`
+> (`wapphub-chat:m1-contacts-6b04e65`). Todos healthy, health/readiness/HTTP/assets aprovados.
+> 224 testes anteriores reaproveitados; sem migrations. MariaDB/Redis preservados.
+> Homologação dos novos fluxos PENDENTE; M1 não formalmente encerrado.
+> [Registro e contingência](DEPLOY_M1_CONTACTS_20261008.md). Notas abaixo são histórico.
+
+
 ## Atualização vigente — finalização funcional local M1 (2026-10-08)
 
 P0 e P1 publicados e homologados manualmente pelo usuário. Produção informada: Core/API/Worker `cbaf50c` (`wapphub-core:p0-preview-cbaf50c`); Chat `6bbc1c4` (`wapphub-chat:p1-realtime-6bbc1c4`). As notas anteriores abaixo são histórico, não o estado corrente.

@@ -1,5 +1,13 @@
 # Deploy do Core — homelab e Cloudflare Tunnel
 
+> Produção atual — 2026-10-08, 18:00 Recife: M1 contatos/conversas publicado.
+> Core/API/Worker `a45fb33` (`wapphub-core:m1-contacts-a45fb33`), Chat `6b04e65`
+> (`wapphub-chat:m1-contacts-6b04e65`). Todos healthy, health/readiness/HTTP/assets aprovados.
+> 224 testes anteriores reaproveitados; sem migrations. MariaDB/Redis preservados.
+> Homologação dos novos fluxos PENDENTE; M1 não formalmente encerrado.
+> [Registro e contingência](DEPLOY_M1_CONTACTS_20261008.md). Notas abaixo são histórico.
+
+
 > Atualização de produção — 2026-10-08, 15:00 Recife: P0 publicado em Core/API/Worker
 > `cbaf50c5eedd6731e1ca3a674c1d9b0b20005a7d` (`wapphub-core:p0-preview-cbaf50c`)
 > e Chat `d93efc576bd560fcbab0146343fb98bbbc1d0b69` (`wapphub-chat:p0-preview-d93efc5`).
