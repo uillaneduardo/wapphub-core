@@ -61,14 +61,16 @@ Não implementar itens de milestones futuros sem decisão registrada.
 
 ## Estado atual
 
-**Fase:** M0 — Fundação implementada; evidências em `docs/STATUS.md`.
+**Produção:** M0 — Fundação publicada e preservada.
+**Branch M1:** backend de chat interno; evidências em `docs/M1_VALIDATION.md`.
 
 A fundação inclui API Fastify/TypeScript, Prisma/MariaDB, sessões revogáveis,
 Membership/RBAC, segurança web, Redis e processos API/Worker via Compose.
-Nenhum domínio operacional de M1+ foi implementado.
+O backend M1 é desenvolvido/validado em ambiente isolado, sem atualizar a
+produção. Frontend, Meta e milestones posteriores não fazem parte desta entrega.
 
 Execução: `docs/LOCAL_DEVELOPMENT.md`. Contrato REST: `docs/openapi.json`.
-Contrato reservado de eventos: `docs/REALTIME_CONTRACT.md`.
+Contrato de eventos M1: `docs/REALTIME_CONTRACT.md`.
 
 ```sh
 # Configure .env conforme .env.example e a documentação local

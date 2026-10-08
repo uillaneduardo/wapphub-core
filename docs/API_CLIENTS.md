@@ -106,3 +106,12 @@ apenas quando o cookie CSRF corresponde ao hash armazenado; senão retorna null.
 Bootstrap exige contexto selecionado e permission `organization.read`.
 Não há contratos de Chat/Meta/mídia/entitlements no M0. Exemplo de configuração
 e execução em `LOCAL_DEVELOPMENT.md`.
+
+## Contratos M1 backend
+
+Contacts, Conversations, Messages internas, Tags, Notes, assignment, transferência,
+recibos locais e sync compõem a extensão de /api/v1, sem v2 ou frontend.
+Todos os endpoints e schemas constam do OpenAPI gerado. O WebSocket é
+read-only, usa sessão existente/Origin/contexto e possui contrato próprio em
+REALTIME_CONTRACT.md. Cursores e clientMessageId são independentes de HTML.
+Autenticação nativa/Android não foi implementada.

@@ -301,3 +301,22 @@ rastreabilidade; não incluem corpos, credenciais ou conteúdo pessoal adicional
 
 Não houve mudança nas decisões arquiteturais aprovadas. Execução reproduzível,
 bootstrap e limites do ambiente estão em `LOCAL_DEVELOPMENT.md`.
+
+## 21. M1 backend interno
+
+`src/application/chat.ts` concentra workflows, autorização e transações do
+chat; `src/http/chat-routes.ts` contém validação e DTOs REST. Gateway Fastify
+WebSocket usa as sessões revogáveis existentes e Organization Context.
+`src/realtime/contract.ts` define eventos versão 1. Não há JWT paralelo.
+
+MariaDB persiste domínio, auditoria e stream na mesma transação. Lock por
+Organization ordena as mutações/eventos até commit; Redis pub/sub é somente
+notificação, com catch-up persistente após reconexão/perda de sinal. A opção
+de serialização por tenant privilegia consistência no M1 e será medida antes
+de qualquer meta M5. Sem event bus distribuído ou microserviços.
+
+A política de transferência se aplica tanto ao REST quanto ao realtime/replay.
+Limites de histórico não apagam dados. O ambiente M1 de teste possui projeto,
+banco, Redis, volumes, imagem e porta próprios; não participa da ingress de
+produção. Produção permanece M0 até uma promoção futura explicitamente revisada.
+Decisões e limites detalhados em `M1_CHAT_INTERNAL.md` e `REALTIME_CONTRACT.md`.

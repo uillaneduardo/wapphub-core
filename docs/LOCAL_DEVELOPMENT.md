@@ -129,3 +129,47 @@ Não há credencial Meta ou endpoint de armazenamento de segredos no M0.
 
 OpenAPI oficial: `docs/openapi.json`, servido em `/api/v1/openapi.json`.
 Contrato reservado de realtime: `docs/REALTIME_CONTRACT.md`.
+
+## Desenvolvimento M1 sem tocar na produção
+
+Use exclusivamente `scripts/m1-test.sh`, que fixa arquivo Compose, projeto e
+`.env.m1-test`. Não use local.sh/deploy/validate ou o Compose de produção para
+esses testes/migrations. `compose.test.yml` usa projeto wapphub-m1-test, imagem
+wapphub-core:m1-test, banco wapphub_m1_test, Redis separado, volume test-db
+e porta loopback 3101. A API não participa de cloudflare_ingress.
+
+Execute `scripts/m1-test.sh init` para criar `.env.m1-test` local ignorado,
+protegido por permissão 600 e com credenciais próprias; configuração existente
+é preservada. Alternativamente crie o arquivo manualmente com credenciais
+novas próprias. Configure NODE_ENV=test, PORT=3000,
+WEB_ORIGINS=https://web-client.example.test,
+DATABASE_URL=mysql://wapphub_test:<TEST_PASSWORD>@wapphub-db:3306/wapphub_m1_test,
+DB_PASSWORD/DB_ROOT_PASSWORD independentes, REDIS_URL=redis://wapphub-redis:6379
+e ENCRYPTION_KEY aleatória de 64 caracteres hexadecimais. Não copie .env de
+produção nem reutilize credenciais/volumes. Testes M1 e smoke-chat recusam
+NODE_ENV diferente de test ou schema sem sufixo _test.
+
+```sh
+scripts/m1-test.sh init
+scripts/m1-test.sh up -d --wait wapphub-db wapphub-redis
+scripts/m1-test.sh build wapphub-core-api
+scripts/m1-test.sh run --rm --no-deps wapphub-core-api npm run db:migrate
+scripts/m1-test.sh up -d --wait
+scripts/m1-test.sh run --rm wapphub-core-api sh -c 'npm run lint && npm run typecheck && npm test && npm run build'
+scripts/m1-test.sh run --rm wapphub-core-api npx prisma validate
+scripts/m1-test.sh run --rm wapphub-core-api npx prisma migrate status
+scripts/m1-test.sh run --rm wapphub-core-api npx prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code
+scripts/m1-test.sh run --rm -e NODE_ENV=production -v "$PWD/docs:/app/docs" wapphub-core-api npm run openapi
+# Depois de atualizar a imagem para incluir o OpenAPI gerado:
+scripts/m1-test.sh run --rm wapphub-core-api npm run openapi:validate
+scripts/m1-test.sh run --rm wapphub-core-api node dist/scripts/smoke.js
+scripts/m1-test.sh run --rm wapphub-core-api node dist/scripts/smoke-chat.js
+curl --fail http://127.0.0.1:3101/api/v1/health
+curl --fail http://127.0.0.1:3101/api/v1/health/ready
+```
+
+A suíte conserva os 29 testes da fundação e adiciona fluxos/negativas M1.
+O teste de contrato M0 passa a exigir todas as rotas originais e a lista exata
+de extensões M1, sem liberar APIs de milestones posteriores. Não usar testes
+contra dados de clientes. Para parar apenas o teste: `scripts/m1-test.sh stop`;
+não remover volumes. Evidências e limites em M1_VALIDATION.md.
