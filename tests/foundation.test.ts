@@ -460,12 +460,45 @@ test("validation, unknown routes, headers and CORS are safe", async () => {
     "NOT_FOUND",
   );
 });
-test("OpenAPI exposes exactly foundation routes and security requirements", async () => {
+test("OpenAPI preserves every foundation route and includes only M1 chat extensions", async () => {
   const doc = (await app.inject("/api/v1/openapi.json")).json();
-  assert.equal(Object.keys(doc.paths).length, 8);
+  const foundationPaths = [
+    "/health",
+    "/health/ready",
+    "/auth/login",
+    "/auth/logout",
+    "/me",
+    "/me/organizations",
+    "/session/organization",
+    "/app/bootstrap",
+  ];
+  const chatPaths = [
+    "/contacts",
+    "/contacts/{id}",
+    "/conversations",
+    "/conversations/{id}",
+    "/conversations/{id}/archive",
+    "/conversations/{id}/unarchive",
+    "/conversations/{id}/messages",
+    "/conversations/{id}/messages/{messageId}/status",
+    "/conversations/{id}/assign",
+    "/conversations/{id}/transfer",
+    "/tags",
+    "/tags/{id}",
+    "/conversations/{id}/tags/{tagId}",
+    "/conversations/{id}/notes",
+    "/realtime/events",
+  ];
+  assert.deepEqual(
+    Object.keys(doc.paths).sort(),
+    [...foundationPaths, ...chatPaths].map((p) => "/api/v1" + p).sort(),
+  );
   assert.ok(doc.paths["/api/v1/app/bootstrap"].get.security);
   assert.ok(doc.paths["/api/v1/session/organization"].post.security[0].csrf);
-  assert.doesNotMatch(JSON.stringify(doc), /conversation|MetaIntegration/);
+  assert.doesNotMatch(
+    JSON.stringify(doc),
+    /MetaIntegration|WhatsApp|subscriptions/,
+  );
 });
 test("context selection is tenant-scoped in audit records", async () => {
   assert.ok(

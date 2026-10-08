@@ -1,0 +1,61 @@
+# Independent M1 validation project. Never attaches to production ingress/backend.
+name: wapphub-m1-test
+x-test-core: &test-core
+  build: .
+  image: wapphub-core:m1-test
+  env_file: .env.m1-test
+  networks: [backend]
+  depends_on:
+    wapphub-db: { condition: service_healthy }
+    wapphub-redis: { condition: service_healthy }
+  security_opt: [no-new-privileges:true]
+services:
+  wapphub-core-api:
+    <<: *test-core
+    networks: [backend, http]
+    ports: ["127.0.0.1:3101:3000"]
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/api/v1/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+  wapphub-core-worker:
+    <<: *test-core
+    command: [npm, run, worker]
+    healthcheck:
+      test: [CMD, node, dist/scripts/worker-health.js]
+      interval: 5s
+      retries: 12
+  wapphub-db:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: wapphub_m1_test
+      MARIADB_USER: wapphub_test
+      MARIADB_PASSWORD: ${DB_PASSWORD:?Set test DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set test DB_ROOT_PASSWORD}
+    volumes: [test-db:/var/lib/mysql]
+    networks: [backend]
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  wapphub-redis:
+    image: redis:7.4-alpine
+    command: [redis-server, --save, "", --appendonly, "no"]
+    networks: [backend]
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      retries: 12
+networks:
+  backend: { internal: true }
+  http: {}
+volumes:
+  test-db:
