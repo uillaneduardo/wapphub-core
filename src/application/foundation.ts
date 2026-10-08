@@ -59,7 +59,11 @@ export class Foundation {
     });
     return { token, csrfToken, session, user: publicUser(user) };
   }
-  async authenticate(token?: string, checkContext = true): Promise<Principal> {
+  async authenticate(
+    token?: string,
+    checkContext = true,
+    touch = true,
+  ): Promise<Principal> {
     if (!token || token.length > 128)
       throw new AppError(401, "UNAUTHENTICATED");
     const row = await this.db.session.findUnique({
@@ -78,6 +82,7 @@ export class Foundation {
       throw new AppError(401, "UNAUTHENTICATED");
     if (checkContext && row.currentOrganizationId)
       await this.membership(row.userId, row.currentOrganizationId);
+    if (!touch) return { session: row, user: row.user };
     const updated = await this.db.session.updateMany({
       where: {
         id: row.id,

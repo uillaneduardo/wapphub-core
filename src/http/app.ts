@@ -1,3 +1,7 @@
+import websocket from "@fastify/websocket";
+import { Chat } from "../application/chat.js";
+import { chatRoutes } from "./chat-routes.js";
+import { RealtimeGateway } from "../realtime/gateway.js";
 import Fastify, { LogController, type FastifyError } from "fastify";
 import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
@@ -93,11 +97,12 @@ export async function buildApp(
     sameSite: "strict" as const,
     path: "/",
   };
+  await app.register(websocket, { options: { maxPayload: 4096 } });
   await app.register(cookie);
   await app.register(cors, {
     origin: config.origins,
     credentials: true,
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "PATCH", "DELETE"],
     allowedHeaders: ["content-type", "x-csrf-token"],
   });
   await app.register(helmet);
@@ -167,6 +172,13 @@ export async function buildApp(
     security: [{ webSession: [], csrf: [] }],
     response: responses,
   };
+  const chat: Chat = new Chat(db, config, async (org): Promise<void> =>
+    gateway.publish(org),
+  );
+  const gateway = new RealtimeGateway(foundation, chat, redis);
+  app.addHook("preClose", async () => gateway.close());
+  await chatRoutes(app, foundation, chat, sessionCookie);
+  await gateway.routes(app, config, sessionCookie);
   const authenticate = (req: { cookies: Record<string, string | undefined> }) =>
     foundation.authenticate(req.cookies[sessionCookie]);
   app.get(
@@ -243,6 +255,7 @@ export async function buildApp(
         req.headers["x-csrf-token"] as string | undefined,
       );
       await foundation.logout(principal);
+      await gateway.revalidate();
       reply
         .clearCookie(sessionCookie, cookieOptions)
         .clearCookie("wapphub_csrf", { ...cookieOptions, httpOnly: false });
@@ -305,7 +318,12 @@ export async function buildApp(
         principal,
         req.headers["x-csrf-token"] as string | undefined,
       );
-      return foundation.select(principal, req.body.organizationId);
+      const selected = await foundation.select(
+        principal,
+        req.body.organizationId,
+      );
+      await gateway.revalidate();
+      return selected;
     },
   );
   app.get(

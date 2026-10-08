@@ -10,10 +10,11 @@ Legenda:
 
 ## Estado geral
 
-**Milestone ativo:** M0 — Fundação  
-**Estado:** M0 implementado e validado no homelab via Docker Compose.
-Escopo conferido com `prompts/M0_FOUNDATION.md` e issue #1. Evidências em
-`docs/M0_VALIDATION.md`; nenhum item de M1+ implementado.
+**Milestone ativo nesta branch:** M1 — backend de chat interno.
+**Produção:** M0 publicado na main `b790b6c`, preservado sem migrations/restarts.
+**Branch M1:** backend implementado e validado em ambiente separado; sem PR/merge
+ou promoção de produção. O milestone global M1 ainda inclui frontend/UX, fora
+desta execução. Evidências: `docs/M1_VALIDATION.md` e `docs/M0_VALIDATION.md`.
 
 ## Documentação arquitetural
 
@@ -94,11 +95,31 @@ Nenhum requisito externo é marcado como concluído apenas pela resposta interna
 200. Credenciais, chave de criptografia, migrations e dados existentes foram
 preservados. Nenhuma funcionalidade de M1 foi iniciada.
 
+## M1 — backend interno, escopo validado
+
+| Item | Estado | Evidência |
+|---|---:|---|
+| Contacts/Conversations/Messages internas | ✅ | REST, FKs tenant-aware e testes positivos/negativos |
+| Idempotência e recibos locais | ✅ | Retry/conflito/concorrência e estados SENT/DELIVERED/READ |
+| Tags/Notes/archive | ✅ | Workflows, associações e auditoria |
+| Assignment/transfer/supervision | ✅ | Permissions; FULL/LIMITED/NONE sem apagar histórico |
+| Cursor pagination | ✅ | Inbox/histórico; assinatura e scope; sem OFFSET |
+| WebSocket/event stream/reconnect | ✅ | Sessão/Origin/contexto, replay, revogação e fallback durável |
+| Isolamento multi-tenant | ✅ | IDs estrangeiros negados em REST, persistência e realtime |
+| OpenAPI | ✅ | Validação formal + identidade com schemas em modo produção |
+| Validação backend | ✅ | 53 testes; lint/typecheck/build; HTTP/WS smoke; quatro migrations consistentes no teste |
+| Ambiente separado | ✅ | Projeto/DB/Redis/imagem/volumes próprios; produção M0 intacta |
+| Frontend/UX/UI otimista/rotas SPA | ⬜ | Fora desta execução; milestone global M1 não encerrado |
+
+Detalhes/limites: `M1_CHAT_INTERNAL.md`, `REALTIME_CONTRACT.md` e `M1_VALIDATION.md`.
+Sem pendência funcional conhecida no escopo backend validado. Nenhuma entrega de
+Meta, M2+, mídia, billing ou Android foi antecipada. M1 não foi promovido à produção.
+
 ## Funcionalidades posteriores
 
 | Domínio | Estado |
 |---|---:|
-| Chat operacional realtime | ⬜ |
+| Chat operacional realtime | 🟡 Backend M1 validado; frontend fora do escopo |
 | Entitlements | ⬜ |
 | WappHub Admin | ⬜ |
 | Minha Conta | ⬜ |

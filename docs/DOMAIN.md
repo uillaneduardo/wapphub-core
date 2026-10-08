@@ -130,7 +130,8 @@ Inicialmente:
 Contato pertencente à Organization.
 
 ### Conversation
-Conversa pertencente à Organization e Channel.
+Conversa pertencente à Organization. No M1 interno, referencia Contact e não
+possui Channel/provider. Channel pertence ao escopo da integração externa futura.
 
 Estados mínimos:
 - OPEN
@@ -140,12 +141,9 @@ Estados mínimos:
 ### Message
 Mensagem normalizada.
 
-Tipos MVP:
-- TEXT
-- IMAGE
-- AUDIO
-
-Deve manter identificador do provider para idempotência.
+No M1: apenas INTERNAL/TEXT, UUID WappHub e clientMessageId por
+Organization/Conversation. Não há providerMessageId obrigatório. IMAGE/AUDIO
+e identificadores externos pertencem aos milestones de provider/mídia.
 
 ### ConversationAssignment
 Registra atribuição/transferência e escopo de histórico.
@@ -178,3 +176,13 @@ Eventos externos e processamento de integração.
 ## Regra central
 
 Todo dado operacional deve ser resolvido dentro de uma Organization autorizada. Nunca permitir leitura cruzada entre tenants.
+
+## Modelo físico entregue no M1 backend
+
+Contact, Conversation, Message, Tag, ConversationTag, InternalNote,
+ConversationAssignmentHistory e RealtimeEvent são persistidos no MariaDB.
+Relações operacionais usam FKs compostas com organizationId. User continua
+identidade global; atribuição não cria role ou organizationId global em User.
+FULL/LIMITED/NONE são limites de autorização persistidos na Conversation;
+histórico original nunca é copiado/apagado. Recibos locais, permissions,
+cursores e limites deste escopo estão em `M1_CHAT_INTERNAL.md`.

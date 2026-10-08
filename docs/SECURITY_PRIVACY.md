@@ -203,3 +203,18 @@ URL da API por ela ser o endpoint público. Uma lista vazia bloqueia comandos
 web e não concede CORS a nenhuma origem; health/readiness continuam públicos.
 Sem cliente autorizado no M0, não habilitar automaticamente um frontend futuro.
 Procedimento e evidências HTTPS do hostname oficial estão em `DEPLOYMENT.md`.
+
+## M1 backend
+
+REST de Chat revalida contexto/Membership/permissions e sempre filtra o tenant.
+FKs compostas protegem relacionamentos operacionais. Comandos PATCH/DELETE
+seguem as mesmas regras CSRF/Origin dos POST. Transferência aplica limites de
+histórico também ao replay; notas anteriores ficam ocultas em LIMITED/NONE.
+Supervisão exige permissions explícitas e é auditada.
+
+WebSocket read-only usa cookie de sessão e Origin exato no upgrade, sem JWT ou
+token em URL. Guarda periódica não estende lastSeenAt; revogação/contexto/estado
+inválido encerra sockets. Logout/troca de contexto invalidam conexões no próprio
+fluxo REST. Stream persistente entrega somente IDs autorizados. Antigo atendente
+recebe somente a invalidação da transferência pelo seu escopo de usuário.
+Produção M0 não recebe migrations/testes do M1; veja LOCAL_DEVELOPMENT.md.

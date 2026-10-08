@@ -224,3 +224,14 @@ use reset --hard/clean para executar rollback. M1 permanece fora do escopo.
   `docs/SECURITY_PRIVACY.md`, `docs/STATUS.md`: procedimentos e evidências reais.
 - `.env` local (não versionado): modo de produção, lista de clientes web autorizados e IP fixo,
   preservando as credenciais existentes.
+
+## Desenvolvimento M1 isolado
+
+A implementação backend M1 em feat/m1-chat-internal não constitui promoção de
+produção. Produção permanece na main M0 validada
+`b790b6ce7ee427f931f84c5d0ac0ef1dd6d53fc5`, com imagem/container existentes.
+Para desenvolver/validar M1, usar somente compose.test.yml/scripts/m1-test.sh
+conforme LOCAL_DEVELOPMENT.md: projeto, banco, Redis, volumes e imagem próprios;
+porta 3101 de loopback e nenhuma participação na cloudflare_ingress. Não
+executar local.sh deploy/validate nesta branch contra o ambiente de produção.
+Nenhuma configuração externa da Cloudflare foi alterada nesta entrega M1.

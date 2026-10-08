@@ -8,27 +8,35 @@ datasource db {
 }
 
 model User {
-  invitations  OrganizationInvitation[] @relation("InvitationAuthor")
-  id           String                   @id @default(uuid()) @db.Char(36)
-  name         String                   @db.VarChar(120)
-  email        String                   @unique @db.VarChar(254)
-  passwordHash String                   @db.VarChar(255)
-  status       String                   @default("ACTIVE") @db.VarChar(20)
-  createdAt    DateTime                 @default(now())
-  updatedAt    DateTime                 @updatedAt
-  memberships  Membership[]
-  sessions     Session[]
+  assignedConversations Conversation[]                  @relation("ConversationAssignee")
+  chatMessages          Message[]                       @relation("MessageSender")
+  chatNotes             InternalNote[]                  @relation("NoteAuthor")
+  chatAssignments       ConversationAssignmentHistory[] @relation("AssignmentActor")
+  invitations           OrganizationInvitation[]        @relation("InvitationAuthor")
+  id                    String                          @id @default(uuid()) @db.Char(36)
+  name                  String                          @db.VarChar(120)
+  email                 String                          @unique @db.VarChar(254)
+  passwordHash          String                          @db.VarChar(255)
+  status                String                          @default("ACTIVE") @db.VarChar(20)
+  createdAt             DateTime                        @default(now())
+  updatedAt             DateTime                        @updatedAt
+  memberships           Membership[]
+  sessions              Session[]
 }
 
 model Organization {
-  sessions    Session[]
-  id          String                   @id @default(uuid()) @db.Char(36)
-  name        String                   @db.VarChar(120)
-  status      String                   @default("ACTIVE") @db.VarChar(20)
-  createdAt   DateTime                 @default(now())
-  updatedAt   DateTime                 @updatedAt
-  memberships Membership[]
-  invitations OrganizationInvitation[]
+  contacts       Contact[]
+  conversations  Conversation[]
+  tags           Tag[]
+  realtimeEvents RealtimeEvent[]
+  sessions       Session[]
+  id             String                   @id @default(uuid()) @db.Char(36)
+  name           String                   @db.VarChar(120)
+  status         String                   @default("ACTIVE") @db.VarChar(20)
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  memberships    Membership[]
+  invitations    OrganizationInvitation[]
 }
 
 model Membership {
@@ -121,4 +129,156 @@ model SecurityEvent {
   occurredAt DateTime @default(now())
 
   @@index([userId, occurredAt])
+}
+
+enum ConversationStatus {
+  OPEN
+  PENDING
+  ARCHIVED
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum HistoryVisibility {
+  FULL
+  LIMITED
+  NONE
+}
+
+model Contact {
+  id                String         @id @default(uuid()) @db.Char(36)
+  organizationId    String         @db.Char(36)
+  name              String         @db.VarChar(120)
+  primaryIdentifier String         @db.VarChar(254)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  organization      Organization   @relation(fields: [organizationId], references: [id])
+  conversations     Conversation[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, primaryIdentifier])
+}
+
+model Conversation {
+  id                 String                          @id @default(uuid()) @db.Char(36)
+  organizationId     String                          @db.Char(36)
+  contactId          String                          @db.Char(36)
+  status             ConversationStatus              @default(OPEN)
+  assignedUserId     String?                         @db.Char(36)
+  archivedAt         DateTime?
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime                        @updatedAt
+  lastMessageAt      DateTime                        @default(now())
+  visibility         HistoryVisibility               @default(FULL)
+  visibleFromMessage BigInt                          @default(0)
+  visibleFromEvent   BigInt                          @default(0)
+  organization       Organization                    @relation(fields: [organizationId], references: [id])
+  contact            Contact                         @relation(fields: [organizationId, contactId], references: [organizationId, id])
+  assignee           User?                           @relation("ConversationAssignee", fields: [assignedUserId], references: [id])
+  messages           Message[]
+  tags               ConversationTag[]
+  notes              InternalNote[]
+  assignments        ConversationAssignmentHistory[]
+
+  @@unique([organizationId, id])
+  @@index([organizationId, status, lastMessageAt, id])
+  @@index([organizationId, assignedUserId, lastMessageAt, id])
+}
+
+model Message {
+  id              String        @id @default(uuid()) @db.Char(36)
+  sequence        BigInt        @unique @default(autoincrement())
+  organizationId  String        @db.Char(36)
+  conversationId  String        @db.Char(36)
+  senderUserId    String?       @db.Char(36)
+  clientMessageId String?       @db.VarChar(100)
+  direction       String        @default("INTERNAL") @db.VarChar(20)
+  type            String        @default("TEXT") @db.VarChar(20)
+  body            String?       @db.Text
+  status          MessageStatus @default(SENT)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  conversation    Conversation  @relation(fields: [organizationId, conversationId], references: [organizationId, id])
+  sender          User?         @relation("MessageSender", fields: [senderUserId], references: [id])
+
+  @@unique([organizationId, conversationId, clientMessageId])
+  @@index([organizationId, conversationId, sequence])
+}
+
+model Tag {
+  id             String            @id @default(uuid()) @db.Char(36)
+  organizationId String            @db.Char(36)
+  name           String            @db.VarChar(80)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  conversations  ConversationTag[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, name])
+}
+
+model ConversationTag {
+  organizationId String       @db.Char(36)
+  conversationId String       @db.Char(36)
+  tagId          String       @db.Char(36)
+  conversation   Conversation @relation(fields: [organizationId, conversationId], references: [organizationId, id])
+  tag            Tag          @relation(fields: [organizationId, tagId], references: [organizationId, id], onDelete: Cascade)
+
+  @@id([organizationId, conversationId, tagId])
+  @@index([organizationId, tagId, conversationId])
+}
+
+model InternalNote {
+  id             String       @id @default(uuid()) @db.Char(36)
+  organizationId String       @db.Char(36)
+  conversationId String       @db.Char(36)
+  authorUserId   String       @db.Char(36)
+  body           String       @db.Text
+  eventSequence  BigInt
+  createdAt      DateTime     @default(now())
+  conversation   Conversation @relation(fields: [organizationId, conversationId], references: [organizationId, id])
+  author         User         @relation("NoteAuthor", fields: [authorUserId], references: [id])
+
+  @@index([organizationId, conversationId, eventSequence])
+}
+
+model ConversationAssignmentHistory {
+  id                 String            @id @default(uuid()) @db.Char(36)
+  organizationId     String            @db.Char(36)
+  conversationId     String            @db.Char(36)
+  actorUserId        String            @db.Char(36)
+  fromUserId         String?           @db.Char(36)
+  toUserId           String            @db.Char(36)
+  visibility         HistoryVisibility
+  lastN              Int?
+  visibleFromMessage BigInt
+  note               String?           @db.VarChar(2000)
+  createdAt          DateTime          @default(now())
+  conversation       Conversation      @relation(fields: [organizationId, conversationId], references: [organizationId, id])
+  actor              User              @relation("AssignmentActor", fields: [actorUserId], references: [id])
+
+  @@index([organizationId, conversationId, createdAt])
+}
+
+model RealtimeEvent {
+  id              BigInt       @id @default(autoincrement())
+  audienceUserId  String?      @db.Char(36)
+  organizationId  String       @db.Char(36)
+  type            String       @db.VarChar(80)
+  entityId        String       @db.Char(36)
+  conversationId  String?      @db.Char(36)
+  messageSequence BigInt?
+  payload         Json
+  version         Int          @default(1)
+  createdAt       DateTime     @default(now())
+  organization    Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, id])
 }

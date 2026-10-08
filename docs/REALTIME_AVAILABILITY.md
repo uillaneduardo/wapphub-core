@@ -164,3 +164,10 @@ API e Worker possuem entrypoints e healthchecks separados, com MariaDB/Redis
 compartilhados em rede Compose interna. Worker não executa jobs no M0.
 `REALTIME_CONTRACT.md` e `src/realtime/contract.ts` reservam envelope versionado,
 sem WebSocket, polling ou eventos operacionais implementados.
+
+## Backend M1
+
+WebSocket e event stream persistente agora são implementados na branch M1.
+Transporte/escopos/checkpoints estão em `REALTIME_CONTRACT.md`; segurança de
+histórico e limites em `M1_CHAT_INTERNAL.md`. Worker não processa provider nem
+fila externa. QUEUED/Outbox/Inbox continuam reservados ao milestone externo.
