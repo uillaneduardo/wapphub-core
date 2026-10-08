@@ -26,7 +26,7 @@ Escopo: prompt oficial recuperado do commit `d0aba4f` e
 | Logs API/Worker | Sem credenciais/segredos locais ou exceções internas expostas |
 | Arquivos versionáveis | Nenhum segredo local encontrado; .env ignorado |
 
-As verificações finais de lint/typecheck/test/build foram executadas via Compose,
+As verificações iniciais de lint/typecheck/test/build foram executadas via Compose,
 com a suíte final montada em `/app/tests` antes da atualização da imagem.
 `scripts/local.sh validate` reproduz os mesmos quatro comandos após rebuild.
 
@@ -69,3 +69,48 @@ A validação é local M0. Não declara teste de carga de 100 agentes, deploy HT
 backup/restore, recuperação de senha/MFA, convites comerciais, WebSocket/Chat,
 Meta, mídia ou entitlements completos. Nenhuma dessas funcionalidades foi
 antecipada. O Worker está pronto para execução separada e não processa jobs no M0.
+
+## Revalidação após sincronização com origin/main
+
+Em 2026-10-08T00:13:59Z (2026-10-07 em America/Recife), a branch
+`feat/m0-foundation` foi revalidada após rebase sobre `origin/main` no commit
+`d0aba4f`. Os dois commits remotos de documentação/prompts foram incorporados
+sem conflitos. Todos os arquivos commitados do M0 foram preservados byte a byte
+durante o rebase; a branch local `main` e o `.env` real não foram alterados.
+
+Comandos e resultados efetivamente executados:
+
+```sh
+scripts/local.sh deploy
+scripts/local.sh validate
+docker compose run --rm wapphub-core-api node dist/scripts/smoke.js
+docker compose run --rm wapphub-core-api npx prisma migrate status
+docker compose run --rm wapphub-core-api npx prisma migrate diff \
+  --from-schema-datasource prisma/schema.prisma \
+  --to-schema-datamodel prisma/schema.prisma --exit-code
+curl --fail http://127.0.0.1:3000/api/v1/health
+curl --fail http://127.0.0.1:3000/api/v1/health/ready
+docker compose exec -T wapphub-redis redis-cli ping
+docker compose ps
+npm audit
+```
+
+A imagem foi reconstruída do código rebased; `validate` executou lint,
+typecheck, **25 testes** (nenhuma falha/omissão) e build diretamente na imagem,
+sem montar código ou testes do host. O smoke HTTP passou. MariaDB respondeu
+às queries de validação; Redis retornou `PONG`; ambas as migrations possuem
+checksums iguais aos arquivos versionados, estão finalizadas e não foram
+revertidas. Não há migrations pendentes nem diferença banco/schema.
+
+Health/readiness retornaram HTTP 200; API, Worker, MariaDB e Redis permaneceram
+`healthy`. O OpenAPI versionado coincide com a API em execução. A revisão de
+arquivos commitados e logs não encontrou segredos locais, chaves privadas ou
+credenciais; `.env.example` possui somente placeholders. `.gitignore` e
+`.dockerignore` também protegem chaves/certificados e arquivos de credenciais.
+O `.env` real foi preservado e não foi incluído na imagem ou nos commits.
+
+Os logs do MariaDB registram avisos de `io_uring` indisponível no host e
+`Aborted connection` ao encerrar conexões. Esses avisos foram registrados na
+revisão; as verificações de conectividade, migrations, transações e testes
+passaram. Não foram observados erros ou detalhes sensíveis nos logs da
+API/Worker. `npm audit` reportou zero vulnerabilidades.

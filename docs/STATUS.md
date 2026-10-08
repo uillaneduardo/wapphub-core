@@ -61,6 +61,8 @@ Escopo conferido com `prompts/M0_FOUNDATION.md` e issue #1. Evidências em
 Validação: **25 testes passaram**, lint/typecheck/build passaram, smoke HTTP com
 bootstrap administrativo passou, quatro containers saudáveis, health/readiness
 HTTP 200, migrations consistentes e revisão de logs/segredos concluída.
+Revalidação após rebase sobre `origin/main` (`d0aba4f`) manteve esses resultados,
+usando a imagem reconstruída e os comandos documentados, sem conflitos.
 Execução reproduzível: `docs/LOCAL_DEVELOPMENT.md`. Nenhuma pendência obrigatória
 dentro do escopo M0 solicitado. O fluxo de convites condicionado a assentos,
 Chat/WebSocket, catálogo/entitlements, Meta e mídia permanecem nos milestones
