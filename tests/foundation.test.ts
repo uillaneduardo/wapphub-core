@@ -12,7 +12,11 @@ import {
   encryptSecret,
   decryptSecret,
 } from "../src/infrastructure/crypto.js";
-const config = loadConfig();
+// The suite authorizes an isolated web client fixture, never the deployed API hostname.
+const config = loadConfig({
+  ...process.env,
+  WEB_ORIGINS: "https://web-client.example.test",
+});
 const db = new PrismaClient();
 const redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: 1 });
 redis.on("error", () => {});
@@ -679,5 +683,133 @@ test("Invitation persistence enforces token uniqueness and author integrity", as
     );
   } finally {
     await db.organizationInvitation.deleteMany({ where: { tokenHash } });
+  }
+});
+
+test("only the pinned cloudflared peer can separate authentication budgets by visitor IP", async () => {
+  const connector = `203.0.113.${Math.floor(Math.random() * 200) + 1}`;
+  const visitor = `198.18.${Math.floor(Math.random() * 200) + 1}.1`;
+  const proxied = await buildApp(
+    { ...config, NODE_ENV: "test", trustedCloudflaredIPs: [connector] },
+    db,
+    redis,
+    false,
+  );
+  try {
+    for (let attempt = 0; attempt < 11; attempt++) {
+      const r = await proxied.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        remoteAddress: connector,
+        headers: { origin, "cf-connecting-ip": visitor },
+        payload: { email: email("missing"), password: "incorrect" },
+      });
+      assert.equal(r.statusCode, attempt === 10 ? 429 : 401);
+    }
+    const different = await proxied.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      remoteAddress: connector,
+      headers: { origin, "cf-connecting-ip": visitor.replace(/\.1$/, ".2") },
+      payload: { email: email("missing"), password: "incorrect" },
+    });
+    assert.equal(different.statusCode, 401);
+  } finally {
+    await proxied.close();
+  }
+});
+
+test("untrusted forwarded headers and malformed visitor IPs cannot bypass the peer budget", async () => {
+  const untrusted = `198.19.${Math.floor(Math.random() * 200) + 1}.1`;
+  const trusted = `198.19.${Math.floor(Math.random() * 200) + 1}.2`;
+  const proxied = await buildApp(
+    { ...config, NODE_ENV: "test", trustedCloudflaredIPs: [trusted] },
+    db,
+    redis,
+    false,
+  );
+  try {
+    for (const peer of [untrusted, trusted]) {
+      for (let attempt = 0; attempt < 11; attempt++) {
+        const visitor =
+          peer === trusted ? `invalid-${attempt}` : `192.0.2.${attempt + 1}`;
+        const r = await proxied.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          remoteAddress: peer,
+          headers: {
+            origin,
+            "cf-connecting-ip": visitor,
+            "x-forwarded-for": `192.0.2.${attempt + 1}`,
+          },
+          payload: { email: email("missing"), password: "incorrect" },
+        });
+        assert.equal(r.statusCode, attempt === 10 ? 429 : 401);
+      }
+    }
+  } finally {
+    await proxied.close();
+  }
+});
+
+test("connector configuration rejects wildcard and subnet trust", () => {
+  for (const value of ["*", "172.19.0.0/16", "true", "cloudflared"]) {
+    assert.throws(
+      () => loadConfig({ ...process.env, CLOUDFLARED_TRUSTED_IPS: value }),
+      /Invalid trusted connector configuration/,
+    );
+  }
+  assert.throws(
+    () =>
+      loadConfig({
+        ...process.env,
+        NODE_ENV: "production",
+        WEB_ORIGINS: "http://localhost:5173",
+      }),
+    /Invalid WEB_ORIGINS/,
+  );
+});
+
+test("the public API hostname grants no client origin permission and empty WEB_ORIGINS denies web commands", async () => {
+  const apiOrigin = "https://api.wapphub.com.br";
+  const rejected = await app.inject({
+    method: "POST",
+    url: "/api/v1/auth/login",
+    headers: { origin: apiOrigin },
+    payload: { email: email("a"), password },
+  });
+  assert.equal(rejected.statusCode, 403);
+  assert.equal(rejected.json().error.code, "ORIGIN_REJECTED");
+  const health = await app.inject({
+    url: "/api/v1/health",
+    headers: { origin: apiOrigin },
+  });
+  assert.equal(health.statusCode, 200);
+  assert.equal(health.headers["access-control-allow-origin"], undefined);
+  const closedConfig = loadConfig({ ...process.env, WEB_ORIGINS: "" });
+  assert.deepEqual(closedConfig.origins, []);
+  const closed = await buildApp(
+    { ...closedConfig, NODE_ENV: "test" },
+    db,
+    redis,
+    false,
+  );
+  try {
+    const result = await closed.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      headers: { origin },
+      payload: { email: email("a"), password },
+    });
+    assert.equal(result.statusCode, 403);
+    assert.equal(result.json().error.code, "ORIGIN_REJECTED");
+    const ready = await closed.inject({
+      url: "/api/v1/health/ready",
+      headers: { origin },
+    });
+    assert.equal(ready.statusCode, 200);
+    assert.equal(ready.headers["access-control-allow-origin"], undefined);
+  } finally {
+    await closed.close();
   }
 });

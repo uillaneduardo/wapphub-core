@@ -114,3 +114,38 @@ Os logs do MariaDB registram avisos de `io_uring` indisponível no host e
 revisão; as verificações de conectividade, migrations, transações e testes
 passaram. Não foram observados erros ou detalhes sensíveis nos logs da
 API/Worker. `npm audit` reportou zero vulnerabilidades.
+
+## Merge do M0 e preparação do primeiro deploy
+
+PR #2 integrado com merge commit, mantendo os três commits originais do M0.
+Main: `2c0982b66396753fcaa32dca9e8e6e308d434b85`. A árvore da main após merge
+é idêntica à feature validada. Working tree da main permaneceu limpo e as
+migrations aplicadas mantiveram seus checksums.
+
+A revalidação pós-merge repetiu lint/typecheck/25 testes/build, migrations status,
+smoke HTTP, health/readiness e containers healthy. Nenhuma divergência foi
+observada antes ou após o merge.
+
+A preparação Cloudflare foi isolada em `chore/m0-cloudflare-deploy`, com 28
+testes passando, lint/typecheck/build e smoke HTTP em modo de produção.
+Health/readiness internos também retornaram 200 a partir da rede do cloudflared.
+O deploy externo permanece pendente: os dois endpoints HTTPS falham no handshake
+TLS. O túnel não foi alterado. Rede, confiança explícita de IP, configurações,
+pendências manuais e rollback estão em `DEPLOYMENT.md`.
+
+## Hostname oficial e origens de clientes web
+
+Em 2026-10-08 UTC (2026-10-07 em America/Recife), a imagem da branch de deploy
+foi reconstruída e `scripts/local.sh validate` passou: lint, typecheck, 29 testes
+sem falhas/omissões e build. WEB_ORIGINS local está vazio, sem autorizar a URL
+da API ou antecipar o futuro cliente web. A suíte usa origem própria e testa
+negação da URL da API e de comandos com lista vazia.
+
+https://api.wapphub.com.br é o hostname oficial. DNS local e resolvedores
+públicos Cloudflare/Google passaram. HTTPS validou cadeia e hostname com TLS
+1.3; health e readiness públicos retornaram HTTP 200. Os dois endpoints também
+retornaram 200 localmente e no namespace do cloudflared. Quatro containers
+healthy, MariaDB/Redis/Worker somente em backend e sem portas publicadas.
+A falha TLS do registro anterior ocorreu antes da troca de hostname. Não houve
+alteração de migrations, credenciais ou configuração externa do túnel. O fluxo
+público de sessão aguarda um cliente web aprovado; M1 não foi iniciado.

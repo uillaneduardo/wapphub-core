@@ -10,6 +10,7 @@ import type { Redis } from "ioredis";
 import type { Config } from "../infrastructure/config.js";
 import { Foundation, publicUser } from "../application/foundation.js";
 import { AppError } from "../domain/errors.js";
+import { loginRateLimitKey } from "./client-ip.js";
 const object = (
   properties: Record<string, unknown>,
   required = Object.keys(properties),
@@ -46,6 +47,7 @@ export async function buildApp(
   stream?: Writable,
 ) {
   const app = Fastify({
+    trustProxy: false,
     bodyLimit: 16384,
     ajv: { customOptions: { removeAdditional: false } },
     logger: logging
@@ -99,7 +101,13 @@ export async function buildApp(
     allowedHeaders: ["content-type", "x-csrf-token"],
   });
   await app.register(helmet);
-  await app.register(rateLimit, { global: false, redis, skipOnError: false });
+  await app.register(rateLimit, {
+    global: false,
+    redis,
+    skipOnError: false,
+    keyGenerator: (request) =>
+      loginRateLimitKey(request, config.trustedCloudflaredIPs),
+  });
   await app.register(swagger, {
     openapi: {
       info: { title: "WappHub Core", version: "1.0.0" },

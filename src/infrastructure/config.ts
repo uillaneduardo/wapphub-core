@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isIP } from "node:net";
 const schema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -6,7 +7,8 @@ const schema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATABASE_URL: z.string().startsWith("mysql://"),
   REDIS_URL: z.string().url(),
-  WEB_ORIGINS: z.string().min(1),
+  WEB_ORIGINS: z.string().default(""),
+  CLOUDFLARED_TRUSTED_IPS: z.string().default(""),
   ENCRYPTION_KEY: z.string().regex(/^[a-f0-9]{64}$/i),
   ENCRYPTION_KEY_VERSION: z
     .string()
@@ -18,7 +20,9 @@ const schema = z.object({
 export function loadConfig(env = process.env) {
   const result = schema.safeParse(env);
   if (!result.success) throw new Error("Invalid environment configuration");
-  const origins = result.data.WEB_ORIGINS.split(",").map((s) => s.trim());
+  const origins = result.data.WEB_ORIGINS.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   if (
     origins.some((s) => {
       try {
@@ -34,6 +38,11 @@ export function loadConfig(env = process.env) {
     })
   )
     throw new Error("Invalid WEB_ORIGINS");
-  return { ...result.data, origins };
+  const trustedCloudflaredIPs = result.data.CLOUDFLARED_TRUSTED_IPS.split(",")
+    .map((address) => address.trim())
+    .filter(Boolean);
+  if (trustedCloudflaredIPs.some((address) => !isIP(address)))
+    throw new Error("Invalid trusted connector configuration");
+  return { ...result.data, origins, trustedCloudflaredIPs };
 }
 export type Config = ReturnType<typeof loadConfig>;

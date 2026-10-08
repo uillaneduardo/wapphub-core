@@ -187,3 +187,19 @@ de senha, MFA e controles operacionais de retenção não possuem fluxo implemen
 no M0; requisitos conceituais acima permanecem para milestones apropriados.
 HTTPS e configuração de proxy confiável são requisitos do deploy de produção.
 Evidências de testes negativos estão em `tests/foundation.test.ts`.
+
+## Preparação Cloudflare M0
+
+O perfil de deploy mantém `trustProxy=false` e não confia globalmente em headers
+X-Forwarded-*. O rate limiting pode usar CF-Connecting-IP somente de conexões
+cujo IP real do socket esteja na lista explícita CLOUDFLARED_TRUSTED_IPS.
+O valor do header precisa ser um IP válido; peers não confiáveis e headers
+malformados mantêm o orçamento pelo IP da conexão. CIDRs/wildcards não são
+aceitos. O header nunca autoriza acesso a Organization ou domínio.
+
+Em produção, cookie Secure e prefixo __Host- independem de headers de protocolo.
+WEB_ORIGINS contém somente origens HTTPS de clientes web autorizados, nunca a
+URL da API por ela ser o endpoint público. Uma lista vazia bloqueia comandos
+web e não concede CORS a nenhuma origem; health/readiness continuam públicos.
+Sem cliente autorizado no M0, não habilitar automaticamente um frontend futuro.
+Procedimento e evidências HTTPS do hostname oficial estão em `DEPLOYMENT.md`.

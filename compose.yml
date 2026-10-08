@@ -14,7 +14,7 @@ x-core: &core
 services:
   wapphub-core-api:
     <<: *core
-    networks: [backend, http]
+    networks: [backend, cloudflare_ingress]
     ports: ["127.0.0.1:${API_PORT:-3000}:3000"]
     healthcheck:
       test:
@@ -61,7 +61,8 @@ services:
       timeout: 3s
       retries: 20
 networks:
-  http: {}
+  cloudflare_ingress:
+    external: true
   backend:
     internal: true
 volumes:

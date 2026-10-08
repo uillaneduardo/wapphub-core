@@ -9,7 +9,7 @@
       "webSession": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "wapphub_session"
+        "name": "__Host-wapphub_session"
       },
       "csrf": {
         "type": "apiKey",
