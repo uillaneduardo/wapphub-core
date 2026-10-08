@@ -263,6 +263,7 @@ test("Demo provider is permission-gated, tenant-scoped, idempotent and uses shar
   assert.equal(initial.items[0].senderUserId, null);
   assert.equal(initial.items[0].senderContactId, first.contactId);
   assert.equal(initial.items[0].body, "Olá! Gostaria de saber mais sobre os serviços de vocês.");
+  assert.equal((await request(supervisor, "GET", `/conversations/${first.conversationId}`)).lastMessagePreview, initial.items[0].body);
   const secondContact = contacts.items[1];
   const secondInitial = await request(supervisor, "GET", `/conversations/${secondContact.conversationId}/messages`);
   assert.equal(secondInitial.items[0].senderUserId, null);
@@ -278,6 +279,7 @@ test("Demo provider is permission-gated, tenant-scoped, idempotent and uses shar
   const inbound = await request(supervisor, "POST", "/providers/demo/messages", { contactId: first.contactId, externalMessageId, body: "Nova mensagem do contato" });
   assert.equal(inbound.direction, "INBOUND");
   assert.equal(inbound.senderUserId, null);
+  assert.equal((await request(supervisor, "GET", `/conversations/${first.conversationId}`)).lastMessagePreview, "Nova mensagem do contato");
   assert.equal((await request(supervisor, "POST", "/providers/demo/messages", { contactId: first.contactId, externalMessageId, body: "Nova mensagem do contato" })).id, inbound.id);
   await until(() => live.frames.some((frame) => frame.type === "message.created" && frame.entityId === inbound.id));
   const outbound = await send(agent, first.conversationId, "Resposta do atendimento");
@@ -644,6 +646,25 @@ for (const mode of ["FULL", "LIMITED", "NONE"] as const)
       messages.items.length,
       mode === "FULL" ? 4 : mode === "LIMITED" ? 2 : 0,
     );
+    const expectedPreview = mode === "NONE" ? null : "history-3";
+    assert.equal((await request(recipient, "GET", `/conversations/${c.id}`)).lastMessagePreview, expectedPreview);
+    const inbox = await request(recipient, "GET", "/conversations?scope=mine&limit=1");
+    let inboxPage = inbox;
+    const inboxRows = [...inbox.items];
+    while (inboxPage.nextCursor) {
+      inboxPage = await request(recipient, "GET", `/conversations?scope=mine&limit=1&cursor=${encodeURIComponent(inboxPage.nextCursor)}`);
+      inboxRows.push(...inboxPage.items);
+    }
+    assert.equal(inboxRows.find((row: { id: string }) => row.id === c.id)?.lastMessagePreview, expectedPreview);
+    assert.equal((await request(supervisor, "GET", `/conversations/${c.id}`)).lastMessagePreview, "history-3");
+    let before: string | undefined;
+    const pagedIds: string[] = [];
+    do {
+      const page = await request(recipient, "GET", `/conversations/${c.id}/messages?limit=1${before ? `&before=${encodeURIComponent(before)}` : ""}`);
+      pagedIds.push(...page.items.map((m: { id: string }) => m.id));
+      before = page.nextCursor ?? undefined;
+    } while (before);
+    assert.deepEqual(pagedIds, messages.items.map((m: { id: string }) => m.id));
     await request(agent, "GET", `/conversations/${c.id}`, undefined, 404);
     await request(
       agent,
@@ -693,12 +714,19 @@ for (const mode of ["FULL", "LIMITED", "NONE"] as const)
       visible.length,
       mode === "FULL" ? 4 : mode === "LIMITED" ? 2 : 0,
     );
+    assert.ok(!JSON.stringify(replay).includes("history-"), "realtime carries identifiers, never message bodies");
+    await request(tenantB, "GET", `/conversations/${c.id}`, undefined, 404);
+    const foreignInbox = await request(tenantB, "GET", "/conversations?scope=all");
+    assert.ok(!foreignInbox.items.some((row: { id: string }) => row.id === c.id));
     const fresh = await send(recipient, c.id, "after");
     assert.ok(
       (
         await request(recipient, "GET", `/conversations/${c.id}/messages`)
       ).items.some((m: { id: string }) => m.id === fresh.id),
     );
+    assert.equal((await request(recipient, "GET", `/conversations/${c.id}`)).lastMessagePreview, "after");
+    const updatedInbox = await request(recipient, "GET", "/conversations?scope=mine");
+    assert.equal(updatedInbox.items.find((row: { id: string }) => row.id === c.id)?.lastMessagePreview, "after");
     assert.equal(
       await db.message.count({
         where: { organizationId: orgA, conversationId: c.id },
@@ -710,6 +738,33 @@ for (const mode of ["FULL", "LIMITED", "NONE"] as const)
     });
     assert.equal(history.length, 2);
     assert.equal(history[1]!.visibility, mode);
+  });
+for (const supervise of [false, true])
+  test(`conversation previews require messages.read even with supervise=${supervise}`, async () => {
+    const role = await db.role.create({ data: { code: `preview-${randomUUID().slice(0, 30)}` } });
+    roles.push(role.id);
+    for (const code of ["conversations.read", ...(supervise ? ["conversations.supervise"] : [])]) {
+      const permission = await db.permission.findUniqueOrThrow({ where: { code } });
+      await db.rolePermission.create({ data: { roleId: role.id, permissionId: permission.id } });
+    }
+    const reader = await auth(role.id, orgA);
+    const c = await conversation(); const hidden = await send(supervisor, c.id, "restricted-preview");
+    assert.equal((await request(reader, "GET", `/conversations/${c.id}`)).lastMessagePreview, null);
+    const inbox = await request(reader, "GET", `/conversations?scope=${supervise ? "all" : "unassigned"}`);
+    assert.equal(inbox.items.find((row: { id: string }) => row.id === c.id)?.lastMessagePreview, null);
+    assert.ok(inbox.items.every((row: { lastMessagePreview: string | null }) => row.lastMessagePreview === null));
+    await request(reader, "GET", `/conversations/${c.id}/messages`, undefined, 403);
+    const replay = await request(reader, "GET", "/realtime/events?limit=100");
+    assert.ok(!JSON.stringify(replay).includes("restricted-preview"));
+    assert.ok(!replay.events.some((e: { entityId: string }) => e.entityId === hidden.id));
+    const live = await socket(reader, replay.lastEventId);
+    try {
+      const next = await send(supervisor, c.id, "new-restricted-preview");
+      await until(() => live.frames.some((f) => f.type === "conversation.updated" && f.entityId === c.id));
+      assert.ok(!live.frames.some((f) => f.entityId === next.id));
+      assert.ok(!JSON.stringify(live.frames).includes("restricted-preview"));
+      assert.equal((await request(reader, "GET", `/conversations/${c.id}`)).lastMessagePreview, null);
+    } finally { live.ws.close(); }
   });
 test("assignment validates active tenant membership/user/permissions; replaces only through transfer", async () => {
   const c = await conversation();

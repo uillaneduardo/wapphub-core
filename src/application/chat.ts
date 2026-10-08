@@ -40,23 +40,36 @@ export const contactDTO = (r: {
   createdAt: r.createdAt.toISOString(),
   updatedAt: r.updatedAt.toISOString(),
 });
+// Metadata access does not grant access to message content. Reuse the same
+// permission and persisted transfer boundary for history, previews and events.
+const messageReadFloor = (c: ChatContext, r: Pick<Conversation, "organizationId" | "visibleFromMessage">) =>
+  c.organizationId === r.organizationId && c.permissions.includes("messages.read")
+    ? c.permissions.includes("conversations.supervise") ? 0n : r.visibleFromMessage
+    : null;
+
 export const conversationDTO = (
-  r: Conversation & { tags?: { tagId: string }[]; channel?: { provider: string } | null; contact?: { name: string }; messages?: { body: string | null }[] },
-) => ({
-  id: r.id,
-  contactId: r.contactId,
-  status: r.status,
-  assignedUserId: r.assignedUserId,
-  archivedAt: r.archivedAt?.toISOString() ?? null,
-  createdAt: r.createdAt.toISOString(),
-  updatedAt: r.updatedAt.toISOString(),
-  lastMessageAt: r.lastMessageAt.toISOString(),
-  visibility: r.visibility,
-  tagIds: r.tags?.map((t) => t.tagId) ?? [],
-  provider: r.channel?.provider ?? null,
-  contactName: r.contact?.name ?? null,
-  lastMessagePreview: r.messages?.[0]?.body ?? null,
-});
+  r: Conversation & { tags?: { tagId: string }[]; channel?: { provider: string } | null; contact?: { name: string }; messages?: { body: string | null; sequence: bigint }[] },
+  c: ChatContext,
+) => {
+  const floor = messageReadFloor(c, r);
+  const latest = r.messages?.[0];
+  return {
+    id: r.id,
+    contactId: r.contactId,
+    status: r.status,
+    assignedUserId: r.assignedUserId,
+    archivedAt: r.archivedAt?.toISOString() ?? null,
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
+    lastMessageAt: r.lastMessageAt.toISOString(),
+    visibility: r.visibility,
+    tagIds: r.tags?.map((t) => t.tagId) ?? [],
+    provider: r.channel?.provider ?? null,
+    contactName: r.contact?.name ?? null,
+    lastMessagePreview: floor !== null && latest && latest.sequence >= floor
+      ? latest.body : null,
+  };
+};
 export const messageDTO = (r: {
   id: string;
   conversationId: string;
@@ -215,10 +228,10 @@ export class Chat {
     if (!c.permissions.includes(p))
       throw new AppError(403, "PERMISSION_DENIED");
   }
-  async conversation(c: ChatContext, id: string, tx: DB = this.db) {
+  async conversation(c: ChatContext, id: string, tx: DB = this.db, withPreview = false) {
     this.require(c, "conversations.read");
     const r = await tx.conversation.findFirst({
-      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: { orderBy: { sequence: "desc" }, take: 1, select: { body: true } } },
+      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: withPreview && c.permissions.includes("messages.read") ? { orderBy: { sequence: "desc" }, take: 1, select: { body: true, sequence: true } } : false },
       where: { id, organizationId: c.organizationId },
     });
     if (
@@ -401,7 +414,7 @@ export class Chat {
     }
     const limit = q.limit ?? 50;
     const rows = await this.db.conversation.findMany({
-      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: { orderBy: { sequence: "desc" }, take: 1, select: { body: true } } },
+      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: c.permissions.includes("messages.read") ? { orderBy: { sequence: "desc" }, take: 1, select: { body: true, sequence: true } } : false },
       where: {
         organizationId: c.organizationId,
         status: q.archived ? "ARCHIVED" : { not: "ARCHIVED" },
@@ -425,7 +438,7 @@ export class Chat {
       await this.audit(this.db, c, "CONVERSATIONS_SUPERVISED");
     const last = rows[limit - 1];
     return {
-      items: rows.slice(0, limit).map(conversationDTO),
+      items: rows.slice(0, limit).map((row) => conversationDTO(row, c)),
       nextCursor:
         rows.length > limit
           ? cursorEncode(
@@ -438,10 +451,10 @@ export class Chat {
   }
   async getConversation(p: Principal, id: string) {
     const c = await this.context(p, "conversations.read"),
-      r = await this.conversation(c, id);
+      r = await this.conversation(c, id, this.db, true);
     if (c.permissions.includes("conversations.supervise"))
       await this.audit(this.db, c, "CONVERSATION_SUPERVISED");
-    return conversationDTO(r);
+    return conversationDTO(r, c);
   }
   async createConversation(p: Principal, contactId: string) {
     return this.mutation(p, "conversations.create", async (tx, c) => {
@@ -457,7 +470,7 @@ export class Chat {
       });
       await this.audit(tx, c, "CONVERSATION_CREATED");
       await this.event(tx, c, "conversation.created", r.id, r.id);
-      return conversationDTO(r);
+      return conversationDTO(r, c);
     });
   }
   async archive(p: Principal, id: string, archived: boolean) {
@@ -483,7 +496,7 @@ export class Chat {
         id,
         id,
       );
-      return conversationDTO(r);
+      return conversationDTO(r, c);
     });
   }
   async assign(
@@ -613,7 +626,7 @@ export class Chat {
           c,
           transfer ? "CONVERSATION_TRANSFERRED" : "CONVERSATION_ASSIGNED",
         );
-        return conversationDTO(updated);
+        return conversationDTO(updated, c);
       },
     );
   }
@@ -627,9 +640,8 @@ export class Chat {
         q.before ?? q.cursor,
       ),
       limit = q.limit ?? 50;
-    const floor = c.permissions.includes("conversations.supervise")
-      ? 0n
-      : r.visibleFromMessage;
+    const floor = messageReadFloor(c, r);
+    if (floor === null) throw new AppError(403, "PERMISSION_DENIED");
     const rows = await this.db.message.findMany({
       where: {
         organizationId: c.organizationId,
@@ -739,15 +751,15 @@ export class Chat {
   ) {
     return this.mutation(p, "messages.read", async (tx, c) => {
       const r = await this.conversation(c, id, tx);
+      const floor = messageReadFloor(c, r);
+      if (floor === null) throw new AppError(403, "PERMISSION_DENIED");
       const m = await tx.message.findFirst({
         where: {
           id: messageId,
           organizationId: c.organizationId,
           conversationId: id,
           sequence: {
-            gte: c.permissions.includes("conversations.supervise")
-              ? 0n
-              : r.visibleFromMessage,
+            gte: floor,
           },
         },
       });
@@ -1061,13 +1073,11 @@ export class Chat {
       throw err;
     }
     const superView = c.permissions.includes("conversations.supervise");
-    if (e.type.startsWith("message."))
-      return (
-        c.permissions.includes("messages.read") &&
-        (superView ||
-          (e.messageSequence !== null &&
-            e.messageSequence >= r.visibleFromMessage))
-      );
+    if (e.type.startsWith("message.")) {
+      const floor = messageReadFloor(c, r);
+      return floor !== null && (superView ||
+        (e.messageSequence !== null && e.messageSequence >= floor));
+    }
     if (e.type === "note.created")
       return (
         c.permissions.includes("notes.read") &&

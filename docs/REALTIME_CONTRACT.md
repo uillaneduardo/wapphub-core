@@ -89,3 +89,13 @@ Códigos de encerramento: 1008 para sessão/contexto/permissão inválidos ou co
 não suportado; 1013 para limite/backpressure. Falhas não expõem detalhes internos.
 Retenção não é aplicada neste M1; eventual compactação exigirá contrato de
 resync/bootstrap e não pode apagar eventos silenciosamente.
+
+
+## Prévia autorizada (correção P0 local)
+
+conversation.updated/transferred continuam apenas IDs. Consultar metadados não
+autoriza conteúdo: lastMessagePreview de list/detail é null sem messages.read
+ou mensagem acima do limite persistido; supervisor exige permission de leitura.
+Nenhum novo campo, preview ou corpo no envelope versão1. Policy de permission/
+sequência compartilhada com mensagens e recibos; contratos preservados.
+Ver P0_PREVIEW_AUTHORIZATION.md para testes e estado local/não publicado.

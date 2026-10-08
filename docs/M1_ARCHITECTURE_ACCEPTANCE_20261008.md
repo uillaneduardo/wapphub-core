@@ -1,5 +1,11 @@
 # Auditoria arquitetural e aceite M1 — 2026-10-08
 
+> Atualização P0: corrigido e validado **localmente** em
+> fix/m1-message-preview-authorization (58 testes Core/91 Chat); ver
+> [relatório P0](P0_PREVIEW_AUTHORIZATION.md). Não publicado: produção continua
+> Core72d05aa/Chat3e23452 e ainda requer a correção. A auditoria abaixo registra
+> o achado anterior; A2 e demais pendências M1 permanecem. M2 não foi iniciado.
+
 ## Conclusão verificável
 
 M1 é operacional em produção, inclusive Demo e melhorias de UI homologadas pelo
