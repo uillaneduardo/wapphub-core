@@ -33,6 +33,26 @@ a nova consulta e ambos os requests HTTPS seguintes passaram. A rota pública
 já estava disponível; não foi criada nem modificada por este trabalho. O Core
 não reconfigura/recria o túnel existente nem modifica outros serviços do homelab.
 
+## Validação final com múltiplos clientes HTTP
+
+Após a ativação pelo operador da regra Skip de Browser Integrity Check restrita
+ao hostname `api.wapphub.com.br`, a revalidação de 2026-10-08 UTC confirmou:
+
+| Cliente | Health | Readiness | Corpo | cf-ray |
+|---|---|---|---|---|
+| curl padrão | 200 | 200 | status ok / ready | presente |
+| curl com WappHub-HealthCheck/1.0 | 200 | 200 | status ok / ready | presente |
+| Python urllib padrão | 200 | 200 | status ok / ready | presente |
+| Python urllib com WappHub-HealthCheck/1.0 | 200 | 200 | status ok / ready | presente |
+
+Todas as respostas correspondem ao WappHub Core. O bloqueio anterior
+HTTP 403 / error code 1010 não ocorreu em nenhum desses oito requests.
+TLS 1.3 validou cadeia e hostname sem bypass. Health/readiness locais e pela
+rede do connector retornaram 200/200, com os quatro containers healthy e
+MariaDB/Redis privados. Cookies e informações sensíveis não foram registrados.
+A regra externa foi informada pelo operador; este trabalho não alterou a
+configuração Cloudflare. WEB_ORIGINS continua vazio, sem cliente web autorizado.
+
 ## Rede e origem
 
 | Item | Configuração |
