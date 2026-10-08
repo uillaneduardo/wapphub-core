@@ -1,5 +1,7 @@
 # Status de Implementação
 
+> **Atualização operacional 2026-10-08:** este status da main não contempla todos os deploys posteriores. Consulte [reconciliação de produção M1](M1_PRODUCTION_RECONCILIATION_20261008.md) para evidências reportadas e pendências de integração local/remota. Não interpretar o estado antigo abaixo como fotografia atual de produção.
+
 Atualizar este arquivo em todo PR/entrega que altere o estado funcional do projeto.
 
 Legenda:
