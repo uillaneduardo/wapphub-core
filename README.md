@@ -88,3 +88,7 @@ scripts/local.sh status
 ```
 
 Consulte `docs/STATUS.md` para o estado validado de cada entrega.
+
+## Finalização funcional M1 — implementação local
+
+Contatos e criação manual interna validados localmente, ainda sem publicação/homologação. [Relatório e evidências](docs/M1_CONTACTS_CONVERSATION_CREATION.md). Produção informada: Core P0 `cbaf50c`, Chat P1 `6bbc1c4`, ambos homologados pelo usuário. M1 permanece sem encerramento formal.

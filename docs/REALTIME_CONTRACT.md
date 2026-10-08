@@ -99,3 +99,7 @@ ou mensagem acima do limite persistido; supervisor exige permission de leitura.
 Nenhum novo campo, preview ou corpo no envelope versão1. Policy de permission/
 sequência compartilhada com mensagens e recibos; contratos preservados.
 Ver P0_PREVIEW_AUTHORIZATION.md para testes e estado local/não publicado.
+
+## Invalidação por rename de contato — implementação local M1
+
+PATCH de nome de contato emite `conversation.updated` para conversas tenant-scoped relacionadas na transação existente. Envelope/tipos e autorização P0 não mudam; não há conteúdo de mensagem novo no evento. Chat reconcilia via REST/P1. Nenhum evento Contact novo; lista de contatos usa bootstrap/comandos locais/reconciliação. [Limites](M1_CONTACTS_CONVERSATION_CREATION.md).
