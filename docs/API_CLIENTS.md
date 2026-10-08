@@ -78,6 +78,14 @@ Não criar lógica exclusiva no backend "só para o navegador" se for regra de d
 
 Web e Android podem possuir UX diferente, mas devem produzir os mesmos comandos e respeitar:
 - Organization Context;
+
+## API do Demo Provider (branch de revisão M1)
+
+- `GET /api/v1/providers` lista DEMO e META; META é apenas IN_DEVELOPMENT.
+- `PUT /api/v1/providers/demo` altera estado com `providers.manage` e CSRF.
+- `GET /api/v1/providers/demo/contacts` e `POST /api/v1/providers/demo/messages` são ferramentas autenticadas sob `providers.simulate`.
+- O contato externo é derivado do vínculo atual Organization/Channel/ContactIdentity; clients não podem escolher remetente ou tenant.
+- Envio e histórico continuam nos endpoints comuns de Conversation/Message. Consulte `docs/DEMO_PROVIDER.md`.
 - RBAC;
 - entitlements;
 - capabilities;

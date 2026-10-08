@@ -489,6 +489,10 @@ test("OpenAPI preserves every foundation route and includes only M1 chat extensi
     "/conversations/{id}/notes",
     "/realtime/events",
     "/team/members",
+    "/providers",
+    "/providers/demo",
+    "/providers/demo/contacts",
+    "/providers/demo/messages",
   ];
   assert.deepEqual(
     Object.keys(doc.paths).sort(),
@@ -496,6 +500,7 @@ test("OpenAPI preserves every foundation route and includes only M1 chat extensi
   );
   assert.ok(doc.paths["/api/v1/app/bootstrap"].get.security);
   assert.ok(doc.paths["/api/v1/session/organization"].post.security[0].csrf);
+  assert.ok(doc.paths["/api/v1/providers/demo"].put.security[0].csrf);
   assert.doesNotMatch(
     JSON.stringify(doc),
     /MetaIntegration|WhatsApp|subscriptions/,

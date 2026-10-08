@@ -10,7 +10,7 @@ Legenda:
 
 ## Estado geral
 
-**Milestone ativo:** M1 — backend de chat interno.
+**Milestone ativo integrado:** M1 — backend de chat interno.
 **Produção:** M1 Core implantado em 2026-10-08 UTC, commit
 `89ca5d139ffd6b7e90bfe75a2c60db72621d695a`.
 Duas migrations M1 aplicadas; quatro containers healthy; health/readiness
@@ -118,6 +118,21 @@ preservados. Nenhuma funcionalidade de M1 foi iniciada.
 | Frontend/UX/UI otimista/rotas SPA | ⬜ | Fora desta execução; milestone global M1 não encerrado |
 
 Detalhes/limites: `M1_CHAT_INTERNAL.md`, `REALTIME_CONTRACT.md` e `M1_VALIDATION.md`.
+
+## Branch de revisão `feat/m1-demo-provider`
+
+Implementa o catálogo DEMO/META (META apenas em desenvolvimento), o port
+`MessagingProvider`, adaptador determinístico Demo, serviço comum de ingestão,
+estado tenant-scoped, provisionamento idempotente, mensagens INBOUND/OUTBOUND,
+simulador autenticado e documentação/OpenAPI. Migrations aditivas
+`20261008020000_demo_provider` e `20261008021000_demo_provider_rbac` aplicadas
+exclusivamente ao banco isolado `wapphub_m1_test`; nenhuma migration ou dado
+de produção foi alterado.
+
+O branch ainda não está integrado nem publicado. Validação atual: **56 testes**
+no banco isolado, lint/typecheck/build passaram, OpenAPI gerado e validado. Não
+houve deploy, uso de serviços externos ou alteração de produção. Nenhum
+adaptador Meta foi implementado.
 Sem pendência funcional conhecida no escopo backend validado. Nenhuma entrega de
 Meta, M2+, mídia, billing ou Android foi antecipada. M1 Core promovido à produção; evidências atuais em `DEPLOYMENT.md`.
 

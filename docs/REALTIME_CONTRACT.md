@@ -81,6 +81,10 @@ primário. Cada socket tem fila serial de sync; cliente deve deduplicar por even
 para retries/reconexões (entrega não é exactly-once). Guardas de sessão e
 reconciliação após reconnect Redis/notificação perdida estão em M1_CHAT_INTERNAL.md.
 
+Mensagens Demo recebidas e respostas do atendimento emitem `message.created` e
+`conversation.updated` pelo mesmo fluxo. O envelope continua contendo somente
+IDs; o histórico M1 autorizado resolve direction, autor e conteúdo via REST.
+
 Códigos de encerramento: 1008 para sessão/contexto/permissão inválidos ou comando
 não suportado; 1013 para limite/backpressure. Falhas não expõem detalhes internos.
 Retenção não é aplicada neste M1; eventual compactação exigirá contrato de

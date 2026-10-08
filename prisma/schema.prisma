@@ -37,6 +37,7 @@ model Organization {
   updatedAt      DateTime                 @updatedAt
   memberships    Membership[]
   invitations    OrganizationInvitation[]
+  channels       Channel[]
 }
 
 model Membership {
@@ -160,6 +161,8 @@ model Contact {
   updatedAt         DateTime       @updatedAt
   organization      Organization   @relation(fields: [organizationId], references: [id])
   conversations     Conversation[]
+  channelIdentities ContactIdentity[]
+  authoredMessages Message[]
 
   @@unique([organizationId, id])
   @@unique([organizationId, primaryIdentifier])
@@ -176,6 +179,8 @@ model Conversation {
   updatedAt          DateTime                        @updatedAt
   lastMessageAt      DateTime                        @default(now())
   visibility         HistoryVisibility               @default(FULL)
+  channelId          String?                         @db.Char(36)
+  providerConversationId String?                     @db.VarChar(120)
   visibleFromMessage BigInt                          @default(0)
   visibleFromEvent   BigInt                          @default(0)
   organization       Organization                    @relation(fields: [organizationId], references: [id])
@@ -185,10 +190,12 @@ model Conversation {
   tags               ConversationTag[]
   notes              InternalNote[]
   assignments        ConversationAssignmentHistory[]
+  channel            Channel?                        @relation(fields: [organizationId, channelId], references: [organizationId, id], onDelete: Restrict)
 
   @@unique([organizationId, id])
   @@index([organizationId, status, lastMessageAt, id])
   @@index([organizationId, assignedUserId, lastMessageAt, id])
+  @@unique([organizationId, channelId, providerConversationId])
 }
 
 model Message {
@@ -197,6 +204,9 @@ model Message {
   organizationId  String        @db.Char(36)
   conversationId  String        @db.Char(36)
   senderUserId    String?       @db.Char(36)
+  senderContactId String?       @db.Char(36)
+  channelId       String?       @db.Char(36)
+  providerMessageId String?     @db.VarChar(160)
   clientMessageId String?       @db.VarChar(100)
   direction       String        @default("INTERNAL") @db.VarChar(20)
   type            String        @default("TEXT") @db.VarChar(20)
@@ -206,9 +216,42 @@ model Message {
   updatedAt       DateTime      @updatedAt
   conversation    Conversation  @relation(fields: [organizationId, conversationId], references: [organizationId, id])
   sender          User?         @relation("MessageSender", fields: [senderUserId], references: [id])
+  senderContact   Contact?      @relation(fields: [organizationId, senderContactId], references: [organizationId, id], onDelete: Restrict)
+  channel         Channel?      @relation(fields: [organizationId, channelId], references: [organizationId, id], onDelete: Restrict)
 
   @@unique([organizationId, conversationId, clientMessageId])
   @@index([organizationId, conversationId, sequence])
+  @@unique([organizationId, channelId, providerMessageId])
+}
+
+model Channel {
+  id                    String            @id @default(uuid()) @db.Char(36)
+  organizationId        String            @db.Char(36)
+  provider              String            @db.VarChar(30)
+  status                String            @default("DISABLED") @db.VarChar(20)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  organization          Organization      @relation(fields: [organizationId], references: [id])
+  conversations         Conversation[]
+  messages              Message[]
+  contactIdentities     ContactIdentity[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, provider])
+}
+
+model ContactIdentity {
+  organizationId String       @db.Char(36)
+  channelId      String       @db.Char(36)
+  contactId      String       @db.Char(36)
+  externalId     String       @db.VarChar(120)
+  createdAt      DateTime     @default(now())
+  channel        Channel      @relation(fields: [organizationId, channelId], references: [organizationId, id], onDelete: Cascade)
+  contact        Contact      @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: Cascade)
+
+  @@id([organizationId, channelId, externalId])
+  @@unique([organizationId, channelId, contactId])
+  @@index([organizationId, contactId])
 }
 
 model Tag {

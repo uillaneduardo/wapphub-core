@@ -50,6 +50,10 @@ Critério de aceite:
 
 Objetivo: validar domínio e experiência realtime sem provider externo.
 
+O Demo Provider é uma extensão de homologação local e determinística da camada
+de canais, em branch própria de revisão. Não ativa integração externa e não
+antecipa M3/Meta.
+
 Entregas:
 - Contacts;
 - Conversations;

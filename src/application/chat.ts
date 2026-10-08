@@ -10,6 +10,8 @@ import { AppError } from "../domain/errors.js";
 import { cursorDecode, cursorEncode, decimal } from "../domain/chat.js";
 import type { Principal } from "./foundation.js";
 import type { Config } from "../infrastructure/config.js";
+import type { MessagingProvider } from "../integrations/messaging-provider.js";
+import type { MessageIngestionService } from "./message-ingestion.js";
 type DB = Prisma.TransactionClient;
 export type ChatContext = {
   organizationId: string;
@@ -39,7 +41,7 @@ export const contactDTO = (r: {
   updatedAt: r.updatedAt.toISOString(),
 });
 export const conversationDTO = (
-  r: Conversation & { tags?: { tagId: string }[] },
+  r: Conversation & { tags?: { tagId: string }[]; channel?: { provider: string } | null; contact?: { name: string }; messages?: { body: string | null }[] },
 ) => ({
   id: r.id,
   contactId: r.contactId,
@@ -51,11 +53,15 @@ export const conversationDTO = (
   lastMessageAt: r.lastMessageAt.toISOString(),
   visibility: r.visibility,
   tagIds: r.tags?.map((t) => t.tagId) ?? [],
+  provider: r.channel?.provider ?? null,
+  contactName: r.contact?.name ?? null,
+  lastMessagePreview: r.messages?.[0]?.body ?? null,
 });
 export const messageDTO = (r: {
   id: string;
   conversationId: string;
   senderUserId: string | null;
+  senderContactId: string | null;
   clientMessageId: string | null;
   direction: string;
   type: string;
@@ -67,6 +73,7 @@ export const messageDTO = (r: {
   id: r.id,
   conversationId: r.conversationId,
   senderUserId: r.senderUserId,
+  senderContactId: r.senderContactId,
   clientMessageId: r.clientMessageId,
   direction: r.direction,
   type: r.type,
@@ -95,6 +102,8 @@ export class Chat {
     public db: PrismaClient,
     private config: Config,
     private notify: (organizationId: string) => Promise<void>,
+    private provider: MessagingProvider,
+    private ingestion: MessageIngestionService,
   ) {}
   async context(
     principal: Principal,
@@ -209,7 +218,7 @@ export class Chat {
   async conversation(c: ChatContext, id: string, tx: DB = this.db) {
     this.require(c, "conversations.read");
     const r = await tx.conversation.findFirst({
-      include: { tags: true },
+      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: { orderBy: { sequence: "desc" }, take: 1, select: { body: true } } },
       where: { id, organizationId: c.organizationId },
     });
     if (
@@ -392,7 +401,7 @@ export class Chat {
     }
     const limit = q.limit ?? 50;
     const rows = await this.db.conversation.findMany({
-      include: { tags: true },
+      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: { orderBy: { sequence: "desc" }, take: 1, select: { body: true } } },
       where: {
         organizationId: c.organizationId,
         status: q.archived ? "ARCHIVED" : { not: "ARCHIVED" },
@@ -443,6 +452,7 @@ export class Chat {
       )
         throw new AppError(404, "NOT_FOUND");
       const r = await tx.conversation.create({
+        include: { contact: { select: { name: true } } },
         data: { organizationId: c.organizationId, contactId },
       });
       await this.audit(tx, c, "CONVERSATION_CREATED");
@@ -454,7 +464,7 @@ export class Chat {
     return this.mutation(p, "conversations.archive", async (tx, c) => {
       await this.conversation(c, id, tx);
       const r = await tx.conversation.update({
-        include: { tags: true },
+        include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } } },
         where: { organizationId_id: { organizationId: c.organizationId, id } },
         data: {
           status: archived ? "ARCHIVED" : "OPEN",
@@ -572,7 +582,7 @@ export class Chat {
           transfer ? (r.assignedUserId ?? undefined) : undefined,
         );
         const updated = await tx.conversation.update({
-          include: { tags: true },
+          include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } } },
           where: {
             organizationId_id: { organizationId: c.organizationId, id },
           },
@@ -671,12 +681,35 @@ export class Chat {
       }
       if (r.status === "ARCHIVED")
         throw new AppError(409, "CONVERSATION_ARCHIVED");
+      if (r.channelId) {
+        const channel = await tx.channel.findFirst({
+          where: { id: r.channelId, organizationId: c.organizationId },
+        });
+        if (!channel || channel.provider !== "DEMO" || channel.status !== "ENABLED")
+          throw new AppError(409, "PROVIDER_DISABLED");
+      }
+      const providerReceipt = r.channelId
+        ? await this.provider.sendText({
+            organizationId: c.organizationId,
+            channelId: r.channelId,
+            providerConversationId: r.providerConversationId ?? r.id,
+            clientMessageId: data.clientMessageId,
+            body: data.body,
+          })
+        : null;
       const message = await tx.message.create({
         data: {
           organizationId: c.organizationId,
           conversationId: id,
           senderUserId: c.userId,
           clientMessageId: data.clientMessageId,
+          ...(r.channelId
+            ? {
+                channelId: r.channelId,
+                direction: "OUTBOUND",
+                providerMessageId: providerReceipt!.providerMessageId,
+              }
+            : {}),
           body: data.body,
           status: "SENT",
         },
@@ -900,6 +933,101 @@ export class Chat {
       });
       await this.audit(tx, c, "NOTE_CREATED");
       return noteDTO(note);
+    });
+  }
+  async providerCatalog(p: Principal) {
+    const c = await this.context(p, "providers.manage");
+    const channel = await this.db.channel.findUnique({
+      where: { organizationId_provider: { organizationId: c.organizationId, provider: "DEMO" } },
+      select: { status: true },
+    });
+    return { items: [
+      { code: "DEMO", name: "Demo Provider", description: "Canal de demonstração com contatos simulados.", state: "AVAILABLE", enabled: channel?.status === "ENABLED" },
+      { code: "META", name: "Meta", description: "Integração em desenvolvimento.", state: "IN_DEVELOPMENT", enabled: false },
+    ] };
+  }
+  async setDemoProvider(p: Principal, enabled: boolean) {
+    return this.mutation(p, "providers.manage", async (tx, c) => {
+      const channel = await tx.channel.upsert({
+        where: { organizationId_provider: { organizationId: c.organizationId, provider: "DEMO" } },
+        create: { organizationId: c.organizationId, provider: "DEMO", status: enabled ? "ENABLED" : "DISABLED" },
+        update: { status: enabled ? "ENABLED" : "DISABLED" },
+      });
+      if (enabled) {
+        const fixtures = [
+          { externalId: "demo-contact-01", providerConversationId: "demo-conversation-01", providerMessageId: "demo-initial-01-v1", name: "Contato Demo 01", identifier: "demo:contact-01", body: "Olá! Gostaria de saber mais sobre os serviços de vocês." },
+          { externalId: "demo-contact-02", providerConversationId: "demo-conversation-02", providerMessageId: "demo-initial-02-v1", name: "Contato Demo 02", identifier: "demo:contact-02", body: "Bom dia! Preciso de ajuda com um problema." },
+        ];
+        for (const fixture of fixtures) {
+          let identity = await tx.contactIdentity.findUnique({
+            where: { organizationId_channelId_externalId: { organizationId: c.organizationId, channelId: channel.id, externalId: fixture.externalId } },
+          });
+          if (!identity) {
+            const contact = await tx.contact.create({ data: { organizationId: c.organizationId, name: fixture.name, primaryIdentifier: fixture.identifier } });
+            identity = await tx.contactIdentity.create({ data: { organizationId: c.organizationId, channelId: channel.id, contactId: contact.id, externalId: fixture.externalId } });
+          }
+          let conversation = await tx.conversation.findFirst({
+            where: { organizationId: c.organizationId, channelId: channel.id, providerConversationId: fixture.providerConversationId },
+          });
+          if (!conversation) {
+            conversation = await tx.conversation.create({ data: { organizationId: c.organizationId, contactId: identity.contactId, channelId: channel.id, providerConversationId: fixture.providerConversationId } });
+            await this.event(tx, c, "conversation.created", conversation.id, conversation.id);
+          }
+          const normalized = this.provider.parseInbound({ externalMessageId: fixture.providerMessageId, body: fixture.body });
+          const initial = await tx.message.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, providerMessageId: normalized.providerMessageId } });
+          if (!initial) {
+            const message = await this.ingestion.persistInbound(tx, { organizationId: c.organizationId, conversationId: conversation.id, contactId: identity.contactId, channelId: channel.id, providerMessageId: normalized.providerMessageId, body: normalized.body });
+            await this.event(tx, c, "message.created", message.id, conversation.id, message.sequence);
+            await this.event(tx, c, "conversation.updated", conversation.id, conversation.id);
+          }
+        }
+        await this.audit(tx, c, "DEMO_PROVIDER_ENABLED");
+      } else {
+        await this.audit(tx, c, "DEMO_PROVIDER_DISABLED");
+      }
+      return { enabled: channel.status === "ENABLED" };
+    });
+  }
+  async demoContacts(p: Principal) {
+    const c = await this.context(p, "providers.simulate");
+    const channel = await this.db.channel.findUnique({
+      where: { organizationId_provider: { organizationId: c.organizationId, provider: "DEMO" } },
+      select: { id: true, status: true },
+    });
+    if (!channel) return { enabled: false, items: [] };
+    const identities = await this.db.contactIdentity.findMany({
+      where: { organizationId: c.organizationId, channelId: channel.id },
+      include: { contact: { select: { id: true, name: true } } },
+      orderBy: { externalId: "asc" },
+    });
+    const items = await Promise.all(identities.map(async (identity) => {
+      const conversation = await this.db.conversation.findFirst({
+        where: { organizationId: c.organizationId, channelId: channel.id, contactId: identity.contactId },
+        select: { id: true },
+      });
+      return { contactId: identity.contactId, name: identity.contact.name, conversationId: conversation?.id ?? null };
+    }));
+    return { enabled: channel.status === "ENABLED", items };
+  }
+  async receiveDemoMessage(p: Principal, data: { contactId: string; externalMessageId: string; body: string }) {
+    return this.mutation(p, "providers.simulate", async (tx, c) => {
+      const channel = await tx.channel.findUnique({ where: { organizationId_provider: { organizationId: c.organizationId, provider: "DEMO" } } });
+      if (!channel || channel.provider !== this.provider.code || channel.status !== "ENABLED") throw new AppError(409, "PROVIDER_DISABLED");
+      const identity = await tx.contactIdentity.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, contactId: data.contactId } });
+      if (!identity) throw new AppError(404, "NOT_FOUND");
+      const conversation = await tx.conversation.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, contactId: identity.contactId } });
+      if (!conversation) throw new AppError(404, "NOT_FOUND");
+      const inbound = this.provider.parseInbound(data);
+      const existing = await tx.message.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, providerMessageId: inbound.providerMessageId } });
+      if (existing) {
+        if (existing.conversationId !== conversation.id || existing.body !== inbound.body) throw new AppError(409, "IDEMPOTENCY_CONFLICT");
+        return messageDTO(existing);
+      }
+      const message = await this.ingestion.persistInbound(tx, { organizationId: c.organizationId, conversationId: conversation.id, contactId: identity.contactId, channelId: channel.id, providerMessageId: inbound.providerMessageId, body: inbound.body });
+      await this.event(tx, c, "message.created", message.id, conversation.id, message.sequence);
+      await this.event(tx, c, "conversation.updated", conversation.id, conversation.id);
+      await this.audit(tx, c, "DEMO_MESSAGE_RECEIVED");
+      return messageDTO(message);
     });
   }
   async eventVisible(c: ChatContext, e: RealtimeEvent) {

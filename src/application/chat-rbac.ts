@@ -11,6 +11,7 @@ export async function installChatRBAC(tx: Prisma.TransactionClient) {
     const permissions = [
       "organization.read",
       ...(code === "AGENT" ? agentPermissions : chatPermissions),
+      ...(code === "OWNER" ? ["providers.manage", "providers.simulate"] : []),
     ];
     for (const code of permissions) {
       const permission = await tx.permission.upsert({

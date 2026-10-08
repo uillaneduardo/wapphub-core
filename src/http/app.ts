@@ -15,6 +15,8 @@ import type { Config } from "../infrastructure/config.js";
 import { Foundation, publicUser } from "../application/foundation.js";
 import { AppError } from "../domain/errors.js";
 import { loginRateLimitKey } from "./client-ip.js";
+import { DemoProvider } from "../integrations/demo-provider.js";
+import { MessageIngestionService } from "../application/message-ingestion.js";
 const object = (
   properties: Record<string, unknown>,
   required = Object.keys(properties),
@@ -102,7 +104,7 @@ export async function buildApp(
   await app.register(cors, {
     origin: config.origins,
     credentials: true,
-    methods: ["GET", "POST", "PATCH", "DELETE"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["content-type", "x-csrf-token"],
   });
   await app.register(helmet);
@@ -174,6 +176,8 @@ export async function buildApp(
   };
   const chat: Chat = new Chat(db, config, async (org): Promise<void> =>
     gateway.publish(org),
+    new DemoProvider(),
+    new MessageIngestionService(),
   );
   const gateway = new RealtimeGateway(foundation, chat, redis);
   app.addHook("preClose", async () => gateway.close());

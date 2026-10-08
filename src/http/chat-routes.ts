@@ -27,6 +27,9 @@ const contact = obj({
 });
 const conversation = obj({
   tagIds: { type: "array", items: uuid },
+  provider: { anyOf: [{ type: "string", enum: ["DEMO", "META"] }, { type: "null" }] },
+  contactName: { anyOf: [str, { type: "null" }] },
+  lastMessagePreview: { anyOf: [str, { type: "null" }] },
   id: uuid,
   contactId: uuid,
   status: { type: "string", enum: ["OPEN", "PENDING", "ARCHIVED"] },
@@ -41,8 +44,9 @@ const message = obj({
   id: uuid,
   conversationId: uuid,
   senderUserId: nullableId,
+  senderContactId: nullableId,
   clientMessageId: { type: ["string", "null"] },
-  direction: { type: "string", enum: ["INTERNAL"] },
+  direction: { type: "string", enum: ["INTERNAL", "INBOUND", "OUTBOUND"] },
   type: { type: "string", enum: ["TEXT"] },
   body: { type: ["string", "null"] },
   status: {
@@ -114,6 +118,26 @@ export async function chatRoutes(
     "/api/v1/team/members",
     { schema: schema(page(teamMember), false, { querystring: query }) },
     async (r) => chat.teamMembers(await principal(r), r.query),
+  );
+  app.get(
+    "/api/v1/providers",
+    { schema: schema(obj({ items: { type: "array", items: obj({ code: { type: "string", enum: ["DEMO", "META"] }, name: str, description: str, state: { type: "string", enum: ["AVAILABLE", "IN_DEVELOPMENT"] }, enabled: { type: "boolean" } }) } }), false, { tags: ["M1 Providers"] }) },
+    async (r) => chat.providerCatalog(await principal(r)),
+  );
+  app.put<{ Body: { enabled: boolean } }>(
+    "/api/v1/providers/demo",
+    { schema: schema(obj({ enabled: { type: "boolean" } }), true, { body: obj({ enabled: { type: "boolean" } }), tags: ["M1 Providers"] }) },
+    async (r) => chat.setDemoProvider(await principal(r), r.body.enabled),
+  );
+  app.get(
+    "/api/v1/providers/demo/contacts",
+    { schema: schema(obj({ enabled: { type: "boolean" }, items: { type: "array", items: obj({ contactId: uuid, name: str, conversationId: nullableId }) } }), false, { tags: ["M1 Providers"] }) },
+    async (r) => chat.demoContacts(await principal(r)),
+  );
+  app.post<{ Body: { contactId: string; externalMessageId: string; body: string } }>(
+    "/api/v1/providers/demo/messages",
+    { schema: schema(message, true, { body: obj({ contactId: uuid, externalMessageId: text(120), body: text(8000) }), tags: ["M1 Providers"] }) },
+    async (r) => chat.receiveDemoMessage(await principal(r), r.body),
   );
   app.get<{ Querystring: PageQuery }>(
     "/api/v1/contacts",

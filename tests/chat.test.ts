@@ -12,6 +12,8 @@ import {
   newToken,
 } from "../src/infrastructure/crypto.js";
 import { chatPermissions, agentPermissions } from "../src/domain/chat.js";
+import { DemoProvider } from "../src/integrations/demo-provider.js";
+import { MessageIngestionService } from "../src/application/message-ingestion.js";
 // Fail closed rather than ever run M1 fixtures against the production schema.
 if (
   process.env.NODE_ENV !== "test" ||
@@ -84,7 +86,7 @@ async function session(userId: string, organizationId: string): Promise<Auth> {
 }
 async function request(
   a: Auth,
-  method: "GET" | "POST" | "PATCH" | "DELETE",
+  method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
   url: string,
   payload?: unknown,
   status = 200,
@@ -153,7 +155,7 @@ before(async () => {
   orgB = (await db.organization.create({ data: { name: `Chat B ${run}` } })).id;
   orgC = (await db.organization.create({ data: { name: `Chat C ${run}` } })).id;
   for (const [label, permissions] of [
-    ["super", ["organization.read", ...chatPermissions]],
+    ["super", ["organization.read", ...chatPermissions, "providers.manage", "providers.simulate"]],
     ["agent", ["organization.read", ...agentPermissions]],
     ["deny", ["organization.read"]],
   ] as const) {
@@ -197,6 +199,8 @@ after(async () => {
   await db.message.deleteMany({ where });
   await db.conversation.deleteMany({ where });
   await db.tag.deleteMany({ where });
+  await db.contactIdentity.deleteMany({ where });
+  await db.channel.deleteMany({ where });
   await db.contact.deleteMany({ where });
   await db.auditEvent.deleteMany({ where });
   await db.securityEvent.deleteMany({ where: { userId: { in: users } } });
@@ -241,6 +245,57 @@ test("contacts create/list/update, cursor integrity and identifier uniqueness ar
   const list = await request(supervisor, "GET", "/contacts?limit=1");
   assert.ok(list.items.every((x: { id: string }) => x.id !== undefined));
   await request(supervisor, "GET", "/contacts?cursor=forged", undefined, 400);
+});
+
+test("Demo provider is permission-gated, tenant-scoped, idempotent and uses shared message history", async () => {
+  await request(agent, "PUT", "/providers/demo", { enabled: true }, 403);
+  await request(agent, "GET", "/providers/demo/contacts", undefined, 403);
+  assert.deepEqual((await request(supervisor, "PUT", "/providers/demo", { enabled: true })).enabled, true);
+  const catalog = await request(supervisor, "GET", "/providers");
+  assert.equal(catalog.items.find((x: { code: string }) => x.code === "META").state, "IN_DEVELOPMENT");
+  const contacts = await request(supervisor, "GET", "/providers/demo/contacts");
+  assert.equal(contacts.items.length, 2);
+  assert.equal(contacts.enabled, true);
+  const first = contacts.items[0];
+  const initial = await request(supervisor, "GET", `/conversations/${first.conversationId}/messages`);
+  assert.equal(initial.items[0].direction, "INBOUND");
+  assert.equal(initial.items[0].senderUserId, null);
+  assert.equal(initial.items[0].senderContactId, first.contactId);
+  assert.equal(initial.items[0].body, "Olá! Gostaria de saber mais sobre os serviços de vocês.");
+  const secondContact = contacts.items[1];
+  const secondInitial = await request(supervisor, "GET", `/conversations/${secondContact.conversationId}/messages`);
+  assert.equal(secondInitial.items[0].senderUserId, null);
+  assert.equal(secondInitial.items[0].senderContactId, secondContact.contactId);
+  assert.equal(secondInitial.items[0].body, "Bom dia! Preciso de ajuda com um problema.");
+  await request(supervisor, "PUT", "/providers/demo", { enabled: true });
+  assert.equal((await request(supervisor, "GET", "/providers/demo/contacts")).items.length, 2);
+  await request(tenantB, "PUT", "/providers/demo", { enabled: true });
+  await request(tenantB, "POST", "/providers/demo/messages", { contactId: first.contactId, externalMessageId: randomUUID(), body: "fora do tenant" }, 404);
+  const live = await socket(supervisor);
+  const externalMessageId = randomUUID();
+  const inbound = await request(supervisor, "POST", "/providers/demo/messages", { contactId: first.contactId, externalMessageId, body: "Nova mensagem do contato" });
+  assert.equal(inbound.direction, "INBOUND");
+  assert.equal(inbound.senderUserId, null);
+  assert.equal((await request(supervisor, "POST", "/providers/demo/messages", { contactId: first.contactId, externalMessageId, body: "Nova mensagem do contato" })).id, inbound.id);
+  await until(() => live.frames.some((frame) => frame.type === "message.created" && frame.entityId === inbound.id));
+  const outbound = await send(agent, first.conversationId, "Resposta do atendimento");
+  assert.equal(outbound.direction, "OUTBOUND");
+  assert.equal(outbound.senderUserId, agent.userId);
+  await until(() => live.frames.some((frame) => frame.type === "message.created" && frame.entityId === outbound.id));
+  live.ws.close();
+  const tag = await request(supervisor, "POST", "/tags", { name: `Demo ${run}` });
+  await request(supervisor, "POST", `/conversations/${first.conversationId}/tags/${tag.id}`);
+  assert.ok((await request(supervisor, "GET", `/conversations/${first.conversationId}`)).tagIds.includes(tag.id));
+  await request(supervisor, "POST", `/conversations/${first.conversationId}/notes`, { body: "Nota de homologação" });
+  assert.ok((await request(supervisor, "GET", `/conversations/${first.conversationId}/notes`)).items.some((note: { body: string }) => note.body === "Nota de homologação"));
+  await request(supervisor, "POST", `/conversations/${first.conversationId}/assign`, { userId: agent.userId });
+  await request(supervisor, "POST", `/conversations/${first.conversationId}/transfer`, { userId: recipient.userId, visibility: "FULL", note: "Repasse Demo" });
+  await request(supervisor, "POST", `/conversations/${first.conversationId}/archive`);
+  await request(supervisor, "POST", `/conversations/${first.conversationId}/unarchive`);
+  await request(supervisor, "PUT", "/providers/demo", { enabled: false });
+  await request(supervisor, "POST", "/providers/demo/messages", { contactId: first.contactId, externalMessageId: randomUUID(), body: "bloqueada" }, 409);
+  await request(supervisor, "POST", `/conversations/${first.conversationId}/messages`, { body: "bloqueada", clientMessageId: randomUUID() }, 409);
+  assert.equal((await request(supervisor, "GET", `/conversations/${first.conversationId}/messages`)).items.length, 3);
 });
 
 test("team roster is permission gated, tenant scoped, active only and paginated", async () => {
@@ -1115,7 +1170,7 @@ test("lost realtime notification is recovered from persistent stream without los
     });
     const chat = new Chat(db, config, async () => {
       throw new Error("Simulated unavailable notification");
-    });
+    }, new DemoProvider(), new MessageIngestionService());
     const m = await chat.send({ session: row, user: row.user }, c.id, {
       body: "durable",
       clientMessageId: randomUUID(),

@@ -192,16 +192,14 @@ Objetivos:
 
 O domínio depende de ports, não da Meta diretamente.
 
-```
-MessagingProvider
-  └─ MetaWhatsAppProvider
-```
+`MessagingProvider` é um port de texto normalizado. `DemoProvider` implementa o canal simulado e passa entradas pelo `MessageIngestionService` comum. Adaptadores futuros implementam o mesmo contrato; não devem criar persistência paralela. O adaptador Meta continua não implementado.
 
 Cada Organization configura sua própria integração Meta e seus próprios canais/credenciais.
 
 Webhook físico pode ser compartilhado, mas todo evento deve ser resolvido para Organization + Channel antes de processamento de domínio.
 
 Detalhes: `docs/META_INTEGRATION.md`.
+O escopo do provedor simulado está em `docs/DEMO_PROVIDER.md`.
 
 ## 12. Diagnóstico e capabilities
 

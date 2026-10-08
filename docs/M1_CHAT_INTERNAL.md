@@ -23,6 +23,11 @@ READ ou SENT → READ; repetição do mesmo estado é idempotente, regressão fa
 READ/DELIVERED são estados agregados locais, não comprovantes externos nem
 recibos individuais de todos os participantes.
 
+O trabalho posterior do Demo Provider adiciona direction INBOUND/OUTBOUND,
+senderContactId, Channel e ContactIdentity de forma aditiva. A semântica M1
+interna descrita aqui continua válida para mensagens existentes. Escopo e
+validação do adaptador simulado estão em `docs/DEMO_PROVIDER.md`.
+
 POST messages exige clientMessageId e texto não vazio. Chave única:
 Organization + Conversation + clientMessageId. Retry do mesmo autor/conteúdo
 retorna a mesma Message sem outro evento. Reuso com autor/conteúdo diferente
