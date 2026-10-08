@@ -8,20 +8,36 @@ Main validada: `2c0982b66396753fcaa32dca9e8e6e308d434b85`.
 Após o merge: 25 testes, lint, typecheck, build, smoke HTTP, migrations e
 health/readiness passaram. Nenhum volume ou dado existente foi removido.
 
-A preparação do deploy reside em `chore/m0-cloudflare-deploy`. Nessa branch,
-28 testes passaram (25 do M0 e três de segurança de proxy/configuração), assim
-como lint/typecheck/build e smoke HTTP em configuração de produção.
-A publicação externa **não está concluída**: o hostname resolve para a Cloudflare,
-mas health e readiness externos falham no handshake TLS, antes de existir
-resposta HTTP. Não há autenticação administrativa Cloudflare disponível neste
-ambiente para confirmar/editar a rota ou o certificado. O túnel existente não
-foi recriado, reconfigurado ou reiniciado.
+A preparação do deploy reside em `chore/m0-cloudflare-deploy`. Após a troca
+para o hostname oficial https://api.wapphub.com.br, 29 testes passaram,
+sem falhas/omissões, assim como lint, typecheck e build via
+`scripts/local.sh validate`, na imagem reconstruída por `scripts/local.sh deploy`.
+
+Validação em 2026-10-08 UTC (2026-10-07 em America/Recife):
+
+- DNS local, Cloudflare e Google resolveram o hostname oficial.
+- HTTPS válido, com verificação de cadeia e hostname habilitada: TLS 1.3,
+  certificado Google Trust Services WE1 cobrindo `*.wapphub.com.br`, válido
+  até 2026-12-31. Nenhum bypass de TLS foi usado.
+- Health e readiness públicos retornaram HTTP 200; os mesmos endpoints locais
+  e pela rede do cloudflared retornaram 200/status ok e 200/status ready.
+- API, Worker, MariaDB e Redis permaneceram healthy. Banco/Redis/Worker
+  continuam somente na backend, sem portas publicadas no host.
+- Nenhuma origem web está autorizada: WEB_ORIGINS vazio, sem frontend M0.
+  A suíte usa sua própria origem de cliente e comprova que a URL da API não
+  autoriza comandos web. O fluxo público de sessão não foi exercitado nesta
+  configuração fechada; os testes de sessão/CSRF continuam passando.
+
+Uma consulta DNS inicial falhou com `[Errno -2] Name or service not known`;
+a nova consulta e ambos os requests HTTPS seguintes passaram. A rota pública
+já estava disponível; não foi criada nem modificada por este trabalho. O Core
+não reconfigura/recria o túnel existente nem modifica outros serviços do homelab.
 
 ## Rede e origem
 
 | Item | Configuração |
 |---|---|
-| Hostname pretendido | api.chat.wapphub.com.br |
+| Hostname oficial | api.wapphub.com.br |
 | Service/origin | http://wapphub-core-api:3000 |
 | Porta interna | 3000 HTTP |
 | Rede externa existente | cloudflare_ingress |
@@ -44,16 +60,24 @@ No `.env` local, ignorado pelo Git e com permissão 600:
 
 ```dotenv
 NODE_ENV=production
-WEB_ORIGINS=https://api.chat.wapphub.com.br
+WEB_ORIGINS=
 CLOUDFLARED_TRUSTED_IPS=172.19.0.250
 PORT=3000
 API_PORT=3000
 ```
 
-As origens foram limitadas ao próprio hostname da API, pois não há frontend
-implementado no M0. Adicionar um cliente web exige definir sua origem HTTPS
-exata e revisar SameSite/CORS/CSRF; não use wildcard. Comandos POST exigem
-Origin permitido e, quando autenticados, o token CSRF vinculado à sessão.
+WEB_ORIGINS representa somente origens de clientes web explicitamente
+autorizados, não a URL pública da API. Neste M0 sem frontend autorizado, a lista
+vazia bloqueia comandos web e não envia Access-Control-Allow-Origin. Health e
+readiness continuam disponíveis. O futuro https://chat.wapphub.com.br é um
+exemplo de cliente possível, não uma autorização automática: só inclua sua
+origem quando esse cliente for aprovado e necessário.
+
+Cada cliente autorizado deve usar origem HTTPS exata, sem wildcard, com revisão
+de SameSite/CORS/CSRF. Comandos POST exigem Origin permitido e, quando
+autenticados, o token CSRF vinculado à sessão. O smoke completo de autenticação
+requer uma origem de cliente autorizada; com lista vazia, valide health/readiness
+e use a suíte automatizada, que configura sua própria origem web de teste.
 
 Cookie de sessão: `__Host-wapphub_session`, Secure, HttpOnly, SameSite=Strict,
 Path=/ e sem Domain. O contrato OpenAPI dessa branch registra esse cookie de
@@ -83,35 +107,34 @@ confiança para todo o subnet. Na Cloudflare, a rota deve encaminhar diretamente
 para a origem indicada e preservar CF-Connecting-IP; Workers/transforms que
 alterem a identidade do visitante exigem revisão específica.
 
-## Etapa manual pendente na Cloudflare
+## Configuração do hostname oficial na Cloudflare
 
 No túnel existente utilizado por `cloudflare-cloudflared-1`, confirmar/criar a
 rota de aplicação pública com:
 
-- hostname: **api.chat.wapphub.com.br**;
+- hostname: **api.wapphub.com.br**;
 - tipo do serviço: **HTTP**;
 - service/origin: **http://wapphub-core-api:3000**;
 - porta: **3000**;
 - rede Docker: **cloudflare_ingress**;
 - serviço Compose: **wapphub-core-api**.
 
-Confirmar um certificado edge ativo que cubra o hostname exato. Não é possível
-atribuir a falha TLS a uma configuração específica sem acesso ao painel.
-Como se trata de subdomínio em múltiplos níveis, confira a cobertura conforme
-as [limitações de Universal SSL](https://developers.cloudflare.com/ssl/edge-certificates/universal-ssl/limitations/).
+Confirmar um certificado edge ativo que cubra o hostname exato. O endereço
+oficial usa um único nível de subdomínio. Confira a cobertura conforme as
+[limitações de Universal SSL](https://developers.cloudflare.com/ssl/edge-certificates/universal-ssl/limitations/).
 Não desative validação TLS, não troque o domínio solicitado e não substitua o
 túnel para contornar a falha. Somente essa rota da API deve ser publicada.
 
 Depois da configuração manual:
 
 ```sh
-curl --fail https://api.chat.wapphub.com.br/api/v1/health
-curl --fail https://api.chat.wapphub.com.br/api/v1/health/ready
+curl --fail https://api.wapphub.com.br/api/v1/health
+curl --fail https://api.wapphub.com.br/api/v1/health/ready
 ```
 
-Ambos devem retornar HTTP 200 com os contratos do Core. Confirmar também o
-fluxo HTTPS de login/CSRF/logout e o encaminhamento real do IP de visitante
-antes de marcar o deploy externo como concluído.
+Ambos devem retornar HTTP 200 com os contratos do Core. Quando houver um cliente web aprovado, validar também o fluxo HTTPS de
+login/CSRF/logout e o encaminhamento do IP de visitante. A validação pública
+atual cobre health/readiness; não declara um cliente web operacional.
 
 ## Verificação interna
 
@@ -139,7 +162,8 @@ git fetch origin
 scripts/local.sh deploy
 scripts/local.sh validate
 docker compose run --rm wapphub-core-api npx prisma migrate status
-docker compose run --rm wapphub-core-api node dist/scripts/smoke.js
+# Somente com WEB_ORIGINS contendo um cliente aprovado:
+# docker compose run --rm wapphub-core-api node dist/scripts/smoke.js
 docker compose ps
 ```
 
@@ -174,9 +198,9 @@ use reset --hard/clean para executar rollback. M1 permanece fora do escopo.
 - `compose.yml` e `.env.example`: rede ingress e configuração explícita do connector.
 - `src/http/app.ts`, `src/http/client-ip.ts`, `src/infrastructure/config.ts`:
   trustProxy desabilitado e IP de visitante restrito ao socket do connector.
-- `tests/foundation.test.ts`: três regressões de rate limiting/configuração.
+- `tests/foundation.test.ts`: quatro regressões de proxy/configuração/origens.
 - `docs/openapi.json`: nome do cookie de produção.
 - `docs/DEPLOYMENT.md`, `docs/LOCAL_DEVELOPMENT.md`, `docs/M0_VALIDATION.md`,
   `docs/SECURITY_PRIVACY.md`, `docs/STATUS.md`: procedimentos e evidências reais.
-- `.env` local (não versionado): modo de produção, Origin HTTPS e IP fixo,
+- `.env` local (não versionado): modo de produção, lista de clientes web autorizados e IP fixo,
   preservando as credenciais existentes.

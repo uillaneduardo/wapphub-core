@@ -7,7 +7,7 @@ const schema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   DATABASE_URL: z.string().startsWith("mysql://"),
   REDIS_URL: z.string().url(),
-  WEB_ORIGINS: z.string().min(1),
+  WEB_ORIGINS: z.string().default(""),
   CLOUDFLARED_TRUSTED_IPS: z.string().default(""),
   ENCRYPTION_KEY: z.string().regex(/^[a-f0-9]{64}$/i),
   ENCRYPTION_KEY_VERSION: z
@@ -20,7 +20,9 @@ const schema = z.object({
 export function loadConfig(env = process.env) {
   const result = schema.safeParse(env);
   if (!result.success) throw new Error("Invalid environment configuration");
-  const origins = result.data.WEB_ORIGINS.split(",").map((s) => s.trim());
+  const origins = result.data.WEB_ORIGINS.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   if (
     origins.some((s) => {
       try {

@@ -12,7 +12,11 @@ import {
   encryptSecret,
   decryptSecret,
 } from "../src/infrastructure/crypto.js";
-const config = loadConfig();
+// The suite authorizes an isolated web client fixture, never the deployed API hostname.
+const config = loadConfig({
+  ...process.env,
+  WEB_ORIGINS: "https://web-client.example.test",
+});
 const db = new PrismaClient();
 const redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: 1 });
 redis.on("error", () => {});
@@ -764,4 +768,48 @@ test("connector configuration rejects wildcard and subnet trust", () => {
       }),
     /Invalid WEB_ORIGINS/,
   );
+});
+
+test("the public API hostname grants no client origin permission and empty WEB_ORIGINS denies web commands", async () => {
+  const apiOrigin = "https://api.wapphub.com.br";
+  const rejected = await app.inject({
+    method: "POST",
+    url: "/api/v1/auth/login",
+    headers: { origin: apiOrigin },
+    payload: { email: email("a"), password },
+  });
+  assert.equal(rejected.statusCode, 403);
+  assert.equal(rejected.json().error.code, "ORIGIN_REJECTED");
+  const health = await app.inject({
+    url: "/api/v1/health",
+    headers: { origin: apiOrigin },
+  });
+  assert.equal(health.statusCode, 200);
+  assert.equal(health.headers["access-control-allow-origin"], undefined);
+  const closedConfig = loadConfig({ ...process.env, WEB_ORIGINS: "" });
+  assert.deepEqual(closedConfig.origins, []);
+  const closed = await buildApp(
+    { ...closedConfig, NODE_ENV: "test" },
+    db,
+    redis,
+    false,
+  );
+  try {
+    const result = await closed.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      headers: { origin },
+      payload: { email: email("a"), password },
+    });
+    assert.equal(result.statusCode, 403);
+    assert.equal(result.json().error.code, "ORIGIN_REJECTED");
+    const ready = await closed.inject({
+      url: "/api/v1/health/ready",
+      headers: { origin },
+    });
+    assert.equal(ready.statusCode, 200);
+    assert.equal(ready.headers["access-control-allow-origin"], undefined);
+  } finally {
+    await closed.close();
+  }
 });

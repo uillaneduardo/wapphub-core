@@ -132,3 +132,20 @@ Health/readiness internos também retornaram 200 a partir da rede do cloudflared
 O deploy externo permanece pendente: os dois endpoints HTTPS falham no handshake
 TLS. O túnel não foi alterado. Rede, confiança explícita de IP, configurações,
 pendências manuais e rollback estão em `DEPLOYMENT.md`.
+
+## Hostname oficial e origens de clientes web
+
+Em 2026-10-08 UTC (2026-10-07 em America/Recife), a imagem da branch de deploy
+foi reconstruída e `scripts/local.sh validate` passou: lint, typecheck, 29 testes
+sem falhas/omissões e build. WEB_ORIGINS local está vazio, sem autorizar a URL
+da API ou antecipar o futuro cliente web. A suíte usa origem própria e testa
+negação da URL da API e de comandos com lista vazia.
+
+https://api.wapphub.com.br é o hostname oficial. DNS local e resolvedores
+públicos Cloudflare/Google passaram. HTTPS validou cadeia e hostname com TLS
+1.3; health e readiness públicos retornaram HTTP 200. Os dois endpoints também
+retornaram 200 localmente e no namespace do cloudflared. Quatro containers
+healthy, MariaDB/Redis/Worker somente em backend e sem portas publicadas.
+A falha TLS do registro anterior ocorreu antes da troca de hostname. Não houve
+alteração de migrations, credenciais ou configuração externa do túnel. O fluxo
+público de sessão aguarda um cliente web aprovado; M1 não foi iniciado.

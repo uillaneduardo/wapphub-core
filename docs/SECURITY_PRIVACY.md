@@ -198,6 +198,8 @@ malformados mantêm o orçamento pelo IP da conexão. CIDRs/wildcards não são
 aceitos. O header nunca autoriza acesso a Organization ou domínio.
 
 Em produção, cookie Secure e prefixo __Host- independem de headers de protocolo.
-O perfil inicial permite somente Origin HTTPS do próprio hostname da API, sem
-frontend. Procedimento, testes negativos de spoofing e pendências TLS externas
-estão em `DEPLOYMENT.md`; o deploy público permanece não concluído.
+WEB_ORIGINS contém somente origens HTTPS de clientes web autorizados, nunca a
+URL da API por ela ser o endpoint público. Uma lista vazia bloqueia comandos
+web e não concede CORS a nenhuma origem; health/readiness continuam públicos.
+Sem cliente autorizado no M0, não habilitar automaticamente um frontend futuro.
+Procedimento e evidências HTTPS do hostname oficial estão em `DEPLOYMENT.md`.

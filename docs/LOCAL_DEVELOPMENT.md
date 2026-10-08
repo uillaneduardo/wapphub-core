@@ -12,7 +12,9 @@ uma vulnerabilidade transitiva da CLI. O lockfile fixa as dependências Node.
 2. Gere senhas distintas para `DB_PASSWORD`/`DB_ROOT_PASSWORD` com `openssl rand -hex 24`.
 3. Atualize a senha em `DATABASE_URL`, mantendo host `wapphub-db`.
 4. Gere `ENCRYPTION_KEY` com `openssl rand -hex 32`.
-5. Defina `WEB_ORIGINS` com origens exatas separadas por vírgulas, sem barra final.
+5. Defina `WEB_ORIGINS` com origens de clientes web autorizados, separadas por
+   vírgulas, sem barra final. A URL da API não autoriza CORS por si só. Uma lista
+   vazia bloqueia comandos web; localhost:5173 no exemplo é um cliente de desenvolvimento.
 6. Execute `scripts/local.sh up`.
 
 O script constrói a imagem, aguarda banco/Redis, executa `prisma migrate deploy`
@@ -41,6 +43,9 @@ docker compose run --rm wapphub-core-api node dist/scripts/smoke.js
 
 Os testes usam MariaDB e Redis reais da rede Compose, criam fixtures com IDs
 únicos e removem apenas essas fixtures. Não execute a suíte em banco de produção.
+A suíte usa uma origem web própria de teste, independente de WEB_ORIGINS do
+deploy. O smoke de autenticação requer uma origem de cliente já autorizada;
+com WEB_ORIGINS vazio, use health/readiness e a suíte para validação.
 Os eventos anônimos LOGIN_FAILED ficam registrados sem e-mail/IP/segredos.
 O smoke provisiona uma fixture administrativa, percorre o fluxo HTTP real e
 remove apenas essa identidade/Organization. Mantém as definições padrão de
