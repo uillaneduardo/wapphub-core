@@ -68,6 +68,31 @@ dentro do escopo M0 solicitado. O fluxo de convites condicionado a assentos,
 Chat/WebSocket, catálogo/entitlements, Meta e mídia permanecem nos milestones
 posteriores; o estado acima não declara essas funcionalidades implementadas.
 
+## Deploy controlado M0 — Cloudflare
+
+A fundação foi integrada pelo PR #2 com merge commit na main
+`2c0982b66396753fcaa32dca9e8e6e308d434b85`; os três commits originais foram
+preservados e a revalidação pós-merge passou com 25 testes.
+Preparação de deploy em `chore/m0-cloudflare-deploy`; evidências e rollback em
+`docs/DEPLOYMENT.md`.
+
+| Item | Estado | Evidência |
+|---|---:|---|
+| Rede ingress da API | ✅ | API em backend + cloudflare_ingress preexistente |
+| Banco/Redis/Worker privados | ✅ | Somente backend; nenhuma porta publicada |
+| Configuração de produção local | ✅ | NODE_ENV production; Origin HTTPS exato; cookie Secure/__Host- |
+| Rate limiting por visitante | ✅ | IP fixo do connector; headers forjados de peers não confiáveis não burlam o limite |
+| Validação da branch de deploy | ✅ | 28 testes, lint/typecheck/build e smoke HTTP passaram |
+| Health/readiness da rede cloudflared | ✅ | HTTP 200/200 no namespace do connector |
+| Túnel existente preservado | ✅ | Nenhum restart/reconfiguração de cloudflared |
+| Hostname/rota externa | 🟡 | DNS resolve; não há autenticação administrativa para conferir a rota |
+| HTTPS e fluxo externo | 🟡 | Health/readiness não validados: handshake TLS falhou |
+| Deploy público concluído | ⬜ | Depende de configuração manual do hostname/certificado e testes externos |
+
+Nenhum requisito externo é marcado como concluído apenas pela resposta interna
+200. Credenciais, chave de criptografia, migrations e dados existentes foram
+preservados. Nenhuma funcionalidade de M1 foi iniciada.
+
 ## Funcionalidades posteriores
 
 | Domínio | Estado |

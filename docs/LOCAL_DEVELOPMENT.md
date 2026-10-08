@@ -19,9 +19,11 @@ O script constrói a imagem, aguarda banco/Redis, executa `prisma migrate deploy
 e sobe API/Worker. `scripts/local.sh deploy` faz o mesmo fluxo de rebuild.
 `stop` preserva dados; `status` mostra containers; `logs [serviço]` mostra logs.
 Nenhum script remove volumes. A API fica em `127.0.0.1:3000`; banco e Redis não
-publicam portas e usam rede Docker interna. A API também participa da rede
-HTTP, necessária para publicação loopback no Docker 29; banco/Redis permanecem
-exclusivamente na rede interna. Redis mantém apenas limites de
+publicam portas e usam rede Docker interna. Neste perfil de homelab, a API
+também participa da rede externa preexistente `cloudflare_ingress`; confira sua
+existência com `docker network inspect cloudflare_ingress` antes de subir.
+Banco/Redis/Worker permanecem exclusivamente na rede interna. A preparação de
+produção e o procedimento de rollback estão em `DEPLOYMENT.md`. Redis mantém apenas limites de
 abuso, nunca dados de domínio. Reiniciar Redis reinicia as janelas de limite.
 
 O `.env` local é ignorado pelo Git e excluído da imagem. Não copie segredos para
@@ -94,7 +96,10 @@ unset BOOTSTRAP_PASSWORD
 
 A API não confia em proxy headers (`trustProxy=false`). Se houver proxy reverso,
 a identificação de IP deve ser configurada para proxies explicitamente confiáveis
-antes de usar rate limiting por IP por trás dele. CORS não aceita wildcard.
+antes de usar rate limiting por IP por trás dele. O perfil Cloudflare conserva
+`trustProxy=false` e limita a leitura de `CF-Connecting-IP` no rate limiting aos
+IPs exatos configurados em `CLOUDFLARED_TRUSTED_IPS`; outros headers de proxy
+continuam ignorados. Essa configuração é opcional e vazia por padrão. CORS não aceita wildcard.
 Em produção `WEB_ORIGINS` exige HTTPS. Não há fluxo nativo Android implementado.
 
 ## Processos e arquitetura

@@ -681,3 +681,87 @@ test("Invitation persistence enforces token uniqueness and author integrity", as
     await db.organizationInvitation.deleteMany({ where: { tokenHash } });
   }
 });
+
+test("only the pinned cloudflared peer can separate authentication budgets by visitor IP", async () => {
+  const connector = `203.0.113.${Math.floor(Math.random() * 200) + 1}`;
+  const visitor = `198.18.${Math.floor(Math.random() * 200) + 1}.1`;
+  const proxied = await buildApp(
+    { ...config, NODE_ENV: "test", trustedCloudflaredIPs: [connector] },
+    db,
+    redis,
+    false,
+  );
+  try {
+    for (let attempt = 0; attempt < 11; attempt++) {
+      const r = await proxied.inject({
+        method: "POST",
+        url: "/api/v1/auth/login",
+        remoteAddress: connector,
+        headers: { origin, "cf-connecting-ip": visitor },
+        payload: { email: email("missing"), password: "incorrect" },
+      });
+      assert.equal(r.statusCode, attempt === 10 ? 429 : 401);
+    }
+    const different = await proxied.inject({
+      method: "POST",
+      url: "/api/v1/auth/login",
+      remoteAddress: connector,
+      headers: { origin, "cf-connecting-ip": visitor.replace(/\.1$/, ".2") },
+      payload: { email: email("missing"), password: "incorrect" },
+    });
+    assert.equal(different.statusCode, 401);
+  } finally {
+    await proxied.close();
+  }
+});
+
+test("untrusted forwarded headers and malformed visitor IPs cannot bypass the peer budget", async () => {
+  const untrusted = `198.19.${Math.floor(Math.random() * 200) + 1}.1`;
+  const trusted = `198.19.${Math.floor(Math.random() * 200) + 1}.2`;
+  const proxied = await buildApp(
+    { ...config, NODE_ENV: "test", trustedCloudflaredIPs: [trusted] },
+    db,
+    redis,
+    false,
+  );
+  try {
+    for (const peer of [untrusted, trusted]) {
+      for (let attempt = 0; attempt < 11; attempt++) {
+        const visitor =
+          peer === trusted ? `invalid-${attempt}` : `192.0.2.${attempt + 1}`;
+        const r = await proxied.inject({
+          method: "POST",
+          url: "/api/v1/auth/login",
+          remoteAddress: peer,
+          headers: {
+            origin,
+            "cf-connecting-ip": visitor,
+            "x-forwarded-for": `192.0.2.${attempt + 1}`,
+          },
+          payload: { email: email("missing"), password: "incorrect" },
+        });
+        assert.equal(r.statusCode, attempt === 10 ? 429 : 401);
+      }
+    }
+  } finally {
+    await proxied.close();
+  }
+});
+
+test("connector configuration rejects wildcard and subnet trust", () => {
+  for (const value of ["*", "172.19.0.0/16", "true", "cloudflared"]) {
+    assert.throws(
+      () => loadConfig({ ...process.env, CLOUDFLARED_TRUSTED_IPS: value }),
+      /Invalid trusted connector configuration/,
+    );
+  }
+  assert.throws(
+    () =>
+      loadConfig({
+        ...process.env,
+        NODE_ENV: "production",
+        WEB_ORIGINS: "http://localhost:5173",
+      }),
+    /Invalid WEB_ORIGINS/,
+  );
+});

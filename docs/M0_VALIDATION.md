@@ -114,3 +114,21 @@ Os logs do MariaDB registram avisos de `io_uring` indisponível no host e
 revisão; as verificações de conectividade, migrations, transações e testes
 passaram. Não foram observados erros ou detalhes sensíveis nos logs da
 API/Worker. `npm audit` reportou zero vulnerabilidades.
+
+## Merge do M0 e preparação do primeiro deploy
+
+PR #2 integrado com merge commit, mantendo os três commits originais do M0.
+Main: `2c0982b66396753fcaa32dca9e8e6e308d434b85`. A árvore da main após merge
+é idêntica à feature validada. Working tree da main permaneceu limpo e as
+migrations aplicadas mantiveram seus checksums.
+
+A revalidação pós-merge repetiu lint/typecheck/25 testes/build, migrations status,
+smoke HTTP, health/readiness e containers healthy. Nenhuma divergência foi
+observada antes ou após o merge.
+
+A preparação Cloudflare foi isolada em `chore/m0-cloudflare-deploy`, com 28
+testes passando, lint/typecheck/build e smoke HTTP em modo de produção.
+Health/readiness internos também retornaram 200 a partir da rede do cloudflared.
+O deploy externo permanece pendente: os dois endpoints HTTPS falham no handshake
+TLS. O túnel não foi alterado. Rede, confiança explícita de IP, configurações,
+pendências manuais e rollback estão em `DEPLOYMENT.md`.
