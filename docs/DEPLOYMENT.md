@@ -1,4 +1,7 @@
-# Deploy controlado M0 — homelab e Cloudflare Tunnel
+# Deploy do Core — homelab e Cloudflare Tunnel
+
+Estado vigente: M1 Core implantado em 2026-10-08 UTC; evidências abaixo.
+As seções M0 e desenvolvimento isolado registram o histórico anterior.
 
 ## Estado validado
 
@@ -235,3 +238,70 @@ conforme LOCAL_DEVELOPMENT.md: projeto, banco, Redis, volumes e imagem próprios
 porta 3101 de loopback e nenhuma participação na cloudflare_ingress. Não
 executar local.sh deploy/validate nesta branch contra o ambiente de produção.
 Nenhuma configuração externa da Cloudflare foi alterada nesta entrega M1.
+
+
+## Produção M1 Core — 2026-10-08 UTC
+
+Deploy do commit `89ca5d139ffd6b7e90bfe75a2c60db72621d695a`, com main limpa e
+sincronizada. Imagem API/Worker `sha256:d736cfc383e6158b4f8065b9de690b38404256a3f8c2d0b0dee2637c44f49a62`,
+identificada também por `wapphub-core:m1-89ca5d1` (Compose usa `wapphub-core:local`).
+
+- Backup lógico pré-migration: `/home/uillan/homelab/backups/wapphub-core/wapphub-core-pre-m1-20261008-022619.sql.gz`, **10.192 bytes**,
+  `mariadb-dump --single-transaction --quick`, comprimido, não vazio e `gzip -t` válido;
+  permissão 600, fora do volume MariaDB. Restore não foi exercitado nesta execução.
+- Banco `wapphub`, container `wapphub-core-wapphub-db-1`, volume `wapphub-core_db-data`;
+  aproximadamente 22 GB livres antes do deploy.
+- Duas migrations M0 aplicadas antes; checksums iguais aos arquivos versionados,
+  sem alterações, diff M0 sem divergência. Somente duas migrations M1 pendentes.
+- SQL M1 revisado: tabelas novas com índices/FKs tenant-aware e coluna nullable
+  em RealtimeEvent nova; sem DROP ou alterações destrutivas em tabelas M0.
+- Lint/typecheck/build/Prisma validate e **53/53 testes** passaram no ambiente isolado.
+- `npm run db:migrate` (Prisma migrate deploy) aplicou
+  `20261008013000_m1_internal_chat` às 02:27:49.992 UTC e
+  `20261008014000_m1_transfer_audience` às 02:27:50.048 UTC.
+  Migrate status atualizado e diff final sem divergência.
+- Somente API/Worker recriados. MariaDB/Redis e seus dados preservados;
+  quatro containers healthy. MariaDB/Redis/Worker somente backend, sem portas
+  publicadas; API em loopback e cloudflare_ingress.
+- Health/readiness locais, no namespace do connector e externos: **200/200**.
+  HTTPS externo validado por curl e Python urllib, sem bypass TLS.
+- Origin temporária `https://m1-validation.wapphub.com.br` autorizada exclusivamente
+  por configuração durante o smoke; hostname não publicado e Cloudflare inalterada.
+  Valor anterior e final de WEB_ORIGINS vazio; API/Worker recriados após restauração;
+  quatro containers healthy e health/readiness externos novamente 200/200.
+- Smoke público autenticado: login/cookie Secure __Host-/sessão/CSRF; contact/list,
+  conversation, message/list, retry com mesmo clientMessageId (mesmo ID e contagem 1),
+  archive/unarchive, assignment, transfer FULL para outro usuário, tag, note e cursor
+  com páginas distintas. Origin inválida e CSRF inválido rejeitados com 403.
+- WSS público: sessão autenticada, evento live, reconexão/replay pelo lastEventId.
+  Dois tenants isolados; IDs estrangeiros negados em REST e eventos de A ausentes
+  no socket de B. Tenants/usuários/role e dados de fixture removidos ao terminar.
+  Permissions necessárias ao role temporário foram provisionadas por código;
+  nenhum role/membership existente recebeu autorização adicional.
+- Primeira tentativa do harness falhou por nome de role acima de 40 caracteres;
+  corrigido apenas no script temporário e smoke seguinte passou.
+- Logs recentes API/Worker sem exceptions/erros Prisma; Redis sem erros;
+  nenhuma correspondência de padrões de segredos. MariaDB registrou warnings
+  de conexões abortadas: 61 nos dez minutos anteriores e 30 durante o deploy,
+  sem outros warnings/erros no intervalo. Causa não diagnosticada; não corrigida aqui.
+
+### Rollback M1
+
+Imagem M0 preservada: `wapphub-core:m0-rollback-b790b6c`,
+`sha256:dcfcffe9be820b13eeb14f7e4e79cae646b96370fa0abf6f024ed729e524a0d9`,
+referência M0 `b790b6ce7ee427f931f84c5d0ac0ef1dd6d53fc5`.
+Schema aditivo mantém os modelos M0; rollback da aplicação não foi exercitado.
+Override local `/tmp/wapphub-m1-rollback.yml` aponta somente API/Worker para M0:
+
+```sh
+docker compose -f compose.yml -f /tmp/wapphub-m1-rollback.yml up -d --no-deps --wait wapphub-core-api wapphub-core-worker
+```
+
+Preservar a tag M0 e reconstruir o override se /tmp for limpo. Não reverter schema
+nem restaurar automaticamente o banco. Backup acima permanece disponível para
+recuperação controlada, se necessária.
+
+Limites: WEB_ORIGINS final vazio bloqueia uso autenticado REST/WS por clientes web;
+smokes comprovam o backend durante a autorização temporária. Não foi feito rollout
+RBAC para usuários existentes, teste de carga ou restore. Frontend, M2/M3/Meta
+não iniciados; milestone M1 global com frontend permanece incompleto.

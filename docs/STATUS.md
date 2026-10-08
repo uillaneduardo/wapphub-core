@@ -10,11 +10,15 @@ Legenda:
 
 ## Estado geral
 
-**Milestone ativo nesta branch:** M1 — backend de chat interno.
-**Produção:** M0 publicado na main `b790b6c`, preservado sem migrations/restarts.
-**Branch M1:** backend implementado e validado em ambiente separado; sem PR/merge
-ou promoção de produção. O milestone global M1 ainda inclui frontend/UX, fora
-desta execução. Evidências: `docs/M1_VALIDATION.md` e `docs/M0_VALIDATION.md`.
+**Milestone ativo:** M1 — backend de chat interno.
+**Produção:** M1 Core implantado em 2026-10-08 UTC, commit
+`89ca5d139ffd6b7e90bfe75a2c60db72621d695a`.
+Duas migrations M1 aplicadas; quatro containers healthy; health/readiness
+local/ingress/externo 200/200; smokes públicos REST/WSS, idempotência,
+reconnect/replay, isolamento tenant e Origin/CSRF negativos passaram.
+WEB_ORIGINS restaurado vazio; fixtures removidas. Backup/rollback/limites e
+warnings MariaDB preexistentes em `docs/DEPLOYMENT.md`.
+Frontend fora do escopo; milestone global M1 não encerrado.
 
 ## Documentação arquitetural
 
@@ -108,12 +112,13 @@ preservados. Nenhuma funcionalidade de M1 foi iniciada.
 | Isolamento multi-tenant | ✅ | IDs estrangeiros negados em REST, persistência e realtime |
 | OpenAPI | ✅ | Validação formal + identidade com schemas em modo produção |
 | Validação backend | ✅ | 53 testes; lint/typecheck/build; HTTP/WS smoke; quatro migrations consistentes no teste |
-| Ambiente separado | ✅ | Projeto/DB/Redis/imagem/volumes próprios; produção M0 intacta |
+| Ambiente separado | ✅ | Validação pré-deploy em projeto/DB/Redis/imagem/volumes próprios |
+| Deploy backend em produção | ✅ | Duas migrations M1; REST/WSS/replay/tenancy; DEPLOYMENT.md |
 | Frontend/UX/UI otimista/rotas SPA | ⬜ | Fora desta execução; milestone global M1 não encerrado |
 
 Detalhes/limites: `M1_CHAT_INTERNAL.md`, `REALTIME_CONTRACT.md` e `M1_VALIDATION.md`.
 Sem pendência funcional conhecida no escopo backend validado. Nenhuma entrega de
-Meta, M2+, mídia, billing ou Android foi antecipada. M1 não foi promovido à produção.
+Meta, M2+, mídia, billing ou Android foi antecipada. M1 Core promovido à produção; evidências atuais em `DEPLOYMENT.md`.
 
 ## Funcionalidades posteriores
 
