@@ -61,6 +61,20 @@ Não implementar itens de milestones futuros sem decisão registrada.
 
 ## Estado atual
 
-**Fase:** documentação e definição pré-implementação.
+**Fase:** M0 — Fundação implementada; evidências em `docs/STATUS.md`.
 
-Nenhuma funcionalidade é considerada implementada apenas por constar na documentação. Consulte `docs/STATUS.md`.
+A fundação inclui API Fastify/TypeScript, Prisma/MariaDB, sessões revogáveis,
+Membership/RBAC, segurança web, Redis e processos API/Worker via Compose.
+Nenhum domínio operacional de M1+ foi implementado.
+
+Execução: `docs/LOCAL_DEVELOPMENT.md`. Contrato REST: `docs/openapi.json`.
+Contrato reservado de eventos: `docs/REALTIME_CONTRACT.md`.
+
+```sh
+# Configure .env conforme .env.example e a documentação local
+scripts/local.sh up
+scripts/local.sh validate
+scripts/local.sh status
+```
+
+Consulte `docs/STATUS.md` para o estado validado de cada entrega.

@@ -162,3 +162,28 @@ Clientes móveis não alteram as regras de segurança.
 O app Android deverá usar fluxo de autenticação apropriado para cliente nativo, armazenamento seguro de credenciais/tokens e revogação server-side.
 
 Não reutilizar automaticamente no Android pressupostos de cookie/browser sem desenho específico de autenticação móvel.
+
+## Políticas implementadas no M0
+
+- Sessão MariaDB: tokens aleatórios de 32 bytes, somente SHA-256 persistido.
+- Política padrão: 12 horas absolutas e 30 minutos de inatividade, configuráveis.
+- Cookie HttpOnly/SameSite=Strict; Secure e prefixo __Host- em produção.
+- CSRF: Origin exato em toda operação mutável, JSON validado no login e token
+  aleatório vinculado à sessão em comandos autenticados. Token legível em cookie
+  CSRF e restituível por /me para clientes web após reload.
+- Login: 10 tentativas/minuto/IP compartilhadas por Redis; falha do limitador
+  bloqueia a operação. Proxy headers não são confiados por padrão.
+- Password hash: scrypt versionado, N=65536/r=8/p=1, salt de 16 bytes.
+- User/Organization/Membership ativos e permissions revalidados no servidor.
+- Logout encerra somente a sessão autenticada, inclusive com Membership revogada.
+- SecurityEvent: LOGIN_SUCCESS, LOGIN_FAILED (anônimo), SESSION_REVOKED.
+- AuditEvent tenant-scoped: seleção de contexto e bootstrap administrativo.
+- Segredos: base AES-256-GCM, versão da chave e escopo tenant autenticado por AAD.
+- API: payload limitado a 16 KiB, CORS exato, headers Helmet, cache no-store,
+  erros padronizados e logs sem corpo/querystring/credenciais/exceções internas.
+
+Contas são provisionadas por bootstrap explícito, sem senha padrão. Recuperação
+de senha, MFA e controles operacionais de retenção não possuem fluxo implementado
+no M0; requisitos conceituais acima permanecem para milestones apropriados.
+HTTPS e configuração de proxy confiável são requisitos do deploy de produção.
+Evidências de testes negativos estão em `tests/foundation.test.ts`.

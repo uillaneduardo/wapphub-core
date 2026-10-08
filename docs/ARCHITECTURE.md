@@ -279,3 +279,25 @@ O Chat deverá usar History API/BrowserRouter e o servidor precisa suportar SPA 
 Não introduzir microserviços, event bus distribuído, CQRS ou Kubernetes sem necessidade comprovada e decisão arquitetural registrada.
 
 A arquitetura deve permitir escalar API e Worker horizontalmente sem reescrever o domínio.
+
+## 20. Implementação M0
+
+A implementação usa Node 22 + TypeScript + Fastify 5, Prisma 6 + MariaDB 11.4 e
+Redis 7.4. Controllers/contratos ficam em `src/http`, casos de uso e autorização
+em `src/application`, erros em `src/domain`, configuração/conexões/criptografia
+em `src/infrastructure`. `src/realtime` reserva o envelope futuro.
+
+Sessões persistem no MariaDB com hashes de token/CSRF, expiração absoluta,
+inatividade e revogação. Redis atende somente rate limiting no M0. A imagem
+compartilhada executa API e Worker separadamente via Compose em rede interna;
+nenhum job de integração nem domínio operacional é antecipado.
+
+Os papéis globais são definições de permissões: a associação de um User a um
+papel ocorre exclusivamente pela Membership. Organization Context exige
+Membership ativa e `organization.read`, sem regras por nome de role/plano.
+As duas migrations preservam integridade de identidade, vínculos, convites e
+contexto de sessão. Audit/Security Events mantêm referências mínimas para
+rastreabilidade; não incluem corpos, credenciais ou conteúdo pessoal adicional.
+
+Não houve mudança nas decisões arquiteturais aprovadas. Execução reproduzível,
+bootstrap e limites do ambiente estão em `LOCAL_DEVELOPMENT.md`.
