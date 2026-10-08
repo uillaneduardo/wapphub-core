@@ -1,5 +1,16 @@
 # P0 — Autorização de prévias de mensagens
 
+> Atualização de produção — 2026-10-08, 15:00 Recife: P0 publicado em Core/API/Worker
+> `cbaf50c5eedd6731e1ca3a674c1d9b0b20005a7d` (`wapphub-core:p0-preview-cbaf50c`)
+> e Chat `d93efc576bd560fcbab0146343fb98bbbc1d0b69` (`wapphub-chat:p0-preview-d93efc5`).
+> Todos os cinco serviços healthy; HTTP, assets e integridade aprovados.
+> Validação funcional isolada anterior reaproveitada: 58 Core + 91 Chat; não reexecutada.
+> Homologação visual desta publicação pendente. A2 e demais aceites M1 permanecem;
+> M1 não formalmente encerrado. M2/P1 não iniciados.
+> [Registro de publicação e contingência](DEPLOY_P0_20261008.md).
+
+## Registro histórico anterior à publicação P0
+
 ## Estado e base
 
 Correção **local**, branch `fix/m1-message-preview-authorization`, baseada na

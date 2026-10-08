@@ -61,16 +61,16 @@ Não implementar itens de milestones futuros sem decisão registrada.
 
 ## Estado atual
 
-**Produção confirmada em 2026-10-08:** Core `72d05aa8c0a3c9f12a8c17abb25ad737b88c65af`,
-imagem `wapphub-core:demo-72d05aa`; Chat `3e234522673023a64f6bd7c827ca1adef35aaa0b`,
-imagem `wapphub-chat:lucide-nav-3e23452`. Core M1, roster e Demo estão publicados;
-catálogo comercial/entitlements/Admin/Minha Conta ainda são escopo planejado M2.
+**Produção confirmada após P0 em 2026-10-08:** Core/API/Worker
+`cbaf50c5eedd6731e1ca3a674c1d9b0b20005a7d`, imagem `wapphub-core:p0-preview-cbaf50c`;
+Chat `d93efc576bd560fcbab0146343fb98bbbc1d0b69`, imagem `wapphub-chat:p0-preview-d93efc5`.
+Core M1, roster e Demo publicados; correção de prévias autorizadas em produção.
+[Registro do deploy](docs/DEPLOY_P0_20261008.md): backup, testes anteriores,
+healthchecks, imagens e contingência. Homologação visual desta publicação pendente.
 
-M1 é operacional e as últimas melhorias visuais foram homologadas pelo usuário,
-mas **não está formalmente encerrado**: auditoria encontrou prévias que não
-respeitam permission/histórico e lacuna de checkpoint no Chat. main remota Core
-`fa292c4` ainda não inclui os dois commits Demo publicados. Nenhum código funcional,
-serviço ou dado de produção foi alterado nesta reconciliação.
+M1 operacional, sem encerramento formal: checkpoint A2 e demais aceites continuam
+pendentes. Integração Git ainda exige PRs/revisão; nenhum push ou merge realizado.
+Catálogo comercial/entitlements/Admin/Minha Conta continuam no M2 planejado.
 
 - [Inventário Git/produção](docs/GIT_PRODUCTION_INVENTORY_20261008.md).
 - [Arquitetura e matriz de aceite M1](docs/M1_ARCHITECTURE_ACCEPTANCE_20261008.md).
