@@ -26,6 +26,7 @@ export type PageQuery = {
   archived?: boolean;
   tagId?: string;
   contactId?: string;
+  q?: string;
 };
 export const contactDTO = (r: {
   id: string;
@@ -33,7 +34,9 @@ export const contactDTO = (r: {
   primaryIdentifier: string;
   createdAt: Date;
   updatedAt: Date;
+  channelIdentities?: { channel: { provider: string } }[];
 }) => ({
+  providers: [...new Set(r.channelIdentities?.map((identity) => identity.channel.provider) ?? [])],
   id: r.id,
   name: r.name,
   primaryIdentifier: r.primaryIdentifier,
@@ -309,14 +312,17 @@ export class Chat {
   }
   async contacts(p: Principal, q: PageQuery) {
     const c = await this.context(p, "contacts.read"),
-      scope = this.scope(c, "contacts");
+      search = q.q?.trim() ?? "",
+      scope = this.scope(c, "contacts", search ? JSON.stringify(search) : "");
     const id = cursorDecode(this.config.ENCRYPTION_KEY, scope, q.cursor);
     const limit = q.limit ?? 50;
     const rows = await this.db.contact.findMany({
       where: {
         organizationId: c.organizationId,
         ...(id ? { id: { gt: id } } : {}),
+        ...(search ? { OR: [{ name: { contains: search.replace(/[\\%_]/g, "\\$&") } }, { primaryIdentifier: { contains: search.replace(/[\\%_]/g, "\\$&") } }] } : {}),
       },
+      include: { channelIdentities: { select: { channel: { select: { provider: true } } } } },
       orderBy: { id: "asc" },
       take: limit + 1,
     });
@@ -332,6 +338,7 @@ export class Chat {
     const c = await this.context(p, "contacts.read");
     const r = await this.db.contact.findFirst({
       where: { organizationId: c.organizationId, id },
+      include: { channelIdentities: { select: { channel: { select: { provider: true } } } } },
     });
     if (!r) throw new AppError(404, "NOT_FOUND");
     return contactDTO(r);
@@ -355,6 +362,7 @@ export class Chat {
               organizationId_id: { organizationId: c.organizationId, id },
             },
             data,
+            include: { channelIdentities: { select: { channel: { select: { provider: true } } } } },
           })
         : await tx.contact.create({
             data: {
@@ -364,6 +372,10 @@ export class Chat {
             },
           });
       await this.audit(tx, c, id ? "CONTACT_UPDATED" : "CONTACT_CREATED");
+      if (id && data.name !== undefined) {
+        const conversations = await tx.conversation.findMany({ where: { organizationId: c.organizationId, contactId: id }, select: { id: true } });
+        for (const conversation of conversations) await this.event(tx, c, "conversation.updated", conversation.id, conversation.id);
+      }
       return contactDTO(r);
     });
   }
@@ -456,7 +468,7 @@ export class Chat {
       await this.audit(this.db, c, "CONVERSATION_SUPERVISED");
     return conversationDTO(r, c);
   }
-  async createConversation(p: Principal, contactId: string) {
+  async createConversation(p: Principal, contactId: string, reuseExisting = false) {
     return this.mutation(p, "conversations.create", async (tx, c) => {
       if (
         !(await tx.contact.findFirst({
@@ -464,13 +476,24 @@ export class Chat {
         }))
       )
         throw new AppError(404, "NOT_FOUND");
+      if (reuseExisting) {
+        this.require(c, "conversations.read");
+        const existing = await tx.conversation.findFirst({
+          where: { organizationId: c.organizationId, contactId, channelId: null, status: { in: ["OPEN", "PENDING"] },
+            ...(c.permissions.includes("conversations.supervise") ? {} : { OR: [{ assignedUserId: c.userId }, { assignedUserId: null }] }),
+          },
+          include: { contact: { select: { name: true } }, tags: { select: { tagId: true } } },
+          orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }],
+        });
+        if (existing) { await this.audit(tx, c, "CONVERSATION_REUSED"); return { ...conversationDTO(existing, c), reused: true }; }
+      }
       const r = await tx.conversation.create({
         include: { contact: { select: { name: true } } },
         data: { organizationId: c.organizationId, contactId },
       });
       await this.audit(tx, c, "CONVERSATION_CREATED");
       await this.event(tx, c, "conversation.created", r.id, r.id);
-      return conversationDTO(r, c);
+      return reuseExisting ? { ...conversationDTO(r, c), reused: false } : conversationDTO(r, c);
     });
   }
   async archive(p: Principal, id: string, archived: boolean) {

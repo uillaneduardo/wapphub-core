@@ -20,6 +20,7 @@ const str = { type: "string" },
   nullableDate = { anyOf: [date, { type: "null" }] };
 const error = obj({ error: obj({ code: str, requestId: str }) });
 const contact = obj({
+  providers: { type: "array", items: { type: "string", enum: ["DEMO", "META"] } },
   id: uuid,
   name: str,
   primaryIdentifier: str,
@@ -161,7 +162,7 @@ export async function chatRoutes(
   );
   app.get<{ Querystring: PageQuery }>(
     "/api/v1/contacts",
-    { schema: schema(page(contact), false, { querystring: query }) },
+    { schema: schema(page(contact), false, { querystring: obj({ limit, cursor, q: { type: "string", maxLength: 254 } }, []) }) },
     async (r) => chat.contacts(await principal(r), r.query),
   );
   app.post<{ Body: { name: string; primaryIdentifier: string } }>(
@@ -213,10 +214,10 @@ export async function chatRoutes(
     },
     async (r) => chat.conversations(await principal(r), r.query),
   );
-  app.post<{ Body: { contactId: string } }>(
+  app.post<{ Body: { contactId: string; reuseExisting?: boolean } }>(
     "/api/v1/conversations",
-    { schema: schema(conversation, true, { body: obj({ contactId: uuid }) }) },
-    async (r) => chat.createConversation(await principal(r), r.body.contactId),
+    { schema: schema({ ...conversation, properties: { ...conversation.properties, reused: { type: "boolean" } } }, true, { body: obj({ contactId: uuid, reuseExisting: { type: "boolean", default: false } }, ["contactId"]) }) },
+    async (r) => chat.createConversation(await principal(r), r.body.contactId, r.body.reuseExisting),
   );
   app.get<{ Params: { id: string } }>(
     "/api/v1/conversations/:id",

@@ -1269,3 +1269,96 @@ test("event stream permission removal closes socket and WebSocket commands are r
   command.ws.send(JSON.stringify({ organizationId: orgB, type: "subscribe" }));
   await until(() => command.ws.readyState === WebSocket.CLOSED);
 });
+
+test("M1 contact search and provider metadata are scoped and cursors bound to the query", async () => {
+  const label = `Search-${randomUUID()}`;
+  const first = await request(supervisor, "POST", "/contacts", { name: label, primaryIdentifier: randomUUID() });
+  await request(supervisor, "POST", "/contacts", { name: label, primaryIdentifier: randomUUID() });
+  await request(tenantB, "POST", "/contacts", { name: label, primaryIdentifier: randomUUID() });
+  const page = await request(supervisor, "GET", `/contacts?q=${encodeURIComponent(label)}&limit=1`);
+  assert.equal(page.items.length, 1); assert.ok(page.nextCursor);
+  const next = await request(supervisor, "GET", `/contacts?q=${encodeURIComponent(label)}&limit=1&cursor=${encodeURIComponent(page.nextCursor)}`);
+  assert.equal(next.items.length, 1); assert.notEqual(next.items[0].id, page.items[0].id); assert.equal(next.nextCursor, null);
+  await request(supervisor, "GET", `/contacts?q=different&cursor=${encodeURIComponent(page.nextCursor)}`, undefined, 400);
+  await request(tenantB, "GET", `/contacts?q=${encodeURIComponent(label)}&cursor=${encodeURIComponent(page.nextCursor)}`, undefined, 400);
+  const byIdentifier = await request(supervisor, "GET", `/contacts?q=${encodeURIComponent(first.primaryIdentifier)}`);
+  assert.deepEqual(byIdentifier.items.map((c: { id: string }) => c.id), [first.id]);
+  assert.deepEqual(first.providers, []);
+  await request(supervisor, "PUT", "/providers/demo", { enabled: true });
+  const demo = await request(supervisor, "GET", "/providers/demo/contacts");
+  const contact = await request(supervisor, "GET", `/contacts/${demo.items[0].contactId}`);
+  assert.deepEqual(contact.providers, ["DEMO"]);
+  await request(tenantB, "GET", `/contacts/${contact.id}`, undefined, 404);
+  await request(denied, "GET", "/contacts?q=Search", undefined, 403);
+});
+
+test("M1 explicit internal conversation reuse serializes concurrent requests without extra events", async () => {
+  const contact = await request(supervisor, "POST", "/contacts", { name: "Concurrent internal", primaryIdentifier: randomUUID() });
+  const results = await Promise.all(Array.from({ length: 6 }, () => request(agent, "POST", "/conversations", { contactId: contact.id, reuseExisting: true })));
+  assert.equal(new Set(results.map((r) => r.id)).size, 1);
+  assert.equal(results.filter((r) => r.reused === false).length, 1);
+  assert.equal(results.filter((r) => r.reused === true).length, 5);
+  assert.equal(await db.conversation.count({ where: { organizationId: orgA, contactId: contact.id, channelId: null } }), 1);
+  assert.equal(await db.realtimeEvent.count({ where: { organizationId: orgA, conversationId: results[0].id, type: "conversation.created" } }), 1);
+  assert.ok(await db.auditEvent.findFirst({ where: { organizationId: orgA, action: "CONVERSATION_REUSED" } }));
+  await request(tenantB, "POST", "/conversations", { contactId: contact.id, reuseExisting: true }, 404);
+  await request(denied, "POST", "/conversations", { contactId: contact.id, reuseExisting: true }, 403);
+  await request(agent, "POST", "/conversations", { contactId: contact.id, reuseExisting: true, channelId: randomUUID() }, 400);
+});
+
+test("M1 internal reuse never exposes another assignee or reopens archived conversations", async () => {
+  const original = await conversation();
+  await request(supervisor, "POST", `/conversations/${original.id}/assign`, { userId: agent.userId });
+  const other = await request(recipient, "POST", "/conversations", { contactId: original.contactId, reuseExisting: true });
+  assert.notEqual(other.id, original.id);
+  const accessible = await request(agent, "POST", "/conversations", { contactId: original.contactId, reuseExisting: true });
+  assert.ok([original.id, other.id].includes(accessible.id));
+  await request(supervisor, "POST", `/conversations/${original.id}/archive`);
+  await request(supervisor, "POST", `/conversations/${other.id}/archive`);
+  const fresh = await request(agent, "POST", "/conversations", { contactId: original.contactId, reuseExisting: true });
+  assert.ok(![original.id, other.id].includes(fresh.id));
+  const legacy = await request(agent, "POST", "/conversations", { contactId: original.contactId });
+  assert.notEqual(legacy.id, fresh.id);
+});
+
+test("M1 contacts edit preserves provider identity and emits authorized conversation invalidations", async () => {
+  await request(supervisor, "PUT", "/providers/demo", { enabled: true });
+  const demos = await request(supervisor, "GET", "/providers/demo/contacts");
+  const demo = demos.items[0];
+  const identities = await db.contactIdentity.findMany({ where: { organizationId: orgA, contactId: demo.contactId } });
+  const updated = await request(supervisor, "PATCH", `/contacts/${demo.contactId}`, { name: "Demo renamed" });
+  assert.deepEqual(updated.providers, ["DEMO"]);
+  assert.deepEqual(await db.contactIdentity.findMany({ where: { organizationId: orgA, contactId: demo.contactId } }), identities);
+  assert.ok(await db.realtimeEvent.findFirst({ where: { organizationId: orgA, conversationId: demo.conversationId, type: "conversation.updated" } }));
+  await request(tenantB, "PATCH", `/contacts/${demo.contactId}`, { name: "Foreign" }, 404);
+  await request(supervisor, "PATCH", `/contacts/${demo.contactId}`, { channelId: randomUUID() }, 400);
+  await request(supervisor, "PUT", "/providers/demo", { enabled: false });
+  await request(supervisor, "POST", "/providers/demo/messages", { contactId: demo.contactId, externalMessageId: randomUUID(), body: "Blocked" }, 409);
+  const internal = await request(supervisor, "POST", "/conversations", { contactId: demo.contactId, reuseExisting: true });
+  assert.equal(internal.provider, null); assert.notEqual(internal.id, demo.conversationId);
+});
+
+test("M1 reused conversations preserve NONE history and return no preview without message read", async () => {
+  const original = await conversation(); await send(supervisor, original.id, "Restricted prior body");
+  await request(supervisor, "POST", `/conversations/${original.id}/assign`, { userId: agent.userId });
+  await request(supervisor, "POST", `/conversations/${original.id}/transfer`, { userId: recipient.userId, visibility: "NONE" });
+  const existing = await request(recipient, "POST", "/conversations", { contactId: original.contactId, reuseExisting: true });
+  assert.equal(existing.id, original.id); assert.equal(existing.reused, true); assert.equal(existing.lastMessagePreview, null);
+  assert.deepEqual((await request(recipient, "GET", `/conversations/${original.id}/messages`)).items, []);
+  const role = await db.role.create({ data: { code: `NC_${randomUUID().slice(0, 12)}` } }); roles.push(role.id);
+  const permissions = await db.permission.findMany({ where: { code: { in: ["organization.read", "contacts.read", "contacts.write", "conversations.read", "conversations.create"] } } });
+  await db.rolePermission.createMany({ data: permissions.map((p) => ({ roleId: role.id, permissionId: p.id })) });
+  const metadataOnly = await auth(role.id, orgA);
+  const created = await conversation(metadataOnly); const reused = await request(metadataOnly, "POST", "/conversations", { contactId: created.contactId, reuseExisting: true });
+  assert.equal(reused.id, created.id); assert.equal(reused.lastMessagePreview, null);
+  await request(metadataOnly, "GET", `/conversations/${reused.id}/messages`, undefined, 403);
+});
+
+test("M1 contact search treats wildcard characters literally and validates bounded input", async () => {
+  const identifier = `literal%_${randomUUID()}`;
+  const match = await request(supervisor, "POST", "/contacts", { name: "Literal", primaryIdentifier: identifier });
+  const found = await request(supervisor, "GET", `/contacts?q=${encodeURIComponent(identifier)}`);
+  assert.deepEqual(found.items.map((c: { id: string }) => c.id), [match.id]);
+  await request(supervisor, "GET", `/contacts?q=${'x'.repeat(255)}`, undefined, 400);
+  await request(supervisor, "GET", `/contacts?q=abc&organizationId=${orgB}`, undefined, 400);
+});

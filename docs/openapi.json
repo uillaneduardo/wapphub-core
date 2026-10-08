@@ -2055,6 +2055,15 @@
             "in": "query",
             "name": "cursor",
             "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 254
+            },
+            "in": "query",
+            "name": "q",
+            "required": false
           }
         ],
         "security": [
@@ -2077,6 +2086,16 @@
                         "type": "object",
                         "additionalProperties": false,
                         "properties": {
+                          "providers": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "DEMO",
+                                "META"
+                              ]
+                            }
+                          },
                           "id": {
                             "type": "string",
                             "format": "uuid"
@@ -2097,6 +2116,7 @@
                           }
                         },
                         "required": [
+                          "providers",
                           "id",
                           "name",
                           "primaryIdentifier",
@@ -2488,6 +2508,16 @@
                   "type": "object",
                   "additionalProperties": false,
                   "properties": {
+                    "providers": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "DEMO",
+                          "META"
+                        ]
+                      }
+                    },
                     "id": {
                       "type": "string",
                       "format": "uuid"
@@ -2508,6 +2538,7 @@
                     }
                   },
                   "required": [
+                    "providers",
                     "id",
                     "name",
                     "primaryIdentifier",
@@ -2871,6 +2902,16 @@
                   "type": "object",
                   "additionalProperties": false,
                   "properties": {
+                    "providers": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "DEMO",
+                          "META"
+                        ]
+                      }
+                    },
                     "id": {
                       "type": "string",
                       "format": "uuid"
@@ -2891,6 +2932,7 @@
                     }
                   },
                   "required": [
+                    "providers",
                     "id",
                     "name",
                     "primaryIdentifier",
@@ -3279,6 +3321,16 @@
                   "type": "object",
                   "additionalProperties": false,
                   "properties": {
+                    "providers": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "DEMO",
+                          "META"
+                        ]
+                      }
+                    },
                     "id": {
                       "type": "string",
                       "format": "uuid"
@@ -3299,6 +3351,7 @@
                     }
                   },
                   "required": [
+                    "providers",
                     "id",
                     "name",
                     "primaryIdentifier",
@@ -4156,6 +4209,10 @@
                   "contactId": {
                     "type": "string",
                     "format": "uuid"
+                  },
+                  "reuseExisting": {
+                    "type": "boolean",
+                    "default": false
                   }
                 },
                 "required": [
@@ -4248,6 +4305,9 @@
                         "LIMITED",
                         "NONE"
                       ]
+                    },
+                    "reused": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
