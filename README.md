@@ -61,13 +61,21 @@ Não implementar itens de milestones futuros sem decisão registrada.
 
 ## Estado atual
 
-**Produção:** M0 — Fundação publicada e preservada.
-**Branch M1:** backend de chat interno; evidências em `docs/M1_VALIDATION.md`.
+**Produção confirmada em 2026-10-08:** Core `72d05aa8c0a3c9f12a8c17abb25ad737b88c65af`,
+imagem `wapphub-core:demo-72d05aa`; Chat `3e234522673023a64f6bd7c827ca1adef35aaa0b`,
+imagem `wapphub-chat:lucide-nav-3e23452`. Core M1, roster e Demo estão publicados;
+catálogo comercial/entitlements/Admin/Minha Conta ainda são escopo planejado M2.
 
-A fundação inclui API Fastify/TypeScript, Prisma/MariaDB, sessões revogáveis,
-Membership/RBAC, segurança web, Redis e processos API/Worker via Compose.
-O backend M1 é desenvolvido/validado em ambiente isolado, sem atualizar a
-produção. Frontend, Meta e milestones posteriores não fazem parte desta entrega.
+M1 é operacional e as últimas melhorias visuais foram homologadas pelo usuário,
+mas **não está formalmente encerrado**: auditoria encontrou prévias que não
+respeitam permission/histórico e lacuna de checkpoint no Chat. main remota Core
+`fa292c4` ainda não inclui os dois commits Demo publicados. Nenhum código funcional,
+serviço ou dado de produção foi alterado nesta reconciliação.
+
+- [Inventário Git/produção](docs/GIT_PRODUCTION_INVENTORY_20261008.md).
+- [Arquitetura e matriz de aceite M1](docs/M1_ARCHITECTURE_ACCEPTANCE_20261008.md).
+- [Estratégia de integração](docs/GIT_INTEGRATION_STRATEGY_20261008.md).
+- [Plano incremental M2](docs/M2_TECHNICAL_PLAN.md), sem implementação iniciada.
 
 Execução: `docs/LOCAL_DEVELOPMENT.md`. Contrato REST: `docs/openapi.json`.
 Contrato de eventos M1: `docs/REALTIME_CONTRACT.md`.

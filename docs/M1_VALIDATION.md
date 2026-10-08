@@ -1,5 +1,33 @@
 # Validação M1 — backend interno
 
+## Reconciliação atual — 2026-10-08
+
+Core publicado 72d05aa, Chat publicado 3e23452. Ledger de produção possui seis
+migrations concluídas, com checksums Git iguais; OpenAPI público igual ao local.
+Reexecutados lint/typecheck, **56 testes**, build e OpenAPI no container API do
+projeto isolado wapphub-m1-test (código fingerprint igual à imagem publicada),
+NODE_ENV=test, banco wapphub_m1_test e Redis isolado. Não houve migrations,
+seeds, alteração de serviços ou dados de produção. Chat: 86 testes/checks aprovados.
+Contraprovas sintéticas adicionais revelaram prévia sem autorização/histórico
+(A1) e checkpoint antes de aplicação REST no frontend (A2). Portanto suíte verde
+não equivale a encerramento M1. Detalhes: `M1_ARCHITECTURE_ACCEPTANCE_20261008.md`.
+
+Comando desta revalidação (somente container de teste existente):
+
+```sh
+docker exec wapphub-m1-test-wapphub-core-api-1 sh -c 'npm run lint && npm run typecheck && npm test && npm run build && npm run openapi:validate'
+```
+
+Confirmar antes código e NODE_ENV/database de teste; não substituir por container
+de produção. Os comandos históricos abaixo incluem setup/migrations apenas em
+banco isolado e não foram executados nesta auditoria.
+
+## Registro histórico da validação inicial M1
+
+O restante descreve a primeira execução isolada (53 testes, antes de roster/Demo);
+as afirmações de produção M0/não publicada e quatro migrations são desse momento,
+superadas pelos deploys em DEPLOYMENT e pelo inventário atual.
+
 Escopo: backend/Core somente; frontend, Meta e milestones M2+ excluídos.
 Produção M0 não é alvo de migrations, rebuild/restart ou testes com fixtures.
 Base revisada: b790b6ce7ee427f931f84c5d0ac0ef1dd6d53fc5.

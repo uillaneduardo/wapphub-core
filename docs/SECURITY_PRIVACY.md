@@ -217,4 +217,7 @@ token em URL. Guarda periódica não estende lastSeenAt; revogação/contexto/es
 inválido encerra sockets. Logout/troca de contexto invalidam conexões no próprio
 fluxo REST. Stream persistente entrega somente IDs autorizados. Antigo atendente
 recebe somente a invalidação da transferência pelo seu escopo de usuário.
-Produção M0 não recebe migrations/testes do M1; veja LOCAL_DEVELOPMENT.md.
+A validação inicial M1 não alterou produção M0; depois houve promoção M1/Demo
+controlada. Testes mutáveis continuam exclusivos ao ambiente isolado, conforme
+LOCAL_DEVELOPMENT.md. Achado atual de autorização de prévias A1 em
+M1_ARCHITECTURE_ACCEPTANCE_20261008.md impede aceite integral desta policy.

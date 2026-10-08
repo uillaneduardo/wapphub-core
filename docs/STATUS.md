@@ -1,5 +1,52 @@
 # Status de Implementação
 
+## Estado verificado — 2026-10-08
+
+**M1 operacional, sem encerramento formal; M2 apenas planejado.**
+Produção Core `72d05aa8c0a3c9f12a8c17abb25ad737b88c65af` / `wapphub-core:demo-72d05aa`;
+Chat `3e234522673023a64f6bd7c827ca1adef35aaa0b` / `wapphub-chat:lucide-nav-3e23452`.
+Containers/imagens, código Core, OpenAPI e seis migrations conferidos em leitura.
+API/Worker/MariaDB/Redis/Chat healthy; health/readiness e bundle público aprovados.
+WEB_ORIGINS atual: https://chat.wapphub.com.br. Roster integrado pelo PR #6;
+Demo publicado mas dois commits ainda locais, não presentes na main remota fa292c4.
+PR documental #7 continua draft e sua nota foi incorporada com complemento auditado.
+
+| Item atual | Estado e evidência |
+| --- | --- |
+| Fundação/auth/contexto/RBAC | Implementado e validado; suíte Core e operação M1 |
+| Chat REST/WS/persistência/idempotência | Implementado e validado dentro da cobertura; 56 testes reexecutados |
+| Demo/ingestão/port/roster | Implementado e publicado; 56 testes, fingerprints e contrato público |
+| Frontend operacional/Demo/visual | Implementado e homologado conforme relato do usuário; 86 testes Chat |
+| Preview e visibilidade transferida | Parcial; bloqueador A1: prévia ignora messages.read/limite NONE |
+| Realtime integrado/reconnect cliente | Parcial; bloqueador A2: checkpoint antes da aplicação REST |
+| Multi-Organization ponta a ponta | Implementado, sem evidência integrada suficiente; verificar fila/cancelamento |
+| Contacts/criação manual UI | Parcial/pendente; ver matriz frontend, não inferir de endpoints |
+| Integração Git de produção | Pendente: Core2 + Chat10 commits funcionais/documentais publicados fora das main |
+| Entitlements/seats/convites comerciais/Admin/Minha Conta | Não implementados; plano M2 proposto |
+| Meta/mídia/100 agentes/MVP comercial | Milestones posteriores preservados |
+
+Lint/typecheck/build/OpenAPI e 56 testes Core passaram novamente no projeto
+isolado wapphub-m1-test; lint/typecheck/build e 86 testes Chat passaram sem browser.
+Isso não elimina as contraprovas sintéticas adicionais A1/A2. Homologações
+visuais/operacionais do usuário são aceitas como relato, sem inventar matriz
+completa de viewports, touch/AT ou testes negativos em produção.
+
+Fontes: [inventário](GIT_PRODUCTION_INVENTORY_20261008.md),
+[matriz/arquitetura](M1_ARCHITECTURE_ACCEPTANCE_20261008.md),
+[nota remota preservada](M1_PRODUCTION_RECONCILIATION_20261008.md),
+[integração Git](GIT_INTEGRATION_STRATEGY_20261008.md),
+[plano M2](M2_TECHNICAL_PLAN.md).
+Não houve deploy, migrations, seeds, mudanças de produção, merge ou push.
+
+## Histórico anterior preservado
+
+O conteúdo abaixo registra entregas nas datas/branches originais; referências
+antigas a produção M0, roster não integrado, WEB_ORIGINS vazio ou Demo não
+publicado são snapshots históricos, superados pelo estado verificado acima.
+Os testes originais e critérios não foram apagados nem usados para inferir M1
+completo. A fonte do estado corrente é a seção inicial e a matriz auditada.
+
+
 Atualizar este arquivo em todo PR/entrega que altere o estado funcional do projeto.
 
 Legenda:

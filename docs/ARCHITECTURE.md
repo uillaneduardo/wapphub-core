@@ -316,5 +316,6 @@ de qualquer meta M5. Sem event bus distribuído ou microserviços.
 A política de transferência se aplica tanto ao REST quanto ao realtime/replay.
 Limites de histórico não apagam dados. O ambiente M1 de teste possui projeto,
 banco, Redis, volumes, imagem e porta próprios; não participa da ingress de
-produção. Produção permanece M0 até uma promoção futura explicitamente revisada.
+produção. Esse era o estado na validação inicial isolada; atualmente Core M1/Demo 72d05aa
+está publicado, conforme inventário de 2026-10-08.
 Decisões e limites detalhados em `M1_CHAT_INTERNAL.md` e `REALTIME_CONTRACT.md`.

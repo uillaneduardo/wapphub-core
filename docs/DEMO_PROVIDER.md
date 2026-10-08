@@ -2,7 +2,15 @@
 
 ## Estado
 
-Implementação local em `feat/m1-demo-provider`, ainda não integrada nem publicada. As migrations aditivas foram aplicadas apenas ao Compose isolado `wapphub-m1-test` / banco `wapphub_m1_test`. Não houve alteração de produção.
+Publicado em produção na revisão `72d05aa`, imagem `wapphub-core:demo-72d05aa`;
+seis migrations verificadas no ledger, inclusive as duas Demo. Os dois commits
+81a8103/72d05aa continuam locais, fora da main remota fa292c4. A validação inicial
+foi feita no Compose isolado wapphub-m1-test, depois houve publicação controlada.
+A auditoria de 2026-10-08 reexecutou 56 testes e checks nesse ambiente isolado,
+sem alterar produção. Ver `GIT_PRODUCTION_INVENTORY_20261008.md` e
+`M1_ARCHITECTURE_ACCEPTANCE_20261008.md` para estado de aceite e achados.
+Backup pré-Demo gzip íntegro foi encontrado; criptografia/restore recomendados
+no procedimento abaixo não têm evidência de execução e permanecem riscos.
 
 O Demo Provider exercita o domínio comum de canais. Ele não chama serviços externos e não implementa Meta, mídia, billing ou convites.
 

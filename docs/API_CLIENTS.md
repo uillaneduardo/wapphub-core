@@ -79,7 +79,7 @@ Não criar lógica exclusiva no backend "só para o navegador" se for regra de d
 Web e Android podem possuir UX diferente, mas devem produzir os mesmos comandos e respeitar:
 - Organization Context;
 
-## API do Demo Provider (branch de revisão M1)
+## API do Demo Provider (publicada no Core 72d05aa)
 
 - `GET /api/v1/providers` lista DEMO e META; META é apenas IN_DEVELOPMENT.
 - `PUT /api/v1/providers/demo` altera estado com `providers.manage` e CSRF.
@@ -128,4 +128,5 @@ Na branch `feat/m1-team-roster`, `GET /api/v1/team/members` lista somente
 Memberships e Users ativos da Organization da sessão, com `userId`, nome,
 email, status e `canReceiveAssignment`. Requer `conversations.assign` ou
 `conversations.transfer`; cursor e limite seguem o formato `{items,nextCursor}`.
-Esse contrato ainda não foi integrado nem implantado.
+O roster foi integrado pelo PR #6 e está publicado no OpenAPI de produção;
+ver inventário de 2026-10-08. A descrição da branch acima é histórica.

@@ -305,3 +305,51 @@ Limites: WEB_ORIGINS final vazio bloqueia uso autenticado REST/WS por clientes w
 smokes comprovam o backend durante a autorização temporária. Não foi feito rollout
 RBAC para usuários existentes, teste de carga ou restore. Frontend, M2/M3/Meta
 não iniciados; milestone M1 global com frontend permanece incompleto.
+
+
+## Reconciliação somente leitura — 2026-10-08, após Demo e Lucide
+
+Estado corrente supera os snapshots de M0/M1 interno acima; nenhum deploy foi
+feito nesta auditoria. Core API/Worker executam `wapphub-core:demo-72d05aa`,
+image ID `sha256:f0a209caf8ebd44db7a7e088d8e60f5a9d0c4f8e92feefeae719ee4bebf0cd26`.
+Containers respectivos f3bc5488ef61 e 22e777fc13d7, iniciados 14:35:05 UTC;
+MariaDB 65750f142703 e Redis 1ec5cdfb29de preservados, todos healthy.
+Chat 3e23452 / `wapphub-chat:lucide-nav-3e23452` healthy.
+Identificadores completos e HTTP/hash/migration evidence em
+`GIT_PRODUCTION_INVENTORY_20261008.md`. Core não tem revision label; fingerprints
+37 arquivos de API/Worker iguais ao commit informado. WEB_ORIGINS atual autoriza
+https://chat.wapphub.com.br, superando a configuração vazia histórica.
+
+Compose real Core: compose.yml + /tmp/wapphub-core-demo-override.yml para API/Worker.
+Override aponta somente suas imagens para demo-72d05aa; Compose default não deve
+ser usado implicitamente como referência de produção. Guardar configuração
+operacional durável será trabalho autorizado separado, não realizado aqui.
+
+Ledger read-only confirma Demo migrations 20261008020000_demo_provider e
+20261008021000_demo_provider_rbac concluídas às 14:34:56 UTC, mais as quatro
+anteriores. Checksums iguais aos arquivos Git; sem migration/seed nesta auditoria.
+Não houve drift completo do schema verificado; não extrapolar do ledger.
+
+Backup pré-Demo: /home/uillan/homelab/backups/wapphub-core/wapphub-core-pre-demo-20261008-143259.sql.gz,
+19.689 bytes, permissão600, gzip -t aprovado; sem evidência de restore/criptografia,
+no mesmo host. Backup pré-M1 acima também gzip íntegro. Procedimento em
+DEMO_PROVIDER recomendava backup criptografado/restore isolado antes da publicação;
+essas etapas não estão comprovadas. Não chamar gzip de recuperação validada.
+
+**Rollback histórico M0/M1 anterior não deve ser executado automaticamente após
+mensagens Demo:** schema/DTO antigos só entendem INTERNAL. Manter/restaurar Core
+compatível com INBOUND/OUTBOUND; desativar Demo não remove dados externos nem
+torna seguro downgrade. Recuperação destrutiva de banco requer plano/autorização
+separados e perda posterior ao backup explicitada. Frontend pode voltar a imagem
+anterior preservada mantendo Core compatível, conforme relatório do Chat.
+
+Relatório Chat atual:
+/home/uillan/homelab/deploy-records/wapphub-chat/20261008-lucide-nav-3e23452/REPORT.md.
+Não foi encontrado diretório deploy-records/wapphub-core; histórico disponível
+neste arquivo, backup, migrations/imagens e nota remota do PR #7. Não inventar
+relatório Core independente inexistente.
+
+A1 autorização de preview e A2 checkpoint cliente são bloqueadores reais de
+aceite M1; ver matriz/arquitetura. Produção segue operacional; correções/release
+futuras exigem autorização própria. Sem merge/push, alteração de containers,
+Cloudflare/DNS, volumes, migrations ou dados neste processo documental.
