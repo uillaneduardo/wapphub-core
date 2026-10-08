@@ -488,6 +488,7 @@ test("OpenAPI preserves every foundation route and includes only M1 chat extensi
     "/conversations/{id}/tags/{tagId}",
     "/conversations/{id}/notes",
     "/realtime/events",
+    "/team/members",
   ];
   assert.deepEqual(
     Object.keys(doc.paths).sort(),

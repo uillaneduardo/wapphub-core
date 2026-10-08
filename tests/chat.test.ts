@@ -242,6 +242,78 @@ test("contacts create/list/update, cursor integrity and identifier uniqueness ar
   assert.ok(list.items.every((x: { id: string }) => x.id !== undefined));
   await request(supervisor, "GET", "/contacts?cursor=forged", undefined, 400);
 });
+
+test("team roster is permission gated, tenant scoped, active only and paginated", async () => {
+  const inactiveUser = await db.user.create({
+    data: {
+      name: "Inactive membership",
+      email: `${randomUUID()}@example.test`,
+      passwordHash: await hashPassword(newToken()),
+    },
+  });
+  users.push(inactiveUser.id);
+  const inactiveMembership = await db.membership.create({
+    data: {
+      userId: inactiveUser.id,
+      organizationId: orgA,
+      roleId: agentRole,
+      status: "INACTIVE",
+    },
+  });
+  try {
+    const roster = await request(supervisor, "GET", "/team/members");
+    const members = roster.items as {
+      userId: string;
+      name: string;
+      email: string;
+      status: string;
+      canReceiveAssignment: boolean;
+    }[];
+    assert.ok(members.some((member) => member.userId === agent.userId));
+    assert.ok(members.some((member) => member.userId === recipient.userId));
+    assert.ok(!members.some((member) => member.userId === tenantB.userId));
+    assert.ok(!members.some((member) => member.userId === inactiveUser.id));
+    assert.equal(
+      members.find((member) => member.userId === denied.userId)
+        ?.canReceiveAssignment,
+      false,
+    );
+    assert.equal(
+      members.find((member) => member.userId === agent.userId)
+        ?.canReceiveAssignment,
+      true,
+    );
+    assert.equal(members.find((member) => member.userId === agent.userId)?.status, "ACTIVE");
+    assert.deepEqual(Object.keys(members[0]!).sort(), [
+      "canReceiveAssignment",
+      "email",
+      "name",
+      "status",
+      "userId",
+    ]);
+
+    const firstPage = await request(supervisor, "GET", "/team/members?limit=1");
+    assert.equal(firstPage.items.length, 1);
+    assert.ok(firstPage.nextCursor);
+    const secondPage = await request(
+      supervisor,
+      "GET",
+      `/team/members?limit=1&cursor=${encodeURIComponent(firstPage.nextCursor)}`,
+    );
+    assert.equal(secondPage.items.length, 1);
+    assert.notEqual(firstPage.items[0].userId, secondPage.items[0].userId);
+
+    const tenantRoster = await request(tenantB, "GET", "/team/members");
+    assert.deepEqual(
+      tenantRoster.items.map((member: { userId: string }) => member.userId),
+      [tenantB.userId],
+    );
+    await request(supervisor, "GET", `/team/members?organizationId=${orgB}`, undefined, 400);
+    await request(denied, "GET", "/team/members", undefined, 403);
+  } finally {
+    await db.membership.delete({ where: { id: inactiveMembership.id } });
+  }
+});
 test("contacts pagination never repeats records and cursors cannot cross tenants", async () => {
   for (let n = 0; n < 3; n++)
     await request(supervisor, "POST", "/contacts", {

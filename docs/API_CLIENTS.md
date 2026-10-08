@@ -115,3 +115,9 @@ Todos os endpoints e schemas constam do OpenAPI gerado. O WebSocket é
 read-only, usa sessão existente/Origin/contexto e possui contrato próprio em
 REALTIME_CONTRACT.md. Cursores e clientMessageId são independentes de HTML.
 Autenticação nativa/Android não foi implementada.
+
+Na branch `feat/m1-team-roster`, `GET /api/v1/team/members` lista somente
+Memberships e Users ativos da Organization da sessão, com `userId`, nome,
+email, status e `canReceiveAssignment`. Requer `conversations.assign` ou
+`conversations.transfer`; cursor e limite seguem o formato `{items,nextCursor}`.
+Esse contrato ainda não foi integrado nem implantado.
