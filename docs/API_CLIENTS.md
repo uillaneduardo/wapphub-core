@@ -83,3 +83,26 @@ Web e Android podem possuir UX diferente, mas devem produzir os mesmos comandos 
 - capabilities;
 - auditoria;
 - isolamento multi-tenant.
+
+## Contrato entregue no M0
+
+`docs/openapi.json` é gerado dos schemas Fastify e servido em
+`GET /api/v1/openapi.json`. Respostas de erro usam `{error: {code, requestId}}`.
+
+| Método | Rota sob /api/v1 | Função |
+|---|---|---|
+| GET | /health | Liveness |
+| GET | /health/ready | MariaDB + Redis |
+| POST | /auth/login | Sessão + csrfToken |
+| POST | /auth/logout | Revogação da própria sessão |
+| GET | /me | Identidade, contexto selecionado e restituição de csrfToken |
+| GET | /me/organizations | Organizações com Membership ativa |
+| POST | /session/organization | Seleção/troca de contexto autorizado |
+| GET | /app/bootstrap | User, Organization, Membership, permissions |
+
+Login e comandos exigem Origin permitido. Comandos autenticados exigem também
+cookie e header `X-CSRF-Token` vinculado à sessão. `GET /me` restitui csrfToken
+apenas quando o cookie CSRF corresponde ao hash armazenado; senão retorna null.
+Bootstrap exige contexto selecionado e permission `organization.read`.
+Não há contratos de Chat/Meta/mídia/entitlements no M0. Exemplo de configuração
+e execução em `LOCAL_DEVELOPMENT.md`.

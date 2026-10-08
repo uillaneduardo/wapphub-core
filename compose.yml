@@ -1,0 +1,68 @@
+name: wapphub-core
+x-core: &core
+  build: .
+  image: wapphub-core:local
+  env_file: .env
+  restart: unless-stopped
+  networks: [backend]
+  depends_on:
+    wapphub-db:
+      condition: service_healthy
+    wapphub-redis:
+      condition: service_healthy
+  security_opt: [no-new-privileges:true]
+services:
+  wapphub-core-api:
+    <<: *core
+    networks: [backend, http]
+    ports: ["127.0.0.1:${API_PORT:-3000}:3000"]
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/api/v1/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  wapphub-core-worker:
+    <<: *core
+    command: [npm, run, worker]
+    healthcheck:
+      test: [CMD, node, dist/scripts/worker-health.js]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+  wapphub-db:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: wapphub
+      MARIADB_USER: wapphub
+      MARIADB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Set DB_ROOT_PASSWORD}
+    volumes: [db-data:/var/lib/mysql]
+    networks: [backend]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  wapphub-redis:
+    image: redis:7.4-alpine
+    command: [redis-server, --save, "", --appendonly, "no"]
+    networks: [backend]
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+networks:
+  http: {}
+  backend:
+    internal: true
+volumes:
+  db-data:

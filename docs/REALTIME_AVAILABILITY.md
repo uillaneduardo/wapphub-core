@@ -157,3 +157,10 @@ São metas de engenharia, não SLA comercial:
 - fila sem pressão: atraso alvo < 1 s.
 
 A entrega externa continua sujeita à Meta e à rede.
+
+## Fundação entregue no M0
+
+API e Worker possuem entrypoints e healthchecks separados, com MariaDB/Redis
+compartilhados em rede Compose interna. Worker não executa jobs no M0.
+`REALTIME_CONTRACT.md` e `src/realtime/contract.ts` reservam envelope versionado,
+sem WebSocket, polling ou eventos operacionais implementados.
