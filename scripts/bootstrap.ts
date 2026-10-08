@@ -1,3 +1,4 @@
+import { installChatRBAC } from "../src/application/chat-rbac.js";
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "../src/infrastructure/crypto.js";
 const db = new PrismaClient();
@@ -9,25 +10,7 @@ async function main() {
     throw new Error("Invalid bootstrap input");
   const passwordHash = await hashPassword(password);
   await db.$transaction(async (tx) => {
-    const permission = await tx.permission.upsert({
-      where: { code: "organization.read" },
-      create: { code: "organization.read" },
-      update: {},
-    });
-    for (const code of ["OWNER", "SUPERVISOR", "AGENT"]) {
-      const role = await tx.role.upsert({
-        where: { code },
-        create: { code },
-        update: {},
-      });
-      await tx.rolePermission.upsert({
-        where: {
-          roleId_permissionId: { roleId: role.id, permissionId: permission.id },
-        },
-        create: { roleId: role.id, permissionId: permission.id },
-        update: {},
-      });
-    }
+    await installChatRBAC(tx);
     const role = await tx.role.findUniqueOrThrow({ where: { code: "OWNER" } });
     // Explicit provisioning only; existing identities are never overwritten.
     const user = await tx.user.create({
