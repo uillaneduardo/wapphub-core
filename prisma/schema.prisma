@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  invitations  OrganizationInvitation[] @relation("InvitationAuthor")
+  id           String                   @id @default(uuid()) @db.Char(36)
+  name         String                   @db.VarChar(120)
+  email        String                   @unique @db.VarChar(254)
+  passwordHash String                   @db.VarChar(255)
+  status       String                   @default("ACTIVE") @db.VarChar(20)
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  memberships  Membership[]
+  sessions     Session[]
+}
+
+model Organization {
+  sessions    Session[]
+  id          String                   @id @default(uuid()) @db.Char(36)
+  name        String                   @db.VarChar(120)
+  status      String                   @default("ACTIVE") @db.VarChar(20)
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  memberships Membership[]
+  invitations OrganizationInvitation[]
+}
+
+model Membership {
+  id             String       @id @default(uuid()) @db.Char(36)
+  userId         String       @db.Char(36)
+  organizationId String       @db.Char(36)
+  roleId         String       @db.Char(36)
+  status         String       @default("ACTIVE") @db.VarChar(20)
+  consumesSeat   Boolean      @default(true)
+  joinedAt       DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  role           Role         @relation(fields: [roleId], references: [id])
+
+  @@unique([userId, organizationId])
+  @@index([organizationId, status])
+}
+
+model Role {
+  id          String                   @id @default(uuid()) @db.Char(36)
+  code        String                   @unique @db.VarChar(40)
+  memberships Membership[]
+  invitations OrganizationInvitation[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id    String           @id @default(uuid()) @db.Char(36)
+  code  String           @unique @db.VarChar(80)
+  roles RolePermission[]
+}
+
+model RolePermission {
+  roleId       String     @db.Char(36)
+  permissionId String     @db.Char(36)
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+}
+
+model OrganizationInvitation {
+  invitedBy       User         @relation("InvitationAuthor", fields: [invitedByUserId], references: [id])
+  id              String       @id @default(uuid()) @db.Char(36)
+  organizationId  String       @db.Char(36)
+  email           String       @db.VarChar(254)
+  roleId          String       @db.Char(36)
+  invitedByUserId String       @db.Char(36)
+  status          String       @default("PENDING") @db.VarChar(20)
+  tokenHash       String       @unique @db.Char(64)
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  role            Role         @relation(fields: [roleId], references: [id])
+
+  @@index([organizationId, status])
+}
+
+model Session {
+  currentOrganization   Organization? @relation(fields: [currentOrganizationId], references: [id])
+  id                    String        @id @default(uuid()) @db.Char(36)
+  userId                String        @db.Char(36)
+  tokenHash             String        @unique @db.Char(64)
+  csrfHash              String        @db.Char(64)
+  currentOrganizationId String?       @db.Char(36)
+  createdAt             DateTime      @default(now())
+  expiresAt             DateTime
+  lastSeenAt            DateTime      @default(now())
+  revokedAt             DateTime?
+  user                  User          @relation(fields: [userId], references: [id])
+
+  @@index([userId, revokedAt])
+}
+
+model AuditEvent {
+  id             String   @id @default(uuid()) @db.Char(36)
+  organizationId String   @db.Char(36)
+  actorUserId    String   @db.Char(36)
+  action         String   @db.VarChar(80)
+  occurredAt     DateTime @default(now())
+
+  @@index([organizationId, occurredAt])
+}
+
+model SecurityEvent {
+  id         String   @id @default(uuid()) @db.Char(36)
+  userId     String?  @db.Char(36)
+  type       String   @db.VarChar(80)
+  occurredAt DateTime @default(now())
+
+  @@index([userId, occurredAt])
+}
