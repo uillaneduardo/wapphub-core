@@ -1,5 +1,7 @@
 # WappHub Core
 
+> **M1 funcionalmente homologado; consolidação administrativa Git pendente.** [Aceite formal](docs/M1_FINAL_ACCEPTANCE.md) e [STATUS](docs/STATUS.md). Nenhuma nova função/M2 ou publicação nesta auditoria.
+
 Backend e núcleo de domínio compartilhado do ecossistema WappHub.
 
 ## Responsabilidade
@@ -61,21 +63,13 @@ Não implementar itens de milestones futuros sem decisão registrada.
 
 ## Estado atual
 
-**Produção confirmada após P0 em 2026-10-08:** Core/API/Worker
-`cbaf50c5eedd6731e1ca3a674c1d9b0b20005a7d`, imagem `wapphub-core:p0-preview-cbaf50c`;
-Chat `d93efc576bd560fcbab0146343fb98bbbc1d0b69`, imagem `wapphub-chat:p0-preview-d93efc5`.
-Core M1, roster e Demo publicados; correção de prévias autorizadas em produção.
-[Registro do deploy](docs/DEPLOY_P0_20261008.md): backup, testes anteriores,
-healthchecks, imagens e contingência. Homologação visual desta publicação pendente.
+M1 funcionalmente homologado pelo usuário. Core/API/Worker publicado `a45fb330ceeb6a703c463174f4fa560ad070e226`, imagem `wapphub-core:m1-contacts-a45fb33`; Chat `6b04e653d03fa5b06aafad205b9c760072c01fd0`, imagem `wapphub-chat:m1-contacts-6b04e65`. P0, P1 e contatos/criação manual homologados. Encerramento administrativo Git pendente; M2 não iniciado nesta auditoria.
 
-M1 operacional, sem encerramento formal: checkpoint A2 e demais aceites continuam
-pendentes. Integração Git ainda exige PRs/revisão; nenhum push ou merge realizado.
-Catálogo comercial/entitlements/Admin/Minha Conta continuam no M2 planejado.
-
-- [Inventário Git/produção](docs/GIT_PRODUCTION_INVENTORY_20261008.md).
-- [Arquitetura e matriz de aceite M1](docs/M1_ARCHITECTURE_ACCEPTANCE_20261008.md).
-- [Estratégia de integração](docs/GIT_INTEGRATION_STRATEGY_20261008.md).
-- [Plano incremental M2](docs/M2_TECHNICAL_PLAN.md), sem implementação iniciada.
+- [Aceite formal e matriz vigente](docs/M1_FINAL_ACCEPTANCE.md).
+- [Inventário final e estratégia de consolidação](docs/M1_FINAL_GIT_CONSOLIDATION.md).
+- [Histórico de releases](docs/M1_RELEASE_HISTORY.md).
+- [Deploy homologado e contingência](docs/DEPLOY_M1_CONTACTS_20261008.md).
+- [Plano M2 preexistente](docs/M2_TECHNICAL_PLAN.md), sem implementação iniciada.
 
 Execução: `docs/LOCAL_DEVELOPMENT.md`. Contrato REST: `docs/openapi.json`.
 Contrato de eventos M1: `docs/REALTIME_CONTRACT.md`.
@@ -89,6 +83,6 @@ scripts/local.sh status
 
 Consulte `docs/STATUS.md` para o estado validado de cada entrega.
 
-## Finalização funcional M1 — implementação local
+## Finalização funcional M1
 
-Contatos e criação manual interna validados localmente, ainda sem publicação/homologação. [Relatório e evidências](docs/M1_CONTACTS_CONVERSATION_CREATION.md). Produção informada: Core P0 `cbaf50c`, Chat P1 `6bbc1c4`, ambos homologados pelo usuário. M1 permanece sem encerramento formal.
+Contatos e criação manual interna publicados e homologados pelo usuário. [Relatório e evidências](docs/M1_CONTACTS_CONVERSATION_CREATION.md). Fonte de estado vigente: [aceite final](docs/M1_FINAL_ACCEPTANCE.md); encerramento administrativo Git pendente.

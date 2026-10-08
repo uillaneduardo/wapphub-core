@@ -1,5 +1,7 @@
 # Estratégia de Recursos e Entitlements
 
+> Este catálogo define evolução comercial, não declara Entitlement Resolver implementado no M1. Entitlements/assentos e Admin permanecem M2; Meta M3 e mídia M4. Estado M1: [aceite final](M1_FINAL_ACCEPTANCE.md).
+
 ## Objetivo
 
 Permitir adicionar recursos e alterar ofertas comerciais sem espalhar regras por plano no código.

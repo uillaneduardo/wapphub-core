@@ -1,5 +1,7 @@
 # Arquitetura do WappHub
 
+> A arquitetura inclui domínios futuros. Implementação M1 verificada, responsabilidades atuais e limites: [aceite final](M1_FINAL_ACCEPTANCE.md). Nenhuma implementação M2 ou integração Meta declarada por este documento.
+
 ## 1. Visão geral
 
 O ecossistema é composto inicialmente por três repositórios:

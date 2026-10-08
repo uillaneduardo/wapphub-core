@@ -1,5 +1,7 @@
 # Integração Git proposta — Core
 
+> Registro histórico intermediário preservado. Fotografia e estratégia atuais: [M1_FINAL_GIT_CONSOLIDATION.md](M1_FINAL_GIT_CONSOLIDATION.md), aceite: [M1_FINAL_ACCEPTANCE.md](M1_FINAL_ACCEPTANCE.md). Etapas P0/P1/contatos mencionadas como futuras abaixo já foram publicadas/homologadas.
+
 Inventário: `GIT_PRODUCTION_INVENTORY_20261008.md`. main e origin/main=fa292c4;
 produção=72d05aa. Os commits 81a8103 (Demo) e 72d05aa (hardening) estão publicados
 mas não alcançáveis por nenhum remoto. Não presumir main=produção.

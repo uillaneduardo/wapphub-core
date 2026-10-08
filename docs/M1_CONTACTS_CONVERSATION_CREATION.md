@@ -1,5 +1,7 @@
 # M1 — contatos e criação manual de conversas — 2026-10-08
 
+> Atualização de aceite final: o usuário confirmou nove cenários finais M1, além de cinco P0 e sete P1. **Homologação funcional declarada concluída**, não executada pelo Codex. [Aceite e limites](M1_FINAL_ACCEPTANCE.md). Pendência administrativa: integração Git, sem novo deploy. Os resultados/pendências abaixo registram o momento original da publicação/implementação.
+
 ## Estado e diagnóstico
 
 Implementação e validação **locais**, branch `feat/m1-contacts-conversation-creation` em ambos os repositórios. Nenhum deploy, push, merge ou operação de produção nesta entrega. M1 não está formalmente encerrado; estas funcionalidades aguardam publicação autorizada e homologação.

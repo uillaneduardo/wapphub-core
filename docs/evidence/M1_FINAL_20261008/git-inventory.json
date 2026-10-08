@@ -1,0 +1,206 @@
+{
+  "timestamp": "2026-10-08T21:20:07.074693+00:00",
+  "initial_branch": "feat/m1-contacts-conversation-creation",
+  "initial_head": "c8faef35d8b270af6f32e516e4deba91c92bc420",
+  "main": "fa292c4e0d33306253061352da43bb4c61046054",
+  "origin_main": "fa292c4e0d33306253061352da43bb4c61046054",
+  "production_commit": "a45fb330ceeb6a703c463174f4fa560ad070e226",
+  "refs": [
+    {
+      "ref": "chore/admin-bootstrap-cli",
+      "sha": "15dab117b814cdbc7729ca550d6e64fe03defd74",
+      "main_only": 0,
+      "ref_only": 1,
+      "included_in_delivery": false,
+      "unique_vs_delivery_and_main": [
+        "15dab117b814cdbc7729ca550d6e64fe03defd74 chore(admin): add demo membership provisioner"
+      ]
+    },
+    {
+      "ref": "chore/m0-cloudflare-deploy",
+      "sha": "9cefb7e44269ddc389e4049ed4620c65aa2f8fa3",
+      "main_only": 10,
+      "ref_only": 0,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "docs/m1-audit-m2-preparation-20261008",
+      "sha": "99ef04b03780db5b422a73de9cd9ca18bea05139",
+      "main_only": 0,
+      "ref_only": 4,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "docs/m1-production-validation",
+      "sha": "81e582d63553083e49c871a1e45576b8295ea0a7",
+      "main_only": 3,
+      "ref_only": 0,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "docs/p0-production-deploy-20261008",
+      "sha": "8a7c432aa916d6152bf0725395f4da242456eea1",
+      "main_only": 0,
+      "ref_only": 6,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "feat/m0-foundation",
+      "sha": "97a31663e9c1670ffcd27801fdd55095641311ca",
+      "main_only": 14,
+      "ref_only": 0,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "feat/m1-chat-internal",
+      "sha": "e9983b9a1ee03a1c2b0c0917e6dbed4f3ff04662",
+      "main_only": 5,
+      "ref_only": 0,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "feat/m1-contacts-conversation-creation",
+      "sha": "c8faef35d8b270af6f32e516e4deba91c92bc420",
+      "main_only": 0,
+      "ref_only": 10,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "feat/m1-demo-provider",
+      "sha": "72d05aa8c0a3c9f12a8c17abb25ad737b88c65af",
+      "main_only": 0,
+      "ref_only": 2,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "feat/m1-team-roster",
+      "sha": "b33d3bdde564c51cc6dc1f70885d88f45d67884d",
+      "main_only": 1,
+      "ref_only": 0,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "fix/m1-message-preview-authorization",
+      "sha": "cbaf50c5eedd6731e1ca3a674c1d9b0b20005a7d",
+      "main_only": 0,
+      "ref_only": 5,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "main",
+      "sha": "fa292c4e0d33306253061352da43bb4c61046054",
+      "main_only": 0,
+      "ref_only": 0,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "origin",
+      "sha": "fa292c4e0d33306253061352da43bb4c61046054",
+      "main_only": 0,
+      "ref_only": 0,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "origin/chore/m0-cloudflare-deploy",
+      "sha": "9cefb7e44269ddc389e4049ed4620c65aa2f8fa3",
+      "main_only": 10,
+      "ref_only": 0,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "origin/docs/m1-production-validation",
+      "sha": "81e582d63553083e49c871a1e45576b8295ea0a7",
+      "main_only": 3,
+      "ref_only": 0,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "origin/docs/reconcile-m1-production-20261008",
+      "sha": "d411eba85f00f0374e2831d6d571ee854dddf323",
+      "main_only": 0,
+      "ref_only": 2,
+      "included_in_delivery": false,
+      "unique_vs_delivery_and_main": [
+        "d411eba85f00f0374e2831d6d571ee854dddf323 docs: sinalizar status hist\u00f3rico e apontar reconcilia\u00e7\u00e3o M1",
+        "b8be3e39fe795c36aaffe9d1ec30978e56e8d11a docs: registrar evid\u00eancias de produ\u00e7\u00e3o M1 e pend\u00eancias antes do M2"
+      ]
+    },
+    {
+      "ref": "origin/feat/m0-foundation",
+      "sha": "97a31663e9c1670ffcd27801fdd55095641311ca",
+      "main_only": 14,
+      "ref_only": 0,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "origin/feat/m1-chat-internal",
+      "sha": "e9983b9a1ee03a1c2b0c0917e6dbed4f3ff04662",
+      "main_only": 5,
+      "ref_only": 0,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "origin/feat/m1-team-roster",
+      "sha": "b33d3bdde564c51cc6dc1f70885d88f45d67884d",
+      "main_only": 1,
+      "ref_only": 0,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    },
+    {
+      "ref": "origin/main",
+      "sha": "fa292c4e0d33306253061352da43bb4c61046054",
+      "main_only": 0,
+      "ref_only": 0,
+      "included_in_delivery": true,
+      "unique_vs_delivery_and_main": []
+    }
+  ],
+  "local_only": [
+    "c8faef35d8b270af6f32e516e4deba91c92bc420 docs(deploy): record M1 contacts production publication",
+    "a45fb330ceeb6a703c463174f4fa560ad070e226 docs(m1): preserve isolated Core validation log",
+    "54f36654dd4414f8154d93e3ad5a11fec611cae0 docs(m1): record contacts and conversation acceptance evidence",
+    "e32ed65c45ec0b5bc3e5afbdccd76d533ff0c7ae feat(m1): add scoped contact search and safe conversation reuse",
+    "8a7c432aa916d6152bf0725395f4da242456eea1 docs(deploy): record controlled P0 publication and safety backup",
+    "cbaf50c5eedd6731e1ca3a674c1d9b0b20005a7d fix(m1): authorize message previews with shared read visibility",
+    "99ef04b03780db5b422a73de9cd9ca18bea05139 docs(m2): plan incremental SaaS catalog and entitlement delivery",
+    "e0ff500aef802cb066ca63f6ddc2f67cb18223a6 docs(m1): reconcile production, Git inventory and acceptance audit",
+    "72d05aa8c0a3c9f12a8c17abb25ad737b88c65af fix(m1): harden demo provider operations",
+    "81a810374e5e25abb01049acd739b27a434dad05 feat(m1): add isolated demo messaging provider",
+    "15dab117b814cdbc7729ca550d6e64fe03defd74 chore(admin): add demo membership provisioner"
+  ],
+  "remote_only": [
+    "d411eba85f00f0374e2831d6d571ee854dddf323 docs: sinalizar status hist\u00f3rico e apontar reconcilia\u00e7\u00e3o M1",
+    "b8be3e39fe795c36aaffe9d1ec30978e56e8d11a docs: registrar evid\u00eancias de produ\u00e7\u00e3o M1 e pend\u00eancias antes do M2"
+  ],
+  "merges": [
+    "fa292c4e0d33306253061352da43bb4c61046054 Merge pull request #6 from uillaneduardo/feat/m1-team-roster",
+    "b62a0fb07d47686eb107501e4351ddef1620451f Merge pull request #5 from uillaneduardo/docs/m1-production-validation",
+    "89ca5d139ffd6b7e90bfe75a2c60db72621d695a Merge pull request #4 from uillaneduardo/feat/m1-chat-internal",
+    "b790b6ce7ee427f931f84c5d0ac0ef1dd6d53fc5 Merge pull request #3 from uillaneduardo/chore/m0-cloudflare-deploy",
+    "2c0982b66396753fcaa32dca9e8e6e308d434b85 Merge pull request #2 from uillaneduardo/feat/m0-foundation"
+  ],
+  "production_vs_postdeploy_files": [
+    "docs/DEPLOYMENT.md",
+    "docs/DEPLOY_M1_CONTACTS_20261008.md",
+    "docs/STATUS.md"
+  ],
+  "provisioner": "15dab117b814cdbc7729ca550d6e64fe03defd74",
+  "manifest_verified_files": 35
+}

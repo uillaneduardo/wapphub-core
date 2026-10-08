@@ -1,5 +1,9 @@
 # Auditoria arquitetural e aceite M1 — 2026-10-08
 
+> Auditoria histórica, seguida de complementos em momentos distintos. **Matriz vigente e decisão:** [M1_FINAL_ACCEPTANCE.md](M1_FINAL_ACCEPTANCE.md). P0/P1 e contatos/criação foram publicados e homologados; os achados P0/P1 abaixo foram superados pelas correções, P2 permanece explícito. Encerramento administrativo Git pendente.
+
+## Registro histórico integral
+
 ## Atualização vigente — finalização funcional local M1 (2026-10-08)
 
 P0 e P1 publicados e homologados manualmente pelo usuário. Produção informada: Core/API/Worker `cbaf50c` (`wapphub-core:p0-preview-cbaf50c`); Chat `6bbc1c4` (`wapphub-chat:p1-realtime-6bbc1c4`). As notas anteriores abaixo são histórico, não o estado corrente.

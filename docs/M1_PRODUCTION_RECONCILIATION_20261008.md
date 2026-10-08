@@ -1,5 +1,7 @@
 # Reconciliação de produção M1 — 2026-10-08
 
+> Nota histórica preservada do PR remoto e conferência intermediária. Estado final: [aceite](M1_FINAL_ACCEPTANCE.md) e [consolidação](M1_FINAL_GIT_CONSOLIDATION.md). Não interpretar versões/prévias/checkpoints pendentes abaixo como estado corrente.
+
 > **Registro de evidências operacionais reportadas pelo operador/Codex, não auditoria independente do código local.** O estado da `main` remota pode diferir da imagem publicada e das branches locais. Não usar este registro para presumir que commits não enviados já estejam na `main`.
 
 ## Evidências posteriores ao STATUS.md da main

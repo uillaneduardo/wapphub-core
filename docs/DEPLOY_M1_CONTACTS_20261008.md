@@ -1,5 +1,7 @@
 # DEPLOY CONCLUÍDO — M1 contatos e conversas internas
 
+> Atualização de aceite final: o usuário confirmou nove cenários finais M1, além de cinco P0 e sete P1. **Homologação funcional declarada concluída**, não executada pelo Codex. [Aceite e limites](M1_FINAL_ACCEPTANCE.md). Pendência administrativa: integração Git, sem novo deploy. Os resultados/pendências abaixo registram o momento original da publicação/implementação.
+
 Validação operacional final: 2026-10-08T21:00:55.571209+00:00 (18:00 Recife, 2026-10-08).
 Branch em ambos: `feat/m1-contacts-conversation-creation`.
 

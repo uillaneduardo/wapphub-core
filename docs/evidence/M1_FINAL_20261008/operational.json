@@ -1,0 +1,50 @@
+{
+  "mode": "read-only",
+  "containers": [
+    {
+      "name": "/wapphub-core-wapphub-core-api-1",
+      "id": "3f929916f0393c594a9faad10fbef014342f362b0ce09fb73c31f886e988491a",
+      "image": "wapphub-core:m1-contacts-a45fb33",
+      "image_id": "sha256:e3a48fddb1b83ce6a73f85937022aa2650e54ae620db7f4501d14e01720de021",
+      "started": "2026-10-08T21:00:00.177663698Z",
+      "health": "healthy"
+    },
+    {
+      "name": "/wapphub-core-wapphub-core-worker-1",
+      "id": "39511e2bac504aadee8b19e878062d08454315899d6670e702b852c225605550",
+      "image": "wapphub-core:m1-contacts-a45fb33",
+      "image_id": "sha256:e3a48fddb1b83ce6a73f85937022aa2650e54ae620db7f4501d14e01720de021",
+      "started": "2026-10-08T21:00:00.170785366Z",
+      "health": "healthy"
+    },
+    {
+      "name": "/wapphub-core-wapphub-db-1",
+      "id": "65750f142703a60e3310905a9cc854d12a7733442f026577f4a232dbc44eafc8",
+      "image": "mariadb:11.4",
+      "image_id": "sha256:611a2fcc5fa7c6ceb8644c6f74b25ede004ff6c3a6b38c8f8c23d3bbf6c26430",
+      "started": "2026-10-07T23:52:48.955973259Z",
+      "health": "healthy"
+    },
+    {
+      "name": "/wapphub-core-wapphub-redis-1",
+      "id": "1ec5cdfb29de467a5d520ce32150431203c2a85cbd210d18f264a16a7f99e6e8",
+      "image": "redis:7.4-alpine",
+      "image_id": "sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf",
+      "started": "2026-10-07T23:52:48.942135077Z",
+      "health": "healthy"
+    },
+    {
+      "name": "/wapphub-chat-wapphub-chat-1",
+      "id": "f8c1fa8d2f2449c75c52a25233c7f76441f7d3259e3bcfe01a826afc524d2400",
+      "image": "wapphub-chat:m1-contacts-6b04e65",
+      "image_id": "sha256:c0d88b8c40c3363f68cc913ea35fa9a4398df03e36e6e2799fc8bf82e270926b",
+      "started": "2026-10-08T21:00:32.287474336Z",
+      "health": "healthy"
+    }
+  ],
+  "openapi_matches": true,
+  "assets_match": true,
+  "health": "HTTP 200",
+  "readiness": "HTTP 200",
+  "no_restarts_since_deploy": true
+}

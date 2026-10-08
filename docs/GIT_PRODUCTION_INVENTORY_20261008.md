@@ -1,5 +1,7 @@
 # Inventário Git e produção — 2026-10-08
 
+> Registro histórico intermediário preservado. Fotografia e estratégia atuais: [M1_FINAL_GIT_CONSOLIDATION.md](M1_FINAL_GIT_CONSOLIDATION.md), aceite: [M1_FINAL_ACCEPTANCE.md](M1_FINAL_ACCEPTANCE.md). Etapas P0/P1/contatos mencionadas como futuras abaixo já foram publicadas/homologadas.
+
 Captura: 2026-10-08T17:14:38.757463+00:00. Inspeção inicial com árvore limpa em `feat/m1-demo-provider`,
 HEAD `72d05aa8c0a3c9f12a8c17abb25ad737b88c65af`. Após fetch de origin, foi criada somente a branch documental
 `docs/m1-audit-m2-preparation-20261008`, baseada nesse HEAD publicado.

@@ -65,7 +65,7 @@ Servidor envia um frame de controle após cada página escaneada:
 ```
 
 Checkpoint avança também sobre eventos não visíveis, sem revelar seus IDs/
-recursos individuais. Cliente persiste o último checkpoint por Organization e
+recursos individuais. Chat P1 persiste o checkpoint por User/Organization/aba; consumidor nativo deve também isolar a identidade. Cliente persiste o último checkpoint por contexto e
 só o confirma após aplicar os eventos precedentes. hasMore=true indica outra
 página automática no WebSocket. Conectar sem cursor inicia replay em 0.
 

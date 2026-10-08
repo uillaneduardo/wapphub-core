@@ -1,5 +1,7 @@
 # Deploy do Core — homelab e Cloudflare Tunnel
 
+> Atualização de aceite final: o usuário confirmou nove cenários finais M1, além de cinco P0 e sete P1. **Homologação funcional declarada concluída**, não executada pelo Codex. [Aceite e limites](M1_FINAL_ACCEPTANCE.md). Pendência administrativa: integração Git, sem novo deploy. Os resultados/pendências abaixo registram o momento original da publicação/implementação.
+
 > Produção atual — 2026-10-08, 18:00 Recife: M1 contatos/conversas publicado.
 > Core/API/Worker `a45fb33` (`wapphub-core:m1-contacts-a45fb33`), Chat `6b04e65`
 > (`wapphub-chat:m1-contacts-6b04e65`). Todos healthy, health/readiness/HTTP/assets aprovados.
