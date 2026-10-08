@@ -35,7 +35,17 @@ Na primeira ativação, dois contatos, duas conversas e duas mensagens recebidas
 
 O servidor resolve Organization da sessão e o contato pelo vínculo tenant/channel. O browser não envia senderUserId nem organizationId. `providers.manage` e `providers.simulate` são concedidas ao OWNER pelo bootstrap RBAC; nomes de role não são usados nas verificações HTTP.
 
+A primeira ativação registra `DEMO_FIXTURES_PROVISIONED` na auditoria, além de `DEMO_PROVIDER_ENABLED`; reativações sem reparo dos fixtures não repetem o registro de provisionamento. Falhas nas operações de ativação, ingestão e envio são registradas no log estruturado com request ID, operação e código de erro, sem conteúdo da mensagem. A API rejeita alteração de status DELIVERED/READ para mensagens externas com `EXTERNAL_RECEIPT_UNSUPPORTED`.
+
 As mensagens utilizam os endpoints M1 existentes de histórico/envio e eventos realtime já documentados. O simulador também precisa de `messages.read` para consultar o histórico pela API normal. Conteúdo não vai no envelope realtime. Status de entrega/leitura externos não são apresentados.
+
+## Publicação e recuperação
+
+Ordem de publicação: backup verificado do banco; aplicar as migrations aditivas e publicar o Core; validar readiness, OpenAPI e sessão; só então publicar o Chat. O Chat desta versão depende dos endpoints `/providers*` e não funciona com o Core anterior. O frontend anterior continua usando as rotas M1 existentes.
+
+O Core anterior conhece apenas `direction: INTERNAL` no schema de resposta. Depois de gravar mensagens Demo `INBOUND`/`OUTBOUND`, voltar somente a imagem/binário do Core pode fazer a leitura de histórico falhar na validação de resposta. Desativar o provedor com o Core novo bloqueia novas mensagens, mas preserva o histórico; não torna seguro voltar ao Core anterior. Após persistir mensagens externas, a recuperação é manter/restaurar um Core compatível ou restaurar, em procedimento aprovado e com indisponibilidade planejada, um backup consistente do banco junto com a versão correspondente do Core. As migrations não têm rollback automático; não remover colunas/tabelas enquanto houver mensagens Demo.
+
+Antes da publicação, produzir backup consistente e criptografado do banco, verificar sua integridade e ensaiar a restauração em ambiente isolado. Registrar commit e digest da imagem anterior do Core e do Chat. Antes de ativar o Demo, rollback de binário do Core após a migration continua sujeito à compatibilidade do cliente Prisma; não presumir reversibilidade só por a migration ser aditiva. Depois de ativar e persistir dados Demo, não fazer rollback isolado do Core. Reverter primeiro o frontend é seguro para os dados; manter o Core compatível e desativar o Demo. Usar restauração do backup apenas como recuperação de desastre, sabendo que ela descarta gravações posteriores ao ponto restaurado.
 
 ## Homologação e limites
 

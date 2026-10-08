@@ -256,6 +256,7 @@ test("Demo provider is permission-gated, tenant-scoped, idempotent and uses shar
   const contacts = await request(supervisor, "GET", "/providers/demo/contacts");
   assert.equal(contacts.items.length, 2);
   assert.equal(contacts.enabled, true);
+  assert.equal(await db.auditEvent.count({ where: { organizationId: orgA, action: "DEMO_FIXTURES_PROVISIONED" } }), 1);
   const first = contacts.items[0];
   const initial = await request(supervisor, "GET", `/conversations/${first.conversationId}/messages`);
   assert.equal(initial.items[0].direction, "INBOUND");
@@ -269,6 +270,7 @@ test("Demo provider is permission-gated, tenant-scoped, idempotent and uses shar
   assert.equal(secondInitial.items[0].body, "Bom dia! Preciso de ajuda com um problema.");
   await request(supervisor, "PUT", "/providers/demo", { enabled: true });
   assert.equal((await request(supervisor, "GET", "/providers/demo/contacts")).items.length, 2);
+  assert.equal(await db.auditEvent.count({ where: { organizationId: orgA, action: "DEMO_FIXTURES_PROVISIONED" } }), 1);
   await request(tenantB, "PUT", "/providers/demo", { enabled: true });
   await request(tenantB, "POST", "/providers/demo/messages", { contactId: first.contactId, externalMessageId: randomUUID(), body: "fora do tenant" }, 404);
   const live = await socket(supervisor);
@@ -281,6 +283,15 @@ test("Demo provider is permission-gated, tenant-scoped, idempotent and uses shar
   const outbound = await send(agent, first.conversationId, "Resposta do atendimento");
   assert.equal(outbound.direction, "OUTBOUND");
   assert.equal(outbound.senderUserId, agent.userId);
+  await request(supervisor, "POST", `/conversations/${first.conversationId}/messages/${inbound.id}/status`, { status: "READ" }, 409);
+  await request(supervisor, "POST", `/conversations/${first.conversationId}/messages/${outbound.id}/status`, { status: "DELIVERED" }, 409);
+  const sharedClientMessageId = randomUUID();
+  const otherOutbound = await send(agent, secondContact.conversationId, "Resposta na outra conversa", sharedClientMessageId);
+  assert.equal(otherOutbound.direction, "OUTBOUND");
+  assert.notEqual(otherOutbound.id, outbound.id);
+  assert.equal((await send(agent, secondContact.conversationId, "Resposta na outra conversa", sharedClientMessageId)).id, otherOutbound.id);
+  const sameClientIdInFirstConversation = await send(agent, first.conversationId, "Outra conversa", sharedClientMessageId);
+  assert.notEqual(sameClientIdInFirstConversation.id, otherOutbound.id);
   await until(() => live.frames.some((frame) => frame.type === "message.created" && frame.entityId === outbound.id));
   live.ws.close();
   const tag = await request(supervisor, "POST", "/tags", { name: `Demo ${run}` });
@@ -295,7 +306,7 @@ test("Demo provider is permission-gated, tenant-scoped, idempotent and uses shar
   await request(supervisor, "PUT", "/providers/demo", { enabled: false });
   await request(supervisor, "POST", "/providers/demo/messages", { contactId: first.contactId, externalMessageId: randomUUID(), body: "bloqueada" }, 409);
   await request(supervisor, "POST", `/conversations/${first.conversationId}/messages`, { body: "bloqueada", clientMessageId: randomUUID() }, 409);
-  assert.equal((await request(supervisor, "GET", `/conversations/${first.conversationId}/messages`)).items.length, 3);
+  assert.equal((await request(supervisor, "GET", `/conversations/${first.conversationId}/messages`)).items.length, 4);
 });
 
 test("team roster is permission gated, tenant scoped, active only and paginated", async () => {

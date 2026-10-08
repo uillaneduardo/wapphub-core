@@ -752,6 +752,8 @@ export class Chat {
         },
       });
       if (!m) throw new AppError(404, "NOT_FOUND");
+      if (m.direction !== "INTERNAL")
+        throw new AppError(409, "EXTERNAL_RECEIPT_UNSUPPORTED");
       const rank = { PENDING: 0, SENT: 1, DELIVERED: 2, READ: 3, FAILED: -1 };
       if (
         rank[m.status] > rank[status] ||
@@ -954,6 +956,7 @@ export class Chat {
         update: { status: enabled ? "ENABLED" : "DISABLED" },
       });
       if (enabled) {
+        let provisioned = false;
         const fixtures = [
           { externalId: "demo-contact-01", providerConversationId: "demo-conversation-01", providerMessageId: "demo-initial-01-v1", name: "Contato Demo 01", identifier: "demo:contact-01", body: "Olá! Gostaria de saber mais sobre os serviços de vocês." },
           { externalId: "demo-contact-02", providerConversationId: "demo-conversation-02", providerMessageId: "demo-initial-02-v1", name: "Contato Demo 02", identifier: "demo:contact-02", body: "Bom dia! Preciso de ajuda com um problema." },
@@ -965,6 +968,7 @@ export class Chat {
           if (!identity) {
             const contact = await tx.contact.create({ data: { organizationId: c.organizationId, name: fixture.name, primaryIdentifier: fixture.identifier } });
             identity = await tx.contactIdentity.create({ data: { organizationId: c.organizationId, channelId: channel.id, contactId: contact.id, externalId: fixture.externalId } });
+            provisioned = true;
           }
           let conversation = await tx.conversation.findFirst({
             where: { organizationId: c.organizationId, channelId: channel.id, providerConversationId: fixture.providerConversationId },
@@ -972,6 +976,7 @@ export class Chat {
           if (!conversation) {
             conversation = await tx.conversation.create({ data: { organizationId: c.organizationId, contactId: identity.contactId, channelId: channel.id, providerConversationId: fixture.providerConversationId } });
             await this.event(tx, c, "conversation.created", conversation.id, conversation.id);
+            provisioned = true;
           }
           const normalized = this.provider.parseInbound({ externalMessageId: fixture.providerMessageId, body: fixture.body });
           const initial = await tx.message.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, providerMessageId: normalized.providerMessageId } });
@@ -979,8 +984,10 @@ export class Chat {
             const message = await this.ingestion.persistInbound(tx, { organizationId: c.organizationId, conversationId: conversation.id, contactId: identity.contactId, channelId: channel.id, providerMessageId: normalized.providerMessageId, body: normalized.body });
             await this.event(tx, c, "message.created", message.id, conversation.id, message.sequence);
             await this.event(tx, c, "conversation.updated", conversation.id, conversation.id);
+            provisioned = true;
           }
         }
+        if (provisioned) await this.audit(tx, c, "DEMO_FIXTURES_PROVISIONED");
         await this.audit(tx, c, "DEMO_PROVIDER_ENABLED");
       } else {
         await this.audit(tx, c, "DEMO_PROVIDER_DISABLED");

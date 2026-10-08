@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest, FastifySchema } from "fastify";
 import type { HistoryVisibility } from "@prisma/client";
 import type { Foundation } from "../application/foundation.js";
 import type { Chat, PageQuery } from "../application/chat.js";
+import { AppError } from "../domain/errors.js";
 const obj = (
   properties: Record<string, unknown>,
   required = Object.keys(properties),
@@ -92,6 +93,25 @@ const errors = {
   500: error,
   503: error,
 };
+async function loggedOperation<T>(
+  request: FastifyRequest,
+  operation: string,
+  execute: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await execute();
+  } catch (error) {
+    request.log.warn(
+      {
+        requestId: request.id,
+        operation,
+        errorCode: error instanceof AppError ? error.code : "INTERNAL_ERROR",
+      },
+      "Chat provider operation failed",
+    );
+    throw error;
+  }
+}
 export async function chatRoutes(
   app: FastifyInstance,
   foundation: Foundation,
@@ -127,7 +147,7 @@ export async function chatRoutes(
   app.put<{ Body: { enabled: boolean } }>(
     "/api/v1/providers/demo",
     { schema: schema(obj({ enabled: { type: "boolean" } }), true, { body: obj({ enabled: { type: "boolean" } }), tags: ["M1 Providers"] }) },
-    async (r) => chat.setDemoProvider(await principal(r), r.body.enabled),
+    async (r) => loggedOperation(r, "demo.provider.set", async () => chat.setDemoProvider(await principal(r), r.body.enabled)),
   );
   app.get(
     "/api/v1/providers/demo/contacts",
@@ -137,7 +157,7 @@ export async function chatRoutes(
   app.post<{ Body: { contactId: string; externalMessageId: string; body: string } }>(
     "/api/v1/providers/demo/messages",
     { schema: schema(message, true, { body: obj({ contactId: uuid, externalMessageId: text(120), body: text(8000) }), tags: ["M1 Providers"] }) },
-    async (r) => chat.receiveDemoMessage(await principal(r), r.body),
+    async (r) => loggedOperation(r, "demo.message.receive", async () => chat.receiveDemoMessage(await principal(r), r.body)),
   );
   app.get<{ Querystring: PageQuery }>(
     "/api/v1/contacts",
@@ -233,7 +253,7 @@ export async function chatRoutes(
         body: obj({ body: text(8000), clientMessageId: text(100) }),
       }),
     },
-    async (r) => chat.send(await principal(r), r.params.id, r.body),
+    async (r) => loggedOperation(r, "message.send", async () => chat.send(await principal(r), r.params.id, r.body)),
   );
   app.post<{
     Params: { id: string; messageId: string };

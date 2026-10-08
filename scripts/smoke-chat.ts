@@ -52,14 +52,23 @@ try {
     "x-csrf-token": csrf,
     "content-type": "application/json",
   };
-  async function command(path: string, body: object) {
+  async function api<T extends Record<string, unknown> = Record<string, unknown>>(
+    method: string,
+    path: string,
+    body?: object,
+    status = 200,
+  ): Promise<T> {
     const r = await fetch(base + path, {
-      method: "POST",
+      method,
       headers,
-      body: JSON.stringify(body),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    assert.equal(r.status, 200);
-    return (await r.json()) as { id: string; status?: string };
+    const payload = await r.json();
+    assert.equal(r.status, status, JSON.stringify(payload));
+    return payload as T;
+  }
+  async function command(path: string, body: object) {
+    return api<{ id: string; status?: string }>("POST", path, body);
   }
   await command("/session/organization", { organizationId: org });
   const frames: { type: string; entityId?: string; lastEventId?: string }[] =
@@ -88,6 +97,54 @@ try {
   const ws = await connect();
   await wait(() => frames.some((f) => f.type === "sync.checkpoint"));
   const checkpoint = frames.at(-1)!.lastEventId!;
+  await api("PUT", "/providers/demo", { enabled: true });
+  const demoContacts = await api<{ enabled: boolean; items: { contactId: string; conversationId: string }[] }>("GET", "/providers/demo/contacts");
+  assert.equal(demoContacts.enabled, true);
+  assert.equal(demoContacts.items.length, 2);
+  const demoContact = demoContacts.items[0]!;
+  const initialPage = await api<{ items: { direction: string; senderContactId: string | null }[] }>("GET", `/conversations/${demoContact.conversationId}/messages`);
+  assert.equal(initialPage.items[0]?.direction, "INBOUND");
+  assert.equal(initialPage.items[0]?.senderContactId, demoContact.contactId);
+  const externalMessageId = randomUUID();
+  const inbound = await api<{ id: string; direction: string; senderUserId: string | null; senderContactId: string }>("POST", "/providers/demo/messages", {
+    contactId: demoContact.contactId,
+    externalMessageId,
+    body: "Smoke received from Demo contact",
+  });
+  assert.equal(inbound.direction, "INBOUND");
+  assert.equal(inbound.senderUserId, null);
+  assert.equal(inbound.senderContactId, demoContact.contactId);
+  assert.equal((await api("POST", "/providers/demo/messages", {
+    contactId: demoContact.contactId,
+    externalMessageId,
+    body: "Smoke received from Demo contact",
+  })).id, inbound.id);
+  await wait(() => frames.some((f) => f.type === "message.created" && f.entityId === inbound.id));
+  const demoOutbound = await api<{ id: string; direction: string; senderUserId: string }>("POST", `/conversations/${demoContact.conversationId}/messages`, {
+    clientMessageId: randomUUID(),
+    body: "Smoke reply from agent",
+  });
+  assert.equal(demoOutbound.direction, "OUTBOUND");
+  assert.equal(demoOutbound.senderUserId, user);
+  await wait(() => frames.some((f) => f.type === "message.created" && f.entityId === demoOutbound.id));
+  await api("PUT", "/providers/demo", { enabled: false });
+  await api("POST", "/providers/demo/messages", {
+    contactId: demoContact.contactId,
+    externalMessageId: randomUUID(),
+    body: "Should be blocked while disabled",
+  }, 409);
+  await api("POST", `/conversations/${demoContact.conversationId}/messages`, {
+    clientMessageId: randomUUID(),
+    body: "Should be blocked while disabled",
+  }, 409);
+  const disabledMessages = await api<{ items: { id: string }[] }>("GET", `/conversations/${demoContact.conversationId}/messages`);
+  assert.equal(disabledMessages.items.length, 3);
+  await api("PUT", "/providers/demo", { enabled: true });
+  const reactivatedContacts = await api<{ items: { contactId: string; conversationId: string }[] }>("GET", "/providers/demo/contacts");
+  assert.equal(reactivatedContacts.items.length, 2);
+  assert.equal(reactivatedContacts.items[0]?.conversationId, demoContact.conversationId);
+  const reactivatedMessages = await api<{ items: { id: string }[] }>("GET", `/conversations/${demoContact.conversationId}/messages`);
+  assert.equal(reactivatedMessages.items.length, 3);
   const contact = await command("/contacts", {
     name: "Smoke contact",
     primaryIdentifier: randomUUID(),
@@ -117,9 +174,8 @@ try {
   frames.length = 0;
   await connect(checkpoint);
   await wait(() =>
-    frames.some(
-      (f) => f.type === "message.created" && f.entityId === message.id,
-    ),
+    frames.some((f) => f.type === "message.created" && f.entityId === message.id) &&
+      frames.some((f) => f.type === "message.created" && f.entityId === demoOutbound.id),
   );
   await command(`/conversations/${convo.id}/notes`, { body: "Smoke note" });
   await command(`/conversations/${convo.id}/archive`, {});
@@ -131,7 +187,7 @@ try {
   ])
     assert.equal((await fetch(base + path, { headers })).status, 200);
   process.stdout.write(
-    "M1 real HTTP/WebSocket smoke: commands, idempotency, live events and reconnect passed\n",
+    "M1 HTTP/WebSocket smoke: Demo provision, inbound/outbound, disabled/re-enabled, idempotency, live events and replay passed\n",
   );
 } catch {
   process.stderr.write("M1 HTTP/WebSocket smoke failed\n");
@@ -146,6 +202,8 @@ try {
     await db.conversationTag.deleteMany({ where });
     await db.message.deleteMany({ where });
     await db.conversation.deleteMany({ where });
+    await db.contactIdentity.deleteMany({ where });
+    await db.channel.deleteMany({ where });
     await db.contact.deleteMany({ where });
     await db.auditEvent.deleteMany({ where });
   }
