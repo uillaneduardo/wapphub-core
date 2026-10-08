@@ -111,6 +111,7 @@ preservados. Nenhuma funcionalidade de M1 foi iniciada.
 | WebSocket/event stream/reconnect | ✅ | Sessão/Origin/contexto, replay, revogação e fallback durável |
 | Isolamento multi-tenant | ✅ | IDs estrangeiros negados em REST, persistência e realtime |
 | OpenAPI | ✅ | Validação formal + identidade com schemas em modo produção |
+| Roster mínimo para assignment/transfer | ✅ | Validado na branch `feat/m1-team-roster` (54 testes, OpenAPI, lint/typecheck/build); não integrado nem implantado |
 | Validação backend | ✅ | 53 testes; lint/typecheck/build; HTTP/WS smoke; quatro migrations consistentes no teste |
 | Ambiente separado | ✅ | Validação pré-deploy em projeto/DB/Redis/imagem/volumes próprios |
 | Deploy backend em produção | ✅ | Duas migrations M1; REST/WSS/replay/tenancy; DEPLOYMENT.md |

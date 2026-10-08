@@ -98,7 +98,7 @@ export class Chat {
   ) {}
   async context(
     principal: Principal,
-    permission: string,
+    permission: string | string[],
     tx: DB = this.db,
   ): Promise<ChatContext> {
     const organizationId = principal.session.currentOrganizationId;
@@ -131,9 +131,76 @@ export class Chat {
     });
     if (!m) throw new AppError(403, "ORGANIZATION_ACCESS_DENIED");
     const permissions = m.role.permissions.map((x) => x.permission.code);
-    if (!permissions.includes(permission))
+    const requiredPermissions = Array.isArray(permission)
+      ? permission
+      : [permission];
+    if (!requiredPermissions.some((required) => permissions.includes(required)))
       throw new AppError(403, "PERMISSION_DENIED");
     return { organizationId, userId: principal.user.id, permissions };
+  }
+  async teamMembers(principal: Principal, q: PageQuery = {}) {
+    const c = await this.context(principal, [
+      "conversations.assign",
+      "conversations.transfer",
+    ]);
+    const limit = Math.min(Math.max(q.limit ?? 50, 1), 100);
+    const scope = `team-members:${c.organizationId}`;
+    const after = cursorDecode(this.config.ENCRYPTION_KEY, scope, q.cursor);
+    const rows = await this.db.membership.findMany({
+      where: {
+        organizationId: c.organizationId,
+        status: "ACTIVE",
+        organization: { status: "ACTIVE" },
+        user: { status: "ACTIVE" },
+        ...(after ? { id: { gt: after } } : {}),
+      },
+      orderBy: { id: "asc" },
+      take: limit + 1,
+      select: {
+        id: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            status: true,
+          },
+        },
+        role: {
+          select: {
+            permissions: {
+              select: { permission: { select: { code: true } } },
+            },
+          },
+        },
+      },
+    });
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit);
+    return {
+      items: page.map((membership) => {
+        const permissions = membership.role.permissions.map(
+          (entry) => entry.permission.code,
+        );
+        return {
+          userId: membership.user.id,
+          name: membership.user.name,
+          email: membership.user.email,
+          status: "ACTIVE" as const,
+          canReceiveAssignment:
+            permissions.includes("conversations.read") &&
+            permissions.includes("messages.read"),
+        };
+      }),
+      nextCursor:
+        hasMore && page.length
+          ? cursorEncode(
+              this.config.ENCRYPTION_KEY,
+              scope,
+              page[page.length - 1]!.id,
+            )
+          : null,
+    };
   }
   require(c: ChatContext, p: string) {
     if (!c.permissions.includes(p))

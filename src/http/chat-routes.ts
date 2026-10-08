@@ -53,7 +53,14 @@ const message = obj({
   updatedAt: date,
 });
 const note = obj({ id: uuid, authorUserId: uuid, body: str, createdAt: date }),
-  tag = obj({ id: uuid, name: str });
+  tag = obj({ id: uuid, name: str }),
+  teamMember = obj({
+    userId: uuid,
+    name: str,
+    email: { type: "string", format: "email" },
+    status: { type: "string", enum: ["ACTIVE"] },
+    canReceiveAssignment: { type: "boolean" },
+  });
 const page = (items: unknown) =>
   obj({
     items: { type: "array", items },
@@ -103,6 +110,11 @@ export async function chatRoutes(
     response: { ...errors, 200: dto },
     ...extra,
   });
+  app.get<{ Querystring: PageQuery }>(
+    "/api/v1/team/members",
+    { schema: schema(page(teamMember), false, { querystring: query }) },
+    async (r) => chat.teamMembers(await principal(r), r.query),
+  );
   app.get<{ Querystring: PageQuery }>(
     "/api/v1/contacts",
     { schema: schema(page(contact), false, { querystring: query }) },
