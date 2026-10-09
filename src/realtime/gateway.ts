@@ -12,6 +12,8 @@ type Client = {
   organizationId: string;
   sessionId: string;
   cursor: string;
+  permissionStamp: string;
+  sessionOnly: boolean;
   running: boolean;
   pending: boolean;
 };
@@ -50,17 +52,23 @@ export class RealtimeGateway {
       if (c.organizationId === org) void this.pump(c);
   }
   private async principal(c: Client): Promise<Principal> {
-    const p = await this.foundation.authenticate(c.token, true, false);
+    const p = await this.foundation.authenticate(c.token, false, false);
     if (
       p.session.id !== c.sessionId ||
       p.session.currentOrganizationId !== c.organizationId
     )
       throw new AppError(403, "REALTIME_CONTEXT_CHANGED");
-    await this.chat.context(p, "conversations.read");
+    const context = await this.foundation.membership(p.user.id, c.organizationId, c.sessionOnly ? "organization.read" : undefined);
+    const stamp = `${context.membership.permissionVersion}:${context.permissions.join(",")}`;
+    if (stamp !== c.permissionStamp) {
+      this.closeClient(c, 4003);
+      throw new AppError(403, "PERMISSIONS_CHANGED");
+    }
+    if (!c.sessionOnly) await this.chat.context(p, "conversations.read");
     return p;
   }
   private closeClient(c: Client, code = 1008) {
-    this.clients.delete(c);
+    if (!this.clients.delete(c)) return;
     c.socket.close(code, "Reconnect with authorized context");
     setTimeout(() => {
       if (c.socket.readyState !== 3) c.socket.terminate();
@@ -88,7 +96,12 @@ export class RealtimeGateway {
       do {
         c.pending = false;
         const p = await this.principal(c);
+        if (c.sessionOnly) {
+          c.socket.send(JSON.stringify({ version: 1, type: "sync.checkpoint", lastEventId: "0", hasMore: false }));
+          return;
+        }
         const batch = await this.chat.stream(p, c.cursor, 100);
+        await this.principal(c); // Do not deliver a batch resolved with stale authority.
         if (c.socket.readyState !== 1) return;
         if (c.socket.bufferedAmount > 1024 * 1024) {
           this.closeClient(c, 1013);
@@ -113,8 +126,9 @@ export class RealtimeGateway {
     }
   }
   async routes(app: FastifyInstance, config: Config, cookieName: string) {
+    for (const sessionOnly of [false, true]) {
     app.get<{ Querystring: { lastEventId?: string } }>(
-      "/api/v1/realtime",
+      sessionOnly ? "/api/v1/session/updates" : "/api/v1/realtime",
       {
         websocket: true,
         schema: {
@@ -138,7 +152,7 @@ export class RealtimeGateway {
             throw new AppError(403, "ORIGIN_REJECTED");
           if (req.query.lastEventId) decimal(req.query.lastEventId);
           const p = await this.foundation.authenticate(req.cookies[cookieName]);
-          await this.chat.context(p, "conversations.read");
+          await this.chat.context(p, sessionOnly ? "organization.read" : "conversations.read");
         },
       },
       (socket, req) => {
@@ -154,7 +168,8 @@ export class RealtimeGateway {
         void (async () => {
           const token = req.cookies[cookieName]!;
           const p = await this.foundation.authenticate(token, true, false);
-          const context = await this.chat.context(p, "conversations.read");
+          const context = await this.chat.context(p, sessionOnly ? "organization.read" : "conversations.read");
+          const authorization = await this.foundation.membership(p.user.id, context.organizationId, sessionOnly ? "organization.read" : undefined);
           if (socket.readyState !== 1) return;
           client = {
             socket,
@@ -162,6 +177,8 @@ export class RealtimeGateway {
             organizationId: context.organizationId,
             sessionId: p.session.id,
             cursor: req.query.lastEventId ?? "0",
+            sessionOnly,
+            permissionStamp: `${authorization.membership.permissionVersion}:${authorization.permissions.join(",")}`,
             running: false,
             pending: false,
           };
@@ -178,6 +195,7 @@ export class RealtimeGateway {
         })().catch(() => socket.close(1008, "Unauthorized"));
       },
     );
+    }
   }
   async close() {
     clearInterval(this.timer);

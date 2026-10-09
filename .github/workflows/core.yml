@@ -1,0 +1,46 @@
+name: Core checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DATABASE_URL: mysql://wapphub_test:test-only-pass@127.0.0.1:3306/wapphub_m21_test
+      REDIS_URL: redis://127.0.0.1:6379
+      WEB_ORIGINS: https://web-client.example.test
+      ENCRYPTION_KEY: '1111111111111111111111111111111111111111111111111111111111111111'
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_DATABASE: wapphub_m21_test
+          MARIADB_USER: wapphub_test
+          MARIADB_PASSWORD: test-only-pass
+          MARIADB_ROOT_PASSWORD: test-only-root
+        ports: ['3306:3306']
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=5s --health-timeout=5s --health-retries=20
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+        options: --health-cmd="redis-cli ping" --health-interval=5s --health-timeout=3s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run db:migrate
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run openapi:validate
+      - run: npx prisma validate
+      - run: npm run db:validate-drift

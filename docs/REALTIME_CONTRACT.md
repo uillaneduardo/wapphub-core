@@ -103,3 +103,11 @@ Ver P0_PREVIEW_AUTHORIZATION.md para testes e estado local/não publicado.
 ## Invalidação por rename de contato — implementação local M1
 
 PATCH de nome de contato emite `conversation.updated` para conversas tenant-scoped relacionadas na transação existente. Envelope/tipos e autorização P0 não mudam; não há conteúdo de mensagem novo no evento. Chat reconcilia via REST/P1. Nenhum evento Contact novo; lista de contatos usa bootstrap/comandos locais/reconciliação. [Limites](M1_CONTACTS_CONVERSATION_CREATION.md).
+
+## M2.1 — catálogo e overrides de Membership
+
+Implementação aditiva, restrita a recursos base e RBAC tenant-scoped.
+Contrato REST, resolvedor, concorrência/auditoria e controle realtime 4003 descritos
+em [M2_1_RESOURCES_RBAC.md](M2_1_RESOURCES_RBAC.md). Nenhum módulo comercial ou
+integração Meta implementado. Diagnóstico anterior ao schema em
+[M2_1_RBAC_DIAGNOSIS.md](M2_1_RBAC_DIAGNOSIS.md).

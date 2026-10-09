@@ -1,3 +1,5 @@
+import { Permissions } from "../application/permissions.js";
+import { permissionRoutes } from "./permission-routes.js";
 import websocket from "@fastify/websocket";
 import { Chat } from "../application/chat.js";
 import { chatRoutes } from "./chat-routes.js";
@@ -28,10 +30,16 @@ const context = object({
   organization,
   membership: object({
     id: string,
+    permissionVersion: { type: "integer", minimum: 0 },
     role: string,
     consumesSeat: { type: "boolean" },
   }),
   permissions: { type: "array", items: string },
+  resources: { type: "array", items: { type: "object", additionalProperties: false, properties: {
+    code: string, module: string, name: string, description: string,
+    availability: { type: "string", enum: ["AVAILABLE", "PLANNED", "RESEARCH", "UNSUPPORTED", "DEPRECATED"] },
+    permissions: { type: "array", items: string }, dependencies: { type: "array", items: string }, base: { type: "boolean" }, entitlement: { type: ["string", "null"] }, navigation: { type: "boolean" },
+  }, required: ["code", "module", "name", "description", "availability", "permissions", "dependencies", "base", "entitlement", "navigation"] } },
 });
 const error = object({ error: object({ code: string, requestId: string }) });
 const responses = {
@@ -182,6 +190,7 @@ export async function buildApp(
   const gateway = new RealtimeGateway(foundation, chat, redis);
   app.addHook("preClose", async () => gateway.close());
   await chatRoutes(app, foundation, chat, sessionCookie);
+  await permissionRoutes(app, foundation, chat, new Permissions(db, chat, config), sessionCookie);
   await gateway.routes(app, config, sessionCookie);
   const authenticate = (req: { cookies: Record<string, string | undefined> }) =>
     foundation.authenticate(req.cookies[sessionCookie]);

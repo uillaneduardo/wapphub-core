@@ -1,5 +1,9 @@
 # WappHub Core
 
+> M2.1: fundação de catálogo/RBAC tenant-scoped implementada e validada localmente.
+> [Contrato e limites](docs/M2_1_RESOURCES_RBAC.md). Publicação/homologação seguem gates
+> desta entrega; notas M1 abaixo são históricas e não declaram M2 completo.
+
 > **M1 funcionalmente homologado; consolidação administrativa Git pendente.** [Aceite formal](docs/M1_FINAL_ACCEPTANCE.md) e [STATUS](docs/STATUS.md). Nenhuma nova função/M2 ou publicação nesta auditoria.
 
 Backend e núcleo de domínio compartilhado do ecossistema WappHub.

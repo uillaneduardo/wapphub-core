@@ -321,3 +321,11 @@ banco, Redis, volumes, imagem e porta próprios; não participa da ingress de
 produção. Esse era o estado na validação inicial isolada; atualmente Core M1/Demo 72d05aa
 está publicado, conforme inventário de 2026-10-08.
 Decisões e limites detalhados em `M1_CHAT_INTERNAL.md` e `REALTIME_CONTRACT.md`.
+
+## M2.1 — catálogo e overrides de Membership
+
+Implementação aditiva, restrita a recursos base e RBAC tenant-scoped.
+Contrato REST, resolvedor, concorrência/auditoria e controle realtime 4003 descritos
+em [M2_1_RESOURCES_RBAC.md](M2_1_RESOURCES_RBAC.md). Nenhum módulo comercial ou
+integração Meta implementado. Diagnóstico anterior ao schema em
+[M2_1_RBAC_DIAGNOSIS.md](M2_1_RBAC_DIAGNOSIS.md).

@@ -41,6 +41,8 @@ model Organization {
 }
 
 model Membership {
+  permissionVersion Int @default(0)
+  permissionOverrides MembershipPermissionOverride[]
   id             String       @id @default(uuid()) @db.Char(36)
   userId         String       @db.Char(36)
   organizationId String       @db.Char(36)
@@ -52,6 +54,7 @@ model Membership {
   organization   Organization @relation(fields: [organizationId], references: [id])
   role           Role         @relation(fields: [roleId], references: [id])
 
+  @@unique([organizationId, id])
   @@unique([userId, organizationId])
   @@index([organizationId, status])
 }
@@ -65,9 +68,27 @@ model Role {
 }
 
 model Permission {
+  overrides MembershipPermissionOverride[]
   id    String           @id @default(uuid()) @db.Char(36)
   code  String           @unique @db.VarChar(80)
   roles RolePermission[]
+}
+
+enum PermissionOverrideEffect {
+  GRANT
+  REVOKE
+}
+
+model MembershipPermissionOverride {
+  organizationId String @db.Char(36)
+  membershipId String @db.Char(36)
+  permissionId String @db.Char(36)
+  effect PermissionOverrideEffect
+  membership Membership @relation(fields: [organizationId, membershipId], references: [organizationId, id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+
+  @@id([organizationId, membershipId, permissionId])
+  @@index([permissionId])
 }
 
 model RolePermission {
@@ -114,6 +135,8 @@ model Session {
 }
 
 model AuditEvent {
+  targetMembershipId String? @db.Char(36)
+  details Json?
   id             String   @id @default(uuid()) @db.Char(36)
   organizationId String   @db.Char(36)
   actorUserId    String   @db.Char(36)

@@ -1,3 +1,4 @@
+import { resolvePermissions } from "../domain/resources.js";
 import { chatEventTypes, type ChatEventType } from "../realtime/contract.js";
 import {
   Prisma,
@@ -151,11 +152,12 @@ export class Chat {
         organization: { status: "ACTIVE" },
       },
       include: {
+        permissionOverrides: { include: { permission: true } },
         role: { include: { permissions: { include: { permission: true } } } },
       },
     });
     if (!m) throw new AppError(403, "ORGANIZATION_ACCESS_DENIED");
-    const permissions = m.role.permissions.map((x) => x.permission.code);
+    const permissions = resolvePermissions(m);
     const requiredPermissions = Array.isArray(permission)
       ? permission
       : [permission];
@@ -182,6 +184,7 @@ export class Chat {
       orderBy: { id: "asc" },
       take: limit + 1,
       select: {
+        permissionOverrides: { include: { permission: true } },
         id: true,
         user: {
           select: {
@@ -204,9 +207,7 @@ export class Chat {
     const page = rows.slice(0, limit);
     return {
       items: page.map((membership) => {
-        const permissions = membership.role.permissions.map(
-          (entry) => entry.permission.code,
-        );
+        const permissions = resolvePermissions(membership);
         return {
           userId: membership.user.id,
           name: membership.user.name,
@@ -556,15 +557,14 @@ export class Chat {
             user: { status: "ACTIVE" },
           },
           include: {
+            permissionOverrides: { include: { permission: true } },
             role: {
               include: { permissions: { include: { permission: true } } },
             },
           },
         });
         if (!target) throw new AppError(404, "ASSIGNEE_NOT_FOUND");
-        const permissions = target.role.permissions.map(
-          (x) => x.permission.code,
-        );
+        const permissions = resolvePermissions(target);
         if (
           !permissions.includes("conversations.read") ||
           !permissions.includes("messages.read")

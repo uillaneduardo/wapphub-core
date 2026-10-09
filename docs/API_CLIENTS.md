@@ -134,3 +134,11 @@ ver inventário de 2026-10-08. A descrição da branch acima é histórica.
 ## Contratos M1 adicionais — implementação local 2026-10-08
 
 GET /api/v1/contacts aceita `q` opcional (254 caracteres), combinado com cursor vinculado à busca. Contact DTO acrescenta `providers` DEMO/META. POST /api/v1/conversations aceita `reuseExisting:true` opt-in, que exige leitura além de criação; retorna `reused` opcional. Reutiliza somente conversa interna acessível aberta/pendente. Contrato legado preservado. [Detalhes e publicação coordenada](M1_CONTACTS_CONVERSATION_CREATION.md).
+
+## M2.1 — catálogo e overrides de Membership
+
+Implementação aditiva, restrita a recursos base e RBAC tenant-scoped.
+Contrato REST, resolvedor, concorrência/auditoria e controle realtime 4003 descritos
+em [M2_1_RESOURCES_RBAC.md](M2_1_RESOURCES_RBAC.md). Nenhum módulo comercial ou
+integração Meta implementado. Diagnóstico anterior ao schema em
+[M2_1_RBAC_DIAGNOSIS.md](M2_1_RBAC_DIAGNOSIS.md).

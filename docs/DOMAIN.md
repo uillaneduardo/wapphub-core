@@ -183,3 +183,11 @@ identidade global; atribuição não cria role ou organizationId global em User.
 FULL/LIMITED/NONE são limites de autorização persistidos na Conversation;
 histórico original nunca é copiado/apagado. Recibos locais, permissions,
 cursores e limites deste escopo estão em `M1_CHAT_INTERNAL.md`.
+
+## M2.1 — catálogo e overrides de Membership
+
+Implementação aditiva, restrita a recursos base e RBAC tenant-scoped.
+Contrato REST, resolvedor, concorrência/auditoria e controle realtime 4003 descritos
+em [M2_1_RESOURCES_RBAC.md](M2_1_RESOURCES_RBAC.md). Nenhum módulo comercial ou
+integração Meta implementado. Diagnóstico anterior ao schema em
+[M2_1_RBAC_DIAGNOSIS.md](M2_1_RBAC_DIAGNOSIS.md).

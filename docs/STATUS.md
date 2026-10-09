@@ -1,3 +1,15 @@
+# M2.1 — atualização técnica de 2026-10-09
+
+Catálogo base, overrides GRANT/REVOKE por Membership, APIs de equipe/permissões,
+resolver efetivo, auditoria/revisão concorrente e invalidação realtime implementados.
+Validação local: 75 testes Core (inclui regressão M1), npm ci sem vulnerabilidades,
+lint/typecheck/build/OpenAPI/Prisma aprovados; zero drift novo.
+PR/merge/deploy seguem gates separados; homologação final pelo usuário pendente.
+Não declara assinaturas, entitlements comerciais, convites ou Meta implementados.
+[Diagnóstico](M2_1_RBAC_DIAGNOSIS.md) · [Contrato/segurança](M2_1_RESOURCES_RBAC.md).
+
+Os registros abaixo preservam o estado histórico anterior a esta entrega.
+
 # Status do WappHub — M1
 
 Estado vigente em 2026-10-08: **M1 funcionalmente homologado pelo usuário; encerramento administrativo pendente de consolidação Git revisada.** Não iniciar M2 nesta execução.

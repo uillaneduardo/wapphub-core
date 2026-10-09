@@ -460,7 +460,7 @@ test("validation, unknown routes, headers and CORS are safe", async () => {
     "NOT_FOUND",
   );
 });
-test("OpenAPI preserves every foundation route and includes only M1 chat extensions", async () => {
+test("OpenAPI preserves every foundation and M1 route and adds the M2.1 permission contract", async () => {
   const doc = (await app.inject("/api/v1/openapi.json")).json();
   const foundationPaths = [
     "/health",
@@ -489,6 +489,11 @@ test("OpenAPI preserves every foundation route and includes only M1 chat extensi
     "/conversations/{id}/notes",
     "/realtime/events",
     "/team/members",
+    "/resources",
+    "/permissions",
+    "/team/directory",
+    "/team/members/{membershipId}/permissions",
+    "/team/members/{membershipId}/permissions/reset",
     "/providers",
     "/providers/demo",
     "/providers/demo/contacts",
