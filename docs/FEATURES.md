@@ -1,5 +1,7 @@
 # Estratégia de Recursos e Entitlements
 
+> Este catálogo define evolução comercial, não declara Entitlement Resolver implementado no M1. Entitlements/assentos e Admin permanecem M2; Meta M3 e mídia M4. Estado M1: [aceite final](M1_FINAL_ACCEPTANCE.md).
+
 ## Objetivo
 
 Permitir adicionar recursos e alterar ofertas comerciais sem espalhar regras por plano no código.
@@ -89,3 +91,11 @@ Checklist obrigatório:
 8. Adicionar auditoria.
 9. Testar organização com e sem entitlement.
 10. Atualizar documentação e STATUS.
+
+## M2.1 — catálogo e overrides de Membership
+
+Implementação aditiva, restrita a recursos base e RBAC tenant-scoped.
+Contrato REST, resolvedor, concorrência/auditoria e controle realtime 4003 descritos
+em [M2_1_RESOURCES_RBAC.md](M2_1_RESOURCES_RBAC.md). Nenhum módulo comercial ou
+integração Meta implementado. Diagnóstico anterior ao schema em
+[M2_1_RBAC_DIAGNOSIS.md](M2_1_RBAC_DIAGNOSIS.md).

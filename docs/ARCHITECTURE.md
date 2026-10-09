@@ -1,5 +1,7 @@
 # Arquitetura do WappHub
 
+> A arquitetura inclui domínios futuros. Implementação M1 verificada, responsabilidades atuais e limites: [aceite final](M1_FINAL_ACCEPTANCE.md). Nenhuma implementação M2 ou integração Meta declarada por este documento.
+
 ## 1. Visão geral
 
 O ecossistema é composto inicialmente por três repositórios:
@@ -192,16 +194,14 @@ Objetivos:
 
 O domínio depende de ports, não da Meta diretamente.
 
-```
-MessagingProvider
-  └─ MetaWhatsAppProvider
-```
+`MessagingProvider` é um port de texto normalizado. `DemoProvider` implementa o canal simulado e passa entradas pelo `MessageIngestionService` comum. Adaptadores futuros implementam o mesmo contrato; não devem criar persistência paralela. O adaptador Meta continua não implementado.
 
 Cada Organization configura sua própria integração Meta e seus próprios canais/credenciais.
 
 Webhook físico pode ser compartilhado, mas todo evento deve ser resolvido para Organization + Channel antes de processamento de domínio.
 
 Detalhes: `docs/META_INTEGRATION.md`.
+O escopo do provedor simulado está em `docs/DEMO_PROVIDER.md`.
 
 ## 12. Diagnóstico e capabilities
 
@@ -318,5 +318,14 @@ de qualquer meta M5. Sem event bus distribuído ou microserviços.
 A política de transferência se aplica tanto ao REST quanto ao realtime/replay.
 Limites de histórico não apagam dados. O ambiente M1 de teste possui projeto,
 banco, Redis, volumes, imagem e porta próprios; não participa da ingress de
-produção. Produção permanece M0 até uma promoção futura explicitamente revisada.
+produção. Esse era o estado na validação inicial isolada; atualmente Core M1/Demo 72d05aa
+está publicado, conforme inventário de 2026-10-08.
 Decisões e limites detalhados em `M1_CHAT_INTERNAL.md` e `REALTIME_CONTRACT.md`.
+
+## M2.1 — catálogo e overrides de Membership
+
+Implementação aditiva, restrita a recursos base e RBAC tenant-scoped.
+Contrato REST, resolvedor, concorrência/auditoria e controle realtime 4003 descritos
+em [M2_1_RESOURCES_RBAC.md](M2_1_RESOURCES_RBAC.md). Nenhum módulo comercial ou
+integração Meta implementado. Diagnóstico anterior ao schema em
+[M2_1_RBAC_DIAGNOSIS.md](M2_1_RBAC_DIAGNOSIS.md).

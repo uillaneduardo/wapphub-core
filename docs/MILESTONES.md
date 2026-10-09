@@ -48,7 +48,13 @@ Critério de aceite:
 
 ## M1 — Chat interno independente da Meta
 
+**Estado:** aceite funcional homologado pelo usuário em 2026-10-08; encerramento administrativo Git pendente. [Matriz e decisão](M1_FINAL_ACCEPTANCE.md). Entregas/critério originais abaixo preservados. M2 não iniciado nesta auditoria.
+
 Objetivo: validar domínio e experiência realtime sem provider externo.
+
+O Demo Provider é uma extensão de homologação local e determinística da camada
+de canais, em branch própria de revisão. Não ativa integração externa e não
+antecipa M3/Meta.
 
 Entregas:
 - Contacts;

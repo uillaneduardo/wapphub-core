@@ -1,0 +1,9 @@
+{
+  "name": "/wapphub-core-wapphub-core-api-1",
+  "id": "3f929916f0393c594a9faad10fbef014342f362b0ce09fb73c31f886e988491a",
+  "image": "wapphub-core:m1-contacts-a45fb33",
+  "image_id": "sha256:e3a48fddb1b83ce6a73f85937022aa2650e54ae620db7f4501d14e01720de021",
+  "revision": "a45fb330ceeb6a703c463174f4fa560ad070e226",
+  "started": "2026-10-08T21:00:00.177663698Z",
+  "health": "healthy"
+}

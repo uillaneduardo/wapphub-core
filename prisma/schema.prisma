@@ -37,9 +37,12 @@ model Organization {
   updatedAt      DateTime                 @updatedAt
   memberships    Membership[]
   invitations    OrganizationInvitation[]
+  channels       Channel[]
 }
 
 model Membership {
+  permissionVersion Int @default(0)
+  permissionOverrides MembershipPermissionOverride[]
   id             String       @id @default(uuid()) @db.Char(36)
   userId         String       @db.Char(36)
   organizationId String       @db.Char(36)
@@ -51,6 +54,7 @@ model Membership {
   organization   Organization @relation(fields: [organizationId], references: [id])
   role           Role         @relation(fields: [roleId], references: [id])
 
+  @@unique([organizationId, id])
   @@unique([userId, organizationId])
   @@index([organizationId, status])
 }
@@ -64,9 +68,27 @@ model Role {
 }
 
 model Permission {
+  overrides MembershipPermissionOverride[]
   id    String           @id @default(uuid()) @db.Char(36)
   code  String           @unique @db.VarChar(80)
   roles RolePermission[]
+}
+
+enum PermissionOverrideEffect {
+  GRANT
+  REVOKE
+}
+
+model MembershipPermissionOverride {
+  organizationId String @db.Char(36)
+  membershipId String @db.Char(36)
+  permissionId String @db.Char(36)
+  effect PermissionOverrideEffect
+  membership Membership @relation(fields: [organizationId, membershipId], references: [organizationId, id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+
+  @@id([organizationId, membershipId, permissionId])
+  @@index([permissionId])
 }
 
 model RolePermission {
@@ -113,6 +135,8 @@ model Session {
 }
 
 model AuditEvent {
+  targetMembershipId String? @db.Char(36)
+  details Json?
   id             String   @id @default(uuid()) @db.Char(36)
   organizationId String   @db.Char(36)
   actorUserId    String   @db.Char(36)
@@ -160,6 +184,8 @@ model Contact {
   updatedAt         DateTime       @updatedAt
   organization      Organization   @relation(fields: [organizationId], references: [id])
   conversations     Conversation[]
+  channelIdentities ContactIdentity[]
+  authoredMessages Message[]
 
   @@unique([organizationId, id])
   @@unique([organizationId, primaryIdentifier])
@@ -176,6 +202,8 @@ model Conversation {
   updatedAt          DateTime                        @updatedAt
   lastMessageAt      DateTime                        @default(now())
   visibility         HistoryVisibility               @default(FULL)
+  channelId          String?                         @db.Char(36)
+  providerConversationId String?                     @db.VarChar(120)
   visibleFromMessage BigInt                          @default(0)
   visibleFromEvent   BigInt                          @default(0)
   organization       Organization                    @relation(fields: [organizationId], references: [id])
@@ -185,10 +213,12 @@ model Conversation {
   tags               ConversationTag[]
   notes              InternalNote[]
   assignments        ConversationAssignmentHistory[]
+  channel            Channel?                        @relation(fields: [organizationId, channelId], references: [organizationId, id], onDelete: Restrict)
 
   @@unique([organizationId, id])
   @@index([organizationId, status, lastMessageAt, id])
   @@index([organizationId, assignedUserId, lastMessageAt, id])
+  @@unique([organizationId, channelId, providerConversationId])
 }
 
 model Message {
@@ -197,6 +227,9 @@ model Message {
   organizationId  String        @db.Char(36)
   conversationId  String        @db.Char(36)
   senderUserId    String?       @db.Char(36)
+  senderContactId String?       @db.Char(36)
+  channelId       String?       @db.Char(36)
+  providerMessageId String?     @db.VarChar(160)
   clientMessageId String?       @db.VarChar(100)
   direction       String        @default("INTERNAL") @db.VarChar(20)
   type            String        @default("TEXT") @db.VarChar(20)
@@ -206,9 +239,42 @@ model Message {
   updatedAt       DateTime      @updatedAt
   conversation    Conversation  @relation(fields: [organizationId, conversationId], references: [organizationId, id])
   sender          User?         @relation("MessageSender", fields: [senderUserId], references: [id])
+  senderContact   Contact?      @relation(fields: [organizationId, senderContactId], references: [organizationId, id], onDelete: Restrict)
+  channel         Channel?      @relation(fields: [organizationId, channelId], references: [organizationId, id], onDelete: Restrict)
 
   @@unique([organizationId, conversationId, clientMessageId])
   @@index([organizationId, conversationId, sequence])
+  @@unique([organizationId, channelId, providerMessageId])
+}
+
+model Channel {
+  id                    String            @id @default(uuid()) @db.Char(36)
+  organizationId        String            @db.Char(36)
+  provider              String            @db.VarChar(30)
+  status                String            @default("DISABLED") @db.VarChar(20)
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  organization          Organization      @relation(fields: [organizationId], references: [id])
+  conversations         Conversation[]
+  messages              Message[]
+  contactIdentities     ContactIdentity[]
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, provider])
+}
+
+model ContactIdentity {
+  organizationId String       @db.Char(36)
+  channelId      String       @db.Char(36)
+  contactId      String       @db.Char(36)
+  externalId     String       @db.VarChar(120)
+  createdAt      DateTime     @default(now())
+  channel        Channel      @relation(fields: [organizationId, channelId], references: [organizationId, id], onDelete: Cascade)
+  contact        Contact      @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: Cascade)
+
+  @@id([organizationId, channelId, externalId])
+  @@unique([organizationId, channelId, contactId])
+  @@index([organizationId, contactId])
 }
 
 model Tag {

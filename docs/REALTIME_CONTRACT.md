@@ -65,7 +65,7 @@ Servidor envia um frame de controle após cada página escaneada:
 ```
 
 Checkpoint avança também sobre eventos não visíveis, sem revelar seus IDs/
-recursos individuais. Cliente persiste o último checkpoint por Organization e
+recursos individuais. Chat P1 persiste o checkpoint por User/Organization/aba; consumidor nativo deve também isolar a identidade. Cliente persiste o último checkpoint por contexto e
 só o confirma após aplicar os eventos precedentes. hasMore=true indica outra
 página automática no WebSocket. Conectar sem cursor inicia replay em 0.
 
@@ -81,7 +81,33 @@ primário. Cada socket tem fila serial de sync; cliente deve deduplicar por even
 para retries/reconexões (entrega não é exactly-once). Guardas de sessão e
 reconciliação após reconnect Redis/notificação perdida estão em M1_CHAT_INTERNAL.md.
 
+Mensagens Demo recebidas e respostas do atendimento emitem `message.created` e
+`conversation.updated` pelo mesmo fluxo. O envelope continua contendo somente
+IDs; o histórico M1 autorizado resolve direction, autor e conteúdo via REST.
+
 Códigos de encerramento: 1008 para sessão/contexto/permissão inválidos ou comando
 não suportado; 1013 para limite/backpressure. Falhas não expõem detalhes internos.
 Retenção não é aplicada neste M1; eventual compactação exigirá contrato de
 resync/bootstrap e não pode apagar eventos silenciosamente.
+
+
+## Prévia autorizada (correção P0 local)
+
+conversation.updated/transferred continuam apenas IDs. Consultar metadados não
+autoriza conteúdo: lastMessagePreview de list/detail é null sem messages.read
+ou mensagem acima do limite persistido; supervisor exige permission de leitura.
+Nenhum novo campo, preview ou corpo no envelope versão1. Policy de permission/
+sequência compartilhada com mensagens e recibos; contratos preservados.
+Ver P0_PREVIEW_AUTHORIZATION.md para testes e estado local/não publicado.
+
+## Invalidação por rename de contato — implementação local M1
+
+PATCH de nome de contato emite `conversation.updated` para conversas tenant-scoped relacionadas na transação existente. Envelope/tipos e autorização P0 não mudam; não há conteúdo de mensagem novo no evento. Chat reconcilia via REST/P1. Nenhum evento Contact novo; lista de contatos usa bootstrap/comandos locais/reconciliação. [Limites](M1_CONTACTS_CONVERSATION_CREATION.md).
+
+## M2.1 — catálogo e overrides de Membership
+
+Implementação aditiva, restrita a recursos base e RBAC tenant-scoped.
+Contrato REST, resolvedor, concorrência/auditoria e controle realtime 4003 descritos
+em [M2_1_RESOURCES_RBAC.md](M2_1_RESOURCES_RBAC.md). Nenhum módulo comercial ou
+integração Meta implementado. Diagnóstico anterior ao schema em
+[M2_1_RBAC_DIAGNOSIS.md](M2_1_RBAC_DIAGNOSIS.md).

@@ -1,5 +1,28 @@
 # Deploy do Core — homelab e Cloudflare Tunnel
 
+> Atualização de aceite final: o usuário confirmou nove cenários finais M1, além de cinco P0 e sete P1. **Homologação funcional declarada concluída**, não executada pelo Codex. [Aceite e limites](M1_FINAL_ACCEPTANCE.md). Pendência administrativa: integração Git, sem novo deploy. Os resultados/pendências abaixo registram o momento original da publicação/implementação.
+
+> Produção atual — 2026-10-08, 18:00 Recife: M1 contatos/conversas publicado.
+> Core/API/Worker `a45fb33` (`wapphub-core:m1-contacts-a45fb33`), Chat `6b04e65`
+> (`wapphub-chat:m1-contacts-6b04e65`). Todos healthy, health/readiness/HTTP/assets aprovados.
+> 224 testes anteriores reaproveitados; sem migrations. MariaDB/Redis preservados.
+> Homologação dos novos fluxos PENDENTE; M1 não formalmente encerrado.
+> [Registro e contingência](DEPLOY_M1_CONTACTS_20261008.md). Notas abaixo são histórico.
+
+
+> Atualização de produção — 2026-10-08, 15:00 Recife: P0 publicado em Core/API/Worker
+> `cbaf50c5eedd6731e1ca3a674c1d9b0b20005a7d` (`wapphub-core:p0-preview-cbaf50c`)
+> e Chat `d93efc576bd560fcbab0146343fb98bbbc1d0b69` (`wapphub-chat:p0-preview-d93efc5`).
+> Todos os cinco serviços healthy; HTTP, assets e integridade aprovados.
+> Validação funcional isolada anterior reaproveitada: 58 Core + 91 Chat; não reexecutada.
+> Homologação visual desta publicação pendente. A2 e demais aceites M1 permanecem;
+> M1 não formalmente encerrado. M2/P1 não iniciados.
+> [Registro de publicação e contingência](DEPLOY_P0_20261008.md).
+
+> Procedimentos de downgrade abaixo são históricos. Não executar rollback automático
+> para `demo-72d05aa`: contém a vulnerabilidade P0. Operações Core atuais devem usar
+> `compose.yml` e o override persistente indicado no registro de publicação.
+
 Estado vigente: M1 Core implantado em 2026-10-08 UTC; evidências abaixo.
 As seções M0 e desenvolvimento isolado registram o histórico anterior.
 
@@ -305,3 +328,51 @@ Limites: WEB_ORIGINS final vazio bloqueia uso autenticado REST/WS por clientes w
 smokes comprovam o backend durante a autorização temporária. Não foi feito rollout
 RBAC para usuários existentes, teste de carga ou restore. Frontend, M2/M3/Meta
 não iniciados; milestone M1 global com frontend permanece incompleto.
+
+
+## Reconciliação somente leitura — 2026-10-08, após Demo e Lucide
+
+Estado corrente supera os snapshots de M0/M1 interno acima; nenhum deploy foi
+feito nesta auditoria. Core API/Worker executam `wapphub-core:demo-72d05aa`,
+image ID `sha256:f0a209caf8ebd44db7a7e088d8e60f5a9d0c4f8e92feefeae719ee4bebf0cd26`.
+Containers respectivos f3bc5488ef61 e 22e777fc13d7, iniciados 14:35:05 UTC;
+MariaDB 65750f142703 e Redis 1ec5cdfb29de preservados, todos healthy.
+Chat 3e23452 / `wapphub-chat:lucide-nav-3e23452` healthy.
+Identificadores completos e HTTP/hash/migration evidence em
+`GIT_PRODUCTION_INVENTORY_20261008.md`. Core não tem revision label; fingerprints
+37 arquivos de API/Worker iguais ao commit informado. WEB_ORIGINS atual autoriza
+https://chat.wapphub.com.br, superando a configuração vazia histórica.
+
+Compose real Core: compose.yml + /tmp/wapphub-core-demo-override.yml para API/Worker.
+Override aponta somente suas imagens para demo-72d05aa; Compose default não deve
+ser usado implicitamente como referência de produção. Guardar configuração
+operacional durável será trabalho autorizado separado, não realizado aqui.
+
+Ledger read-only confirma Demo migrations 20261008020000_demo_provider e
+20261008021000_demo_provider_rbac concluídas às 14:34:56 UTC, mais as quatro
+anteriores. Checksums iguais aos arquivos Git; sem migration/seed nesta auditoria.
+Não houve drift completo do schema verificado; não extrapolar do ledger.
+
+Backup pré-Demo: /home/uillan/homelab/backups/wapphub-core/wapphub-core-pre-demo-20261008-143259.sql.gz,
+19.689 bytes, permissão600, gzip -t aprovado; sem evidência de restore/criptografia,
+no mesmo host. Backup pré-M1 acima também gzip íntegro. Procedimento em
+DEMO_PROVIDER recomendava backup criptografado/restore isolado antes da publicação;
+essas etapas não estão comprovadas. Não chamar gzip de recuperação validada.
+
+**Rollback histórico M0/M1 anterior não deve ser executado automaticamente após
+mensagens Demo:** schema/DTO antigos só entendem INTERNAL. Manter/restaurar Core
+compatível com INBOUND/OUTBOUND; desativar Demo não remove dados externos nem
+torna seguro downgrade. Recuperação destrutiva de banco requer plano/autorização
+separados e perda posterior ao backup explicitada. Frontend pode voltar a imagem
+anterior preservada mantendo Core compatível, conforme relatório do Chat.
+
+Relatório Chat atual:
+/home/uillan/homelab/deploy-records/wapphub-chat/20261008-lucide-nav-3e23452/REPORT.md.
+Não foi encontrado diretório deploy-records/wapphub-core; histórico disponível
+neste arquivo, backup, migrations/imagens e nota remota do PR #7. Não inventar
+relatório Core independente inexistente.
+
+A1 autorização de preview e A2 checkpoint cliente são bloqueadores reais de
+aceite M1; ver matriz/arquitetura. Produção segue operacional; correções/release
+futuras exigem autorização própria. Sem merge/push, alteração de containers,
+Cloudflare/DNS, volumes, migrations ou dados neste processo documental.

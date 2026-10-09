@@ -1,0 +1,425 @@
+ Container wapphub-m1-test-wapphub-core-api-run-d68794dcf979 Creating 
+ Container wapphub-m1-test-wapphub-core-api-run-d68794dcf979 Created 
+
+> wapphub-core@0.1.0 lint
+> eslint .
+
+npm notice
+npm notice New major version of npm available! 10.9.8 -> 12.2.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+npm notice To update run: npm install -g npm@12.2.0
+npm notice
+
+> wapphub-core@0.1.0 typecheck
+> tsc --noEmit
+
+
+> wapphub-core@0.1.0 test
+> tsx --test tests/*.test.ts
+
+TAP version 13
+# Subtest: contacts create/list/update, cursor integrity and identifier uniqueness are tenant scoped
+ok 1 - contacts create/list/update, cursor integrity and identifier uniqueness are tenant scoped
+  ---
+  duration_ms: 3067.461913
+  type: 'test'
+  ...
+# Subtest: Demo provider is permission-gated, tenant-scoped, idempotent and uses shared message history
+ok 2 - Demo provider is permission-gated, tenant-scoped, idempotent and uses shared message history
+  ---
+  duration_ms: 1534.256454
+  type: 'test'
+  ...
+# Subtest: team roster is permission gated, tenant scoped, active only and paginated
+ok 3 - team roster is permission gated, tenant scoped, active only and paginated
+  ---
+  duration_ms: 384.536
+  type: 'test'
+  ...
+# Subtest: contacts pagination never repeats records and cursors cannot cross tenants
+ok 4 - contacts pagination never repeats records and cursors cannot cross tenants
+  ---
+  duration_ms: 115.687122
+  type: 'test'
+  ...
+# Subtest: conversation filters enforce mine/unassigned/all, contact/tag and archived scopes
+ok 5 - conversation filters enforce mine/unassigned/all, contact/tag and archived scopes
+  ---
+  duration_ms: 568.829967
+  type: 'test'
+  ...
+# Subtest: conversation cursor uses deterministic tuple and is bound to filters/user/tenant
+ok 6 - conversation cursor uses deterministic tuple and is bound to filters/user/tenant
+  ---
+  duration_ms: 265.543133
+  type: 'test'
+  ...
+# Subtest: send is idempotent and rejects reuse with another payload or sender
+ok 7 - send is idempotent and rejects reuse with another payload or sender
+  ---
+  duration_ms: 173.824372
+  type: 'test'
+  ...
+# Subtest: message cursor supports progressive history with no overlap and refuses forged/cross-conversation cursor
+ok 8 - message cursor supports progressive history with no overlap and refuses forged/cross-conversation cursor
+  ---
+  duration_ms: 391.314012
+  type: 'test'
+  ...
+# Subtest: local message receipts allow monotonic delivered/read and reject invalid transitions
+ok 9 - local message receipts allow monotonic delivered/read and reject invalid transitions
+  ---
+  duration_ms: 198.286072
+  type: 'test'
+  ...
+# Subtest: transfer FULL preserves history and enforces current assignee visibility on REST/replay/notes
+ok 10 - transfer FULL preserves history and enforces current assignee visibility on REST/replay/notes
+  ---
+  duration_ms: 1351.41952
+  type: 'test'
+  ...
+# Subtest: transfer LIMITED preserves history and enforces current assignee visibility on REST/replay/notes
+ok 11 - transfer LIMITED preserves history and enforces current assignee visibility on REST/replay/notes
+  ---
+  duration_ms: 1006.976503
+  type: 'test'
+  ...
+# Subtest: transfer NONE preserves history and enforces current assignee visibility on REST/replay/notes
+ok 12 - transfer NONE preserves history and enforces current assignee visibility on REST/replay/notes
+  ---
+  duration_ms: 1000.488013
+  type: 'test'
+  ...
+# Subtest: conversation previews require messages.read even with supervise=false
+ok 13 - conversation previews require messages.read even with supervise=false
+  ---
+  duration_ms: 1096.410297
+  type: 'test'
+  ...
+# Subtest: conversation previews require messages.read even with supervise=true
+ok 14 - conversation previews require messages.read even with supervise=true
+  ---
+  duration_ms: 840.084541
+  type: 'test'
+  ...
+# Subtest: assignment validates active tenant membership/user/permissions; replaces only through transfer
+ok 15 - assignment validates active tenant membership/user/permissions; replaces only through transfer
+  ---
+  duration_ms: 347.188262
+  type: 'test'
+  ...
+# Subtest: tags create/update/delete and notes are auditable, bounded and tenant scoped
+ok 16 - tags create/update/delete and notes are auditable, bounded and tenant scoped
+  ---
+  duration_ms: 409.775464
+  type: 'test'
+  ...
+# Subtest: all operational resources reject valid foreign tenant IDs
+ok 17 - all operational resources reject valid foreign tenant IDs
+  ---
+  duration_ms: 635.993029
+  type: 'test'
+  ...
+# Subtest: permissions protect every command/read independent of role names
+ok 18 - permissions protect every command/read independent of role names
+  ---
+  duration_ms: 240.827936
+  type: 'test'
+  ...
+# Subtest: payload validation rejects organization spoofing, malformed IDs, blank text, unknown types and oversized pages
+ok 19 - payload validation rejects organization spoofing, malformed IDs, blank text, unknown types and oversized pages
+  ---
+  duration_ms: 68.493592
+  type: 'test'
+  ...
+# Subtest: composite persistence constraints reject cross-tenant contact and tag links
+ok 20 - composite persistence constraints reject cross-tenant contact and tag links
+  ---
+  duration_ms: 220.423675
+  type: 'test'
+  ...
+# Subtest: WebSocket rejects missing authentication, unapproved Origin and absent permission before upgrade
+ok 21 - WebSocket rejects missing authentication, unapproved Origin and absent permission before upgrade
+  ---
+  duration_ms: 32.434892
+  type: 'test'
+  ...
+# Subtest: authenticated WebSockets receive only authorized organization events and replay after reconnect
+ok 22 - authenticated WebSockets receive only authorized organization events and replay after reconnect
+  ---
+  duration_ms: 620.858405
+  type: 'test'
+  ...
+# Subtest: revoked sessions, inactive memberships/users/organizations and changed contexts invalidate realtime
+ok 23 - revoked sessions, inactive memberships/users/organizations and changed contexts invalidate realtime
+  ---
+  duration_ms: 2059.749335
+  type: 'test'
+  ...
+# Subtest: event sync has bounded pages, checkpoints advance across invisible events and rejects malformed cursor
+ok 24 - event sync has bounded pages, checkpoints advance across invisible events and rejects malformed cursor
+  ---
+  duration_ms: 98.62399
+  type: 'test'
+  ...
+# M1 concurrency smoke: 8 WebSockets, 20 concurrent sends (8 retries + 12 unique), duration 714ms; not M5 benchmark
+# Subtest: basic concurrency smoke: eight sockets, concurrent tenants and duplicate IDs never mix or duplicate
+ok 25 - basic concurrency smoke: eight sockets, concurrent tenants and duplicate IDs never mix or duplicate
+  ---
+  duration_ms: 1609.316202
+  type: 'test'
+  ...
+# Subtest: live transfer NONE never exposes historical messages to recipient; former agent stops receiving
+ok 26 - live transfer NONE never exposes historical messages to recipient; former agent stops receiving
+  ---
+  duration_ms: 1344.649598
+  type: 'test'
+  ...
+# Subtest: lost realtime notification is recovered from persistent stream without losing a committed message
+ok 27 - lost realtime notification is recovered from persistent stream without losing a committed message
+  ---
+  duration_ms: 5279.744054
+  type: 'test'
+  ...
+# Subtest: event stream permission removal closes socket and WebSocket commands are rejected
+ok 28 - event stream permission removal closes socket and WebSocket commands are rejected
+  ---
+  duration_ms: 1361.277799
+  type: 'test'
+  ...
+# Subtest: M1 contact search and provider metadata are scoped and cursors bound to the query
+ok 29 - M1 contact search and provider metadata are scoped and cursors bound to the query
+  ---
+  duration_ms: 310.597683
+  type: 'test'
+  ...
+# Subtest: M1 explicit internal conversation reuse serializes concurrent requests without extra events
+ok 30 - M1 explicit internal conversation reuse serializes concurrent requests without extra events
+  ---
+  duration_ms: 241.241776
+  type: 'test'
+  ...
+# Subtest: M1 internal reuse never exposes another assignee or reopens archived conversations
+ok 31 - M1 internal reuse never exposes another assignee or reopens archived conversations
+  ---
+  duration_ms: 310.108336
+  type: 'test'
+  ...
+# Subtest: M1 contacts edit preserves provider identity and emits authorized conversation invalidations
+ok 32 - M1 contacts edit preserves provider identity and emits authorized conversation invalidations
+  ---
+  duration_ms: 239.795201
+  type: 'test'
+  ...
+# Subtest: M1 reused conversations preserve NONE history and return no preview without message read
+ok 33 - M1 reused conversations preserve NONE history and return no preview without message read
+  ---
+  duration_ms: 606.71348
+  type: 'test'
+  ...
+# Subtest: M1 contact search treats wildcard characters literally and validates bounded input
+ok 34 - M1 contact search treats wildcard characters literally and validates bounded input
+  ---
+  duration_ms: 58.983561
+  type: 'test'
+  ...
+# Subtest: health and readiness prove MariaDB and Redis connectivity
+ok 35 - health and readiness prove MariaDB and Redis connectivity
+  ---
+  duration_ms: 1261.989876
+  type: 'test'
+  ...
+# Subtest: login stores only hashes and emits secure session attributes
+ok 36 - login stores only hashes and emits secure session attributes
+  ---
+  duration_ms: 623.633479
+  type: 'test'
+  ...
+# Subtest: unknown email and incorrect password have identical safe responses
+ok 37 - unknown email and incorrect password have identical safe responses
+  ---
+  duration_ms: 833.527402
+  type: 'test'
+  ...
+# Subtest: protected routes reject missing or forged sessions
+ok 38 - protected routes reject missing or forged sessions
+  ---
+  duration_ms: 19.644865
+  type: 'test'
+  ...
+# Subtest: organization list and bootstrap isolate A from B; permissions come from Membership
+ok 39 - organization list and bootstrap isolate A from B; permissions come from Membership
+  ---
+  duration_ms: 730.899313
+  type: 'test'
+  ...
+# Subtest: bootstrap requires explicit authorized context
+ok 40 - bootstrap requires explicit authorized context
+  ---
+  duration_ms: 327.842748
+  type: 'test'
+  ...
+# Subtest: revoked Membership invalidates selected context on every protected read
+ok 41 - revoked Membership invalidates selected context on every protected read
+  ---
+  duration_ms: 727.883673
+  type: 'test'
+  ...
+# Subtest: permission is revalidated and denied without organization.read
+ok 42 - permission is revalidated and denied without organization.read
+  ---
+  duration_ms: 334.191531
+  type: 'test'
+  ...
+# Subtest: inactive Organization and User cannot access context
+ok 43 - inactive Organization and User cannot access context
+  ---
+  duration_ms: 311.081549
+  type: 'test'
+  ...
+# Subtest: CSRF requires trusted Origin and session-bound token including logout
+ok 44 - CSRF requires trusted Origin and session-bound token including logout
+  ---
+  duration_ms: 601.613509
+  type: 'test'
+  ...
+# Subtest: logout immediately revokes persisted session and records SecurityEvent
+ok 45 - logout immediately revokes persisted session and records SecurityEvent
+  ---
+  duration_ms: 331.632983
+  type: 'test'
+  ...
+# Subtest: absolute and idle expiration prevent session reuse
+ok 46 - absolute and idle expiration prevent session reuse
+  ---
+  duration_ms: 617.958073
+  type: 'test'
+  ...
+# Subtest: relogin rotates and revokes old session
+ok 47 - relogin rotates and revokes old session
+  ---
+  duration_ms: 591.131053
+  type: 'test'
+  ...
+# Subtest: authentication rate limit is enforced through Redis
+ok 48 - authentication rate limit is enforced through Redis
+  ---
+  duration_ms: 3127.836231
+  type: 'test'
+  ...
+# Subtest: validation, unknown routes, headers and CORS are safe
+ok 49 - validation, unknown routes, headers and CORS are safe
+  ---
+  duration_ms: 4.722986
+  type: 'test'
+  ...
+# Subtest: OpenAPI preserves every foundation route and includes only M1 chat extensions
+ok 50 - OpenAPI preserves every foundation route and includes only M1 chat extensions
+  ---
+  duration_ms: 43.923975
+  type: 'test'
+  ...
+# Subtest: context selection is tenant-scoped in audit records
+ok 51 - context selection is tenant-scoped in audit records
+  ---
+  duration_ms: 10.208841
+  type: 'test'
+  ...
+# Subtest: encryption authenticates tenant scope and supports key versions
+ok 52 - encryption authenticates tenant scope and supports key versions
+  ---
+  duration_ms: 2.121598
+  type: 'test'
+  ...
+# Subtest: internal failures are sanitized in responses and logs; readiness degrades safely
+ok 53 - internal failures are sanitized in responses and logs; readiness degrades safely
+  ---
+  duration_ms: 540.694339
+  type: 'test'
+  ...
+# Subtest: production uses Secure host-only session cookies
+ok 54 - production uses Secure host-only session cookies
+  ---
+  duration_ms: 650.994176
+  type: 'test'
+  ...
+# Subtest: client-supplied tenant identifiers cannot change bootstrap scope
+ok 55 - client-supplied tenant identifiers cannot change bootstrap scope
+  ---
+  duration_ms: 319.117728
+  type: 'test'
+  ...
+# Subtest: oversized payloads return a safe bounded error
+ok 56 - oversized payloads return a safe bounded error
+  ---
+  duration_ms: 3.857973
+  type: 'test'
+  ...
+# Subtest: malformed JSON and unsupported content types return safe client errors
+ok 57 - malformed JSON and unsupported content types return safe client errors
+  ---
+  duration_ms: 6.56504
+  type: 'test'
+  ...
+# Subtest: me restores session-bound CSRF token for cross-origin clients after reload
+ok 58 - me restores session-bound CSRF token for cross-origin clients after reload
+  ---
+  duration_ms: 297.356034
+  type: 'test'
+  ...
+# Subtest: Invitation persistence enforces token uniqueness and author integrity
+ok 59 - Invitation persistence enforces token uniqueness and author integrity
+  ---
+  duration_ms: 67.255961
+  type: 'test'
+  ...
+# Subtest: only the pinned cloudflared peer can separate authentication budgets by visitor IP
+ok 60 - only the pinned cloudflared peer can separate authentication budgets by visitor IP
+  ---
+  duration_ms: 3801.353307
+  type: 'test'
+  ...
+# Subtest: untrusted forwarded headers and malformed visitor IPs cannot bypass the peer budget
+ok 61 - untrusted forwarded headers and malformed visitor IPs cannot bypass the peer budget
+  ---
+  duration_ms: 6491.444882
+  type: 'test'
+  ...
+# Subtest: connector configuration rejects wildcard and subnet trust
+ok 62 - connector configuration rejects wildcard and subnet trust
+  ---
+  duration_ms: 2.103247
+  type: 'test'
+  ...
+# Subtest: the public API hostname grants no client origin permission and empty WEB_ORIGINS denies web commands
+ok 63 - the public API hostname grants no client origin permission and empty WEB_ORIGINS denies web commands
+  ---
+  duration_ms: 303.770538
+  type: 'test'
+  ...
+# Subtest: only the owner bootstrap grants Demo provider administration/simulation permissions
+ok 64 - only the owner bootstrap grants Demo provider administration/simulation permissions
+  ---
+  duration_ms: 822.774669
+  type: 'test'
+  ...
+1..64
+# tests 64
+# suites 0
+# pass 64
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 31700.063246
+
+> wapphub-core@0.1.0 build
+> tsc
+
+
+> wapphub-core@0.1.0 openapi:validate
+> tsx scripts/validate-openapi.ts
+
+Official OpenAPI validated; identical to production-mode route schemas
+Prisma schema loaded from prisma/schema.prisma
+The schema at prisma/schema.prisma is valid 🚀

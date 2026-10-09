@@ -13,13 +13,14 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "tsx --test --test-concurrency=1 tests/*.test.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "bootstrap": "tsx scripts/bootstrap.ts",
     "openapi": "tsx scripts/openapi.ts",
     "openapi:validate": "tsx scripts/validate-openapi.ts",
-    "smoke:chat": "tsx scripts/smoke-chat.ts"
+    "smoke:chat": "tsx scripts/smoke-chat.ts",
+    "db:validate-drift": "tsx scripts/validate-schema-drift.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

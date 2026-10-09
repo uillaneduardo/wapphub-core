@@ -121,17 +121,13 @@ O resolver expõe capacidades efetivas da Organization.
 ## Operação do Chat
 
 ### Channel
-Canal externo configurado por Organization.
-
-Inicialmente:
-- WHATSAPP_META
+Canal por Organization/provider. O Demo Provider usa estado ENABLED/DISABLED e identidade externa tenant-scoped. Meta permanece planejada.
 
 ### Contact
 Contato pertencente à Organization.
 
 ### Conversation
-Conversa pertencente à Organization. No M1 interno, referencia Contact e não
-possui Channel/provider. Channel pertence ao escopo da integração externa futura.
+Conversa pertencente à Organization e Contact. `channelId` e `providerConversationId` são opcionais para compatibilidade M1 e preenchidos para conversas Demo.
 
 Estados mínimos:
 - OPEN
@@ -141,9 +137,10 @@ Estados mínimos:
 ### Message
 Mensagem normalizada.
 
-No M1: apenas INTERNAL/TEXT, UUID WappHub e clientMessageId por
-Organization/Conversation. Não há providerMessageId obrigatório. IMAGE/AUDIO
-e identificadores externos pertencem aos milestones de provider/mídia.
+Mensagens aceitam INTERNAL, INBOUND e OUTBOUND para texto. `senderUserId` representa autor interno; `senderContactId` representa contato externo. `providerMessageId` opcional identifica eventos do canal e tem unicidade tenant/channel. Mensagens internas existentes preservam direction/clientMessageId. IMAGE/AUDIO permanecem fora de escopo.
+
+### ContactIdentity
+Vínculo entre identificador do provider e Contact/Channel, sempre tenant-scoped. Nome ou telefone não é chave de idempotência.
 
 ### ConversationAssignment
 Registra atribuição/transferência e escopo de histórico.
@@ -186,3 +183,11 @@ identidade global; atribuição não cria role ou organizationId global em User.
 FULL/LIMITED/NONE são limites de autorização persistidos na Conversation;
 histórico original nunca é copiado/apagado. Recibos locais, permissions,
 cursores e limites deste escopo estão em `M1_CHAT_INTERNAL.md`.
+
+## M2.1 — catálogo e overrides de Membership
+
+Implementação aditiva, restrita a recursos base e RBAC tenant-scoped.
+Contrato REST, resolvedor, concorrência/auditoria e controle realtime 4003 descritos
+em [M2_1_RESOURCES_RBAC.md](M2_1_RESOURCES_RBAC.md). Nenhum módulo comercial ou
+integração Meta implementado. Diagnóstico anterior ao schema em
+[M2_1_RBAC_DIAGNOSIS.md](M2_1_RBAC_DIAGNOSIS.md).

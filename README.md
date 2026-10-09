@@ -1,5 +1,11 @@
 # WappHub Core
 
+> M2.1: fundação de catálogo/RBAC tenant-scoped implementada e validada localmente.
+> [Contrato e limites](docs/M2_1_RESOURCES_RBAC.md). Publicação/homologação seguem gates
+> desta entrega; notas M1 abaixo são históricas e não declaram M2 completo.
+
+> **M1 funcionalmente homologado; consolidação administrativa Git pendente.** [Aceite formal](docs/M1_FINAL_ACCEPTANCE.md) e [STATUS](docs/STATUS.md). Nenhuma nova função/M2 ou publicação nesta auditoria.
+
 Backend e núcleo de domínio compartilhado do ecossistema WappHub.
 
 ## Responsabilidade
@@ -61,13 +67,13 @@ Não implementar itens de milestones futuros sem decisão registrada.
 
 ## Estado atual
 
-**Produção:** M0 — Fundação publicada e preservada.
-**Branch M1:** backend de chat interno; evidências em `docs/M1_VALIDATION.md`.
+M1 funcionalmente homologado pelo usuário. Core/API/Worker publicado `a45fb330ceeb6a703c463174f4fa560ad070e226`, imagem `wapphub-core:m1-contacts-a45fb33`; Chat `6b04e653d03fa5b06aafad205b9c760072c01fd0`, imagem `wapphub-chat:m1-contacts-6b04e65`. P0, P1 e contatos/criação manual homologados. Encerramento administrativo Git pendente; M2 não iniciado nesta auditoria.
 
-A fundação inclui API Fastify/TypeScript, Prisma/MariaDB, sessões revogáveis,
-Membership/RBAC, segurança web, Redis e processos API/Worker via Compose.
-O backend M1 é desenvolvido/validado em ambiente isolado, sem atualizar a
-produção. Frontend, Meta e milestones posteriores não fazem parte desta entrega.
+- [Aceite formal e matriz vigente](docs/M1_FINAL_ACCEPTANCE.md).
+- [Inventário final e estratégia de consolidação](docs/M1_FINAL_GIT_CONSOLIDATION.md).
+- [Histórico de releases](docs/M1_RELEASE_HISTORY.md).
+- [Deploy homologado e contingência](docs/DEPLOY_M1_CONTACTS_20261008.md).
+- [Plano M2 preexistente](docs/M2_TECHNICAL_PLAN.md), sem implementação iniciada.
 
 Execução: `docs/LOCAL_DEVELOPMENT.md`. Contrato REST: `docs/openapi.json`.
 Contrato de eventos M1: `docs/REALTIME_CONTRACT.md`.
@@ -81,6 +87,9 @@ scripts/local.sh status
 
 Consulte `docs/STATUS.md` para o estado validado de cada entrega.
 
+## Finalização funcional M1
+
+Contatos e criação manual interna publicados e homologados pelo usuário. [Relatório e evidências](docs/M1_CONTACTS_CONVERSATION_CREATION.md). Fonte de estado vigente: [aceite final](docs/M1_FINAL_ACCEPTANCE.md); encerramento administrativo Git pendente.
 
 ## Decisão arquitetural M2 — administração
 

@@ -1,0 +1,30 @@
+-- DropForeignKey
+ALTER TABLE `ContactIdentity` DROP FOREIGN KEY `ContactIdentity_channel_fkey`;
+
+-- DropForeignKey
+ALTER TABLE `ContactIdentity` DROP FOREIGN KEY `ContactIdentity_contact_fkey`;
+
+-- DropForeignKey
+ALTER TABLE `Conversation` DROP FOREIGN KEY `Conversation_channel_fkey`;
+
+-- DropForeignKey
+ALTER TABLE `Message` DROP FOREIGN KEY `Message_channel_fkey`;
+
+-- DropForeignKey
+ALTER TABLE `Message` DROP FOREIGN KEY `Message_senderContact_fkey`;
+
+-- AddForeignKey
+ALTER TABLE `Conversation` ADD CONSTRAINT `Conversation_organizationId_channelId_fkey` FOREIGN KEY (`organizationId`, `channelId`) REFERENCES `Channel`(`organizationId`, `id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `Message` ADD CONSTRAINT `Message_organizationId_senderContactId_fkey` FOREIGN KEY (`organizationId`, `senderContactId`) REFERENCES `Contact`(`organizationId`, `id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `Message` ADD CONSTRAINT `Message_organizationId_channelId_fkey` FOREIGN KEY (`organizationId`, `channelId`) REFERENCES `Channel`(`organizationId`, `id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `ContactIdentity` ADD CONSTRAINT `ContactIdentity_organizationId_channelId_fkey` FOREIGN KEY (`organizationId`, `channelId`) REFERENCES `Channel`(`organizationId`, `id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE `ContactIdentity` ADD CONSTRAINT `ContactIdentity_organizationId_contactId_fkey` FOREIGN KEY (`organizationId`, `contactId`) REFERENCES `Contact`(`organizationId`, `id`) ON DELETE CASCADE ON UPDATE CASCADE;
+

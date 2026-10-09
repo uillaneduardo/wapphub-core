@@ -1,3 +1,5 @@
+import { Permissions } from "../application/permissions.js";
+import { permissionRoutes } from "./permission-routes.js";
 import websocket from "@fastify/websocket";
 import { Chat } from "../application/chat.js";
 import { chatRoutes } from "./chat-routes.js";
@@ -15,6 +17,8 @@ import type { Config } from "../infrastructure/config.js";
 import { Foundation, publicUser } from "../application/foundation.js";
 import { AppError } from "../domain/errors.js";
 import { loginRateLimitKey } from "./client-ip.js";
+import { DemoProvider } from "../integrations/demo-provider.js";
+import { MessageIngestionService } from "../application/message-ingestion.js";
 const object = (
   properties: Record<string, unknown>,
   required = Object.keys(properties),
@@ -26,10 +30,16 @@ const context = object({
   organization,
   membership: object({
     id: string,
+    permissionVersion: { type: "integer", minimum: 0 },
     role: string,
     consumesSeat: { type: "boolean" },
   }),
   permissions: { type: "array", items: string },
+  resources: { type: "array", items: { type: "object", additionalProperties: false, properties: {
+    code: string, module: string, name: string, description: string,
+    availability: { type: "string", enum: ["AVAILABLE", "PLANNED", "RESEARCH", "UNSUPPORTED", "DEPRECATED"] },
+    permissions: { type: "array", items: string }, dependencies: { type: "array", items: string }, base: { type: "boolean" }, entitlement: { type: ["string", "null"] }, navigation: { type: "boolean" },
+  }, required: ["code", "module", "name", "description", "availability", "permissions", "dependencies", "base", "entitlement", "navigation"] } },
 });
 const error = object({ error: object({ code: string, requestId: string }) });
 const responses = {
@@ -102,7 +112,7 @@ export async function buildApp(
   await app.register(cors, {
     origin: config.origins,
     credentials: true,
-    methods: ["GET", "POST", "PATCH", "DELETE"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["content-type", "x-csrf-token"],
   });
   await app.register(helmet);
@@ -174,10 +184,13 @@ export async function buildApp(
   };
   const chat: Chat = new Chat(db, config, async (org): Promise<void> =>
     gateway.publish(org),
+    new DemoProvider(),
+    new MessageIngestionService(),
   );
   const gateway = new RealtimeGateway(foundation, chat, redis);
   app.addHook("preClose", async () => gateway.close());
   await chatRoutes(app, foundation, chat, sessionCookie);
+  await permissionRoutes(app, foundation, chat, new Permissions(db, chat, config), sessionCookie);
   await gateway.routes(app, config, sessionCookie);
   const authenticate = (req: { cookies: Record<string, string | undefined> }) =>
     foundation.authenticate(req.cookies[sessionCookie]);

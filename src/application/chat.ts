@@ -1,3 +1,4 @@
+import { resolvePermissions } from "../domain/resources.js";
 import { chatEventTypes, type ChatEventType } from "../realtime/contract.js";
 import {
   Prisma,
@@ -10,6 +11,8 @@ import { AppError } from "../domain/errors.js";
 import { cursorDecode, cursorEncode, decimal } from "../domain/chat.js";
 import type { Principal } from "./foundation.js";
 import type { Config } from "../infrastructure/config.js";
+import type { MessagingProvider } from "../integrations/messaging-provider.js";
+import type { MessageIngestionService } from "./message-ingestion.js";
 type DB = Prisma.TransactionClient;
 export type ChatContext = {
   organizationId: string;
@@ -24,6 +27,7 @@ export type PageQuery = {
   archived?: boolean;
   tagId?: string;
   contactId?: string;
+  q?: string;
 };
 export const contactDTO = (r: {
   id: string;
@@ -31,31 +35,50 @@ export const contactDTO = (r: {
   primaryIdentifier: string;
   createdAt: Date;
   updatedAt: Date;
+  channelIdentities?: { channel: { provider: string } }[];
 }) => ({
+  providers: [...new Set(r.channelIdentities?.map((identity) => identity.channel.provider) ?? [])],
   id: r.id,
   name: r.name,
   primaryIdentifier: r.primaryIdentifier,
   createdAt: r.createdAt.toISOString(),
   updatedAt: r.updatedAt.toISOString(),
 });
+// Metadata access does not grant access to message content. Reuse the same
+// permission and persisted transfer boundary for history, previews and events.
+const messageReadFloor = (c: ChatContext, r: Pick<Conversation, "organizationId" | "visibleFromMessage">) =>
+  c.organizationId === r.organizationId && c.permissions.includes("messages.read")
+    ? c.permissions.includes("conversations.supervise") ? 0n : r.visibleFromMessage
+    : null;
+
 export const conversationDTO = (
-  r: Conversation & { tags?: { tagId: string }[] },
-) => ({
-  id: r.id,
-  contactId: r.contactId,
-  status: r.status,
-  assignedUserId: r.assignedUserId,
-  archivedAt: r.archivedAt?.toISOString() ?? null,
-  createdAt: r.createdAt.toISOString(),
-  updatedAt: r.updatedAt.toISOString(),
-  lastMessageAt: r.lastMessageAt.toISOString(),
-  visibility: r.visibility,
-  tagIds: r.tags?.map((t) => t.tagId) ?? [],
-});
+  r: Conversation & { tags?: { tagId: string }[]; channel?: { provider: string } | null; contact?: { name: string }; messages?: { body: string | null; sequence: bigint }[] },
+  c: ChatContext,
+) => {
+  const floor = messageReadFloor(c, r);
+  const latest = r.messages?.[0];
+  return {
+    id: r.id,
+    contactId: r.contactId,
+    status: r.status,
+    assignedUserId: r.assignedUserId,
+    archivedAt: r.archivedAt?.toISOString() ?? null,
+    createdAt: r.createdAt.toISOString(),
+    updatedAt: r.updatedAt.toISOString(),
+    lastMessageAt: r.lastMessageAt.toISOString(),
+    visibility: r.visibility,
+    tagIds: r.tags?.map((t) => t.tagId) ?? [],
+    provider: r.channel?.provider ?? null,
+    contactName: r.contact?.name ?? null,
+    lastMessagePreview: floor !== null && latest && latest.sequence >= floor
+      ? latest.body : null,
+  };
+};
 export const messageDTO = (r: {
   id: string;
   conversationId: string;
   senderUserId: string | null;
+  senderContactId: string | null;
   clientMessageId: string | null;
   direction: string;
   type: string;
@@ -67,6 +90,7 @@ export const messageDTO = (r: {
   id: r.id,
   conversationId: r.conversationId,
   senderUserId: r.senderUserId,
+  senderContactId: r.senderContactId,
   clientMessageId: r.clientMessageId,
   direction: r.direction,
   type: r.type,
@@ -95,6 +119,8 @@ export class Chat {
     public db: PrismaClient,
     private config: Config,
     private notify: (organizationId: string) => Promise<void>,
+    private provider: MessagingProvider,
+    private ingestion: MessageIngestionService,
   ) {}
   async context(
     principal: Principal,
@@ -126,11 +152,12 @@ export class Chat {
         organization: { status: "ACTIVE" },
       },
       include: {
+        permissionOverrides: { include: { permission: true } },
         role: { include: { permissions: { include: { permission: true } } } },
       },
     });
     if (!m) throw new AppError(403, "ORGANIZATION_ACCESS_DENIED");
-    const permissions = m.role.permissions.map((x) => x.permission.code);
+    const permissions = resolvePermissions(m);
     const requiredPermissions = Array.isArray(permission)
       ? permission
       : [permission];
@@ -157,6 +184,7 @@ export class Chat {
       orderBy: { id: "asc" },
       take: limit + 1,
       select: {
+        permissionOverrides: { include: { permission: true } },
         id: true,
         user: {
           select: {
@@ -179,9 +207,7 @@ export class Chat {
     const page = rows.slice(0, limit);
     return {
       items: page.map((membership) => {
-        const permissions = membership.role.permissions.map(
-          (entry) => entry.permission.code,
-        );
+        const permissions = resolvePermissions(membership);
         return {
           userId: membership.user.id,
           name: membership.user.name,
@@ -206,10 +232,10 @@ export class Chat {
     if (!c.permissions.includes(p))
       throw new AppError(403, "PERMISSION_DENIED");
   }
-  async conversation(c: ChatContext, id: string, tx: DB = this.db) {
+  async conversation(c: ChatContext, id: string, tx: DB = this.db, withPreview = false) {
     this.require(c, "conversations.read");
     const r = await tx.conversation.findFirst({
-      include: { tags: true },
+      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: withPreview && c.permissions.includes("messages.read") ? { orderBy: { sequence: "desc" }, take: 1, select: { body: true, sequence: true } } : false },
       where: { id, organizationId: c.organizationId },
     });
     if (
@@ -287,14 +313,17 @@ export class Chat {
   }
   async contacts(p: Principal, q: PageQuery) {
     const c = await this.context(p, "contacts.read"),
-      scope = this.scope(c, "contacts");
+      search = q.q?.trim() ?? "",
+      scope = this.scope(c, "contacts", search ? JSON.stringify(search) : "");
     const id = cursorDecode(this.config.ENCRYPTION_KEY, scope, q.cursor);
     const limit = q.limit ?? 50;
     const rows = await this.db.contact.findMany({
       where: {
         organizationId: c.organizationId,
         ...(id ? { id: { gt: id } } : {}),
+        ...(search ? { OR: [{ name: { contains: search.replace(/[\\%_]/g, "\\$&") } }, { primaryIdentifier: { contains: search.replace(/[\\%_]/g, "\\$&") } }] } : {}),
       },
+      include: { channelIdentities: { select: { channel: { select: { provider: true } } } } },
       orderBy: { id: "asc" },
       take: limit + 1,
     });
@@ -310,6 +339,7 @@ export class Chat {
     const c = await this.context(p, "contacts.read");
     const r = await this.db.contact.findFirst({
       where: { organizationId: c.organizationId, id },
+      include: { channelIdentities: { select: { channel: { select: { provider: true } } } } },
     });
     if (!r) throw new AppError(404, "NOT_FOUND");
     return contactDTO(r);
@@ -333,6 +363,7 @@ export class Chat {
               organizationId_id: { organizationId: c.organizationId, id },
             },
             data,
+            include: { channelIdentities: { select: { channel: { select: { provider: true } } } } },
           })
         : await tx.contact.create({
             data: {
@@ -342,6 +373,10 @@ export class Chat {
             },
           });
       await this.audit(tx, c, id ? "CONTACT_UPDATED" : "CONTACT_CREATED");
+      if (id && data.name !== undefined) {
+        const conversations = await tx.conversation.findMany({ where: { organizationId: c.organizationId, contactId: id }, select: { id: true } });
+        for (const conversation of conversations) await this.event(tx, c, "conversation.updated", conversation.id, conversation.id);
+      }
       return contactDTO(r);
     });
   }
@@ -392,7 +427,7 @@ export class Chat {
     }
     const limit = q.limit ?? 50;
     const rows = await this.db.conversation.findMany({
-      include: { tags: true },
+      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: c.permissions.includes("messages.read") ? { orderBy: { sequence: "desc" }, take: 1, select: { body: true, sequence: true } } : false },
       where: {
         organizationId: c.organizationId,
         status: q.archived ? "ARCHIVED" : { not: "ARCHIVED" },
@@ -416,7 +451,7 @@ export class Chat {
       await this.audit(this.db, c, "CONVERSATIONS_SUPERVISED");
     const last = rows[limit - 1];
     return {
-      items: rows.slice(0, limit).map(conversationDTO),
+      items: rows.slice(0, limit).map((row) => conversationDTO(row, c)),
       nextCursor:
         rows.length > limit
           ? cursorEncode(
@@ -429,12 +464,12 @@ export class Chat {
   }
   async getConversation(p: Principal, id: string) {
     const c = await this.context(p, "conversations.read"),
-      r = await this.conversation(c, id);
+      r = await this.conversation(c, id, this.db, true);
     if (c.permissions.includes("conversations.supervise"))
       await this.audit(this.db, c, "CONVERSATION_SUPERVISED");
-    return conversationDTO(r);
+    return conversationDTO(r, c);
   }
-  async createConversation(p: Principal, contactId: string) {
+  async createConversation(p: Principal, contactId: string, reuseExisting = false) {
     return this.mutation(p, "conversations.create", async (tx, c) => {
       if (
         !(await tx.contact.findFirst({
@@ -442,19 +477,31 @@ export class Chat {
         }))
       )
         throw new AppError(404, "NOT_FOUND");
+      if (reuseExisting) {
+        this.require(c, "conversations.read");
+        const existing = await tx.conversation.findFirst({
+          where: { organizationId: c.organizationId, contactId, channelId: null, status: { in: ["OPEN", "PENDING"] },
+            ...(c.permissions.includes("conversations.supervise") ? {} : { OR: [{ assignedUserId: c.userId }, { assignedUserId: null }] }),
+          },
+          include: { contact: { select: { name: true } }, tags: { select: { tagId: true } } },
+          orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }],
+        });
+        if (existing) { await this.audit(tx, c, "CONVERSATION_REUSED"); return { ...conversationDTO(existing, c), reused: true }; }
+      }
       const r = await tx.conversation.create({
+        include: { contact: { select: { name: true } } },
         data: { organizationId: c.organizationId, contactId },
       });
       await this.audit(tx, c, "CONVERSATION_CREATED");
       await this.event(tx, c, "conversation.created", r.id, r.id);
-      return conversationDTO(r);
+      return reuseExisting ? { ...conversationDTO(r, c), reused: false } : conversationDTO(r, c);
     });
   }
   async archive(p: Principal, id: string, archived: boolean) {
     return this.mutation(p, "conversations.archive", async (tx, c) => {
       await this.conversation(c, id, tx);
       const r = await tx.conversation.update({
-        include: { tags: true },
+        include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } } },
         where: { organizationId_id: { organizationId: c.organizationId, id } },
         data: {
           status: archived ? "ARCHIVED" : "OPEN",
@@ -473,7 +520,7 @@ export class Chat {
         id,
         id,
       );
-      return conversationDTO(r);
+      return conversationDTO(r, c);
     });
   }
   async assign(
@@ -510,15 +557,14 @@ export class Chat {
             user: { status: "ACTIVE" },
           },
           include: {
+            permissionOverrides: { include: { permission: true } },
             role: {
               include: { permissions: { include: { permission: true } } },
             },
           },
         });
         if (!target) throw new AppError(404, "ASSIGNEE_NOT_FOUND");
-        const permissions = target.role.permissions.map(
-          (x) => x.permission.code,
-        );
+        const permissions = resolvePermissions(target);
         if (
           !permissions.includes("conversations.read") ||
           !permissions.includes("messages.read")
@@ -572,7 +618,7 @@ export class Chat {
           transfer ? (r.assignedUserId ?? undefined) : undefined,
         );
         const updated = await tx.conversation.update({
-          include: { tags: true },
+          include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } } },
           where: {
             organizationId_id: { organizationId: c.organizationId, id },
           },
@@ -603,7 +649,7 @@ export class Chat {
           c,
           transfer ? "CONVERSATION_TRANSFERRED" : "CONVERSATION_ASSIGNED",
         );
-        return conversationDTO(updated);
+        return conversationDTO(updated, c);
       },
     );
   }
@@ -617,9 +663,8 @@ export class Chat {
         q.before ?? q.cursor,
       ),
       limit = q.limit ?? 50;
-    const floor = c.permissions.includes("conversations.supervise")
-      ? 0n
-      : r.visibleFromMessage;
+    const floor = messageReadFloor(c, r);
+    if (floor === null) throw new AppError(403, "PERMISSION_DENIED");
     const rows = await this.db.message.findMany({
       where: {
         organizationId: c.organizationId,
@@ -671,12 +716,35 @@ export class Chat {
       }
       if (r.status === "ARCHIVED")
         throw new AppError(409, "CONVERSATION_ARCHIVED");
+      if (r.channelId) {
+        const channel = await tx.channel.findFirst({
+          where: { id: r.channelId, organizationId: c.organizationId },
+        });
+        if (!channel || channel.provider !== "DEMO" || channel.status !== "ENABLED")
+          throw new AppError(409, "PROVIDER_DISABLED");
+      }
+      const providerReceipt = r.channelId
+        ? await this.provider.sendText({
+            organizationId: c.organizationId,
+            channelId: r.channelId,
+            providerConversationId: r.providerConversationId ?? r.id,
+            clientMessageId: data.clientMessageId,
+            body: data.body,
+          })
+        : null;
       const message = await tx.message.create({
         data: {
           organizationId: c.organizationId,
           conversationId: id,
           senderUserId: c.userId,
           clientMessageId: data.clientMessageId,
+          ...(r.channelId
+            ? {
+                channelId: r.channelId,
+                direction: "OUTBOUND",
+                providerMessageId: providerReceipt!.providerMessageId,
+              }
+            : {}),
           body: data.body,
           status: "SENT",
         },
@@ -706,19 +774,21 @@ export class Chat {
   ) {
     return this.mutation(p, "messages.read", async (tx, c) => {
       const r = await this.conversation(c, id, tx);
+      const floor = messageReadFloor(c, r);
+      if (floor === null) throw new AppError(403, "PERMISSION_DENIED");
       const m = await tx.message.findFirst({
         where: {
           id: messageId,
           organizationId: c.organizationId,
           conversationId: id,
           sequence: {
-            gte: c.permissions.includes("conversations.supervise")
-              ? 0n
-              : r.visibleFromMessage,
+            gte: floor,
           },
         },
       });
       if (!m) throw new AppError(404, "NOT_FOUND");
+      if (m.direction !== "INTERNAL")
+        throw new AppError(409, "EXTERNAL_RECEIPT_UNSUPPORTED");
       const rank = { PENDING: 0, SENT: 1, DELIVERED: 2, READ: 3, FAILED: -1 };
       if (
         rank[m.status] > rank[status] ||
@@ -902,6 +972,106 @@ export class Chat {
       return noteDTO(note);
     });
   }
+  async providerCatalog(p: Principal) {
+    const c = await this.context(p, "providers.manage");
+    const channel = await this.db.channel.findUnique({
+      where: { organizationId_provider: { organizationId: c.organizationId, provider: "DEMO" } },
+      select: { status: true },
+    });
+    return { items: [
+      { code: "DEMO", name: "Demo Provider", description: "Canal de demonstração com contatos simulados.", state: "AVAILABLE", enabled: channel?.status === "ENABLED" },
+      { code: "META", name: "Meta", description: "Integração em desenvolvimento.", state: "IN_DEVELOPMENT", enabled: false },
+    ] };
+  }
+  async setDemoProvider(p: Principal, enabled: boolean) {
+    return this.mutation(p, "providers.manage", async (tx, c) => {
+      const channel = await tx.channel.upsert({
+        where: { organizationId_provider: { organizationId: c.organizationId, provider: "DEMO" } },
+        create: { organizationId: c.organizationId, provider: "DEMO", status: enabled ? "ENABLED" : "DISABLED" },
+        update: { status: enabled ? "ENABLED" : "DISABLED" },
+      });
+      if (enabled) {
+        let provisioned = false;
+        const fixtures = [
+          { externalId: "demo-contact-01", providerConversationId: "demo-conversation-01", providerMessageId: "demo-initial-01-v1", name: "Contato Demo 01", identifier: "demo:contact-01", body: "Olá! Gostaria de saber mais sobre os serviços de vocês." },
+          { externalId: "demo-contact-02", providerConversationId: "demo-conversation-02", providerMessageId: "demo-initial-02-v1", name: "Contato Demo 02", identifier: "demo:contact-02", body: "Bom dia! Preciso de ajuda com um problema." },
+        ];
+        for (const fixture of fixtures) {
+          let identity = await tx.contactIdentity.findUnique({
+            where: { organizationId_channelId_externalId: { organizationId: c.organizationId, channelId: channel.id, externalId: fixture.externalId } },
+          });
+          if (!identity) {
+            const contact = await tx.contact.create({ data: { organizationId: c.organizationId, name: fixture.name, primaryIdentifier: fixture.identifier } });
+            identity = await tx.contactIdentity.create({ data: { organizationId: c.organizationId, channelId: channel.id, contactId: contact.id, externalId: fixture.externalId } });
+            provisioned = true;
+          }
+          let conversation = await tx.conversation.findFirst({
+            where: { organizationId: c.organizationId, channelId: channel.id, providerConversationId: fixture.providerConversationId },
+          });
+          if (!conversation) {
+            conversation = await tx.conversation.create({ data: { organizationId: c.organizationId, contactId: identity.contactId, channelId: channel.id, providerConversationId: fixture.providerConversationId } });
+            await this.event(tx, c, "conversation.created", conversation.id, conversation.id);
+            provisioned = true;
+          }
+          const normalized = this.provider.parseInbound({ externalMessageId: fixture.providerMessageId, body: fixture.body });
+          const initial = await tx.message.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, providerMessageId: normalized.providerMessageId } });
+          if (!initial) {
+            const message = await this.ingestion.persistInbound(tx, { organizationId: c.organizationId, conversationId: conversation.id, contactId: identity.contactId, channelId: channel.id, providerMessageId: normalized.providerMessageId, body: normalized.body });
+            await this.event(tx, c, "message.created", message.id, conversation.id, message.sequence);
+            await this.event(tx, c, "conversation.updated", conversation.id, conversation.id);
+            provisioned = true;
+          }
+        }
+        if (provisioned) await this.audit(tx, c, "DEMO_FIXTURES_PROVISIONED");
+        await this.audit(tx, c, "DEMO_PROVIDER_ENABLED");
+      } else {
+        await this.audit(tx, c, "DEMO_PROVIDER_DISABLED");
+      }
+      return { enabled: channel.status === "ENABLED" };
+    });
+  }
+  async demoContacts(p: Principal) {
+    const c = await this.context(p, "providers.simulate");
+    const channel = await this.db.channel.findUnique({
+      where: { organizationId_provider: { organizationId: c.organizationId, provider: "DEMO" } },
+      select: { id: true, status: true },
+    });
+    if (!channel) return { enabled: false, items: [] };
+    const identities = await this.db.contactIdentity.findMany({
+      where: { organizationId: c.organizationId, channelId: channel.id },
+      include: { contact: { select: { id: true, name: true } } },
+      orderBy: { externalId: "asc" },
+    });
+    const items = await Promise.all(identities.map(async (identity) => {
+      const conversation = await this.db.conversation.findFirst({
+        where: { organizationId: c.organizationId, channelId: channel.id, contactId: identity.contactId },
+        select: { id: true },
+      });
+      return { contactId: identity.contactId, name: identity.contact.name, conversationId: conversation?.id ?? null };
+    }));
+    return { enabled: channel.status === "ENABLED", items };
+  }
+  async receiveDemoMessage(p: Principal, data: { contactId: string; externalMessageId: string; body: string }) {
+    return this.mutation(p, "providers.simulate", async (tx, c) => {
+      const channel = await tx.channel.findUnique({ where: { organizationId_provider: { organizationId: c.organizationId, provider: "DEMO" } } });
+      if (!channel || channel.provider !== this.provider.code || channel.status !== "ENABLED") throw new AppError(409, "PROVIDER_DISABLED");
+      const identity = await tx.contactIdentity.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, contactId: data.contactId } });
+      if (!identity) throw new AppError(404, "NOT_FOUND");
+      const conversation = await tx.conversation.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, contactId: identity.contactId } });
+      if (!conversation) throw new AppError(404, "NOT_FOUND");
+      const inbound = this.provider.parseInbound(data);
+      const existing = await tx.message.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, providerMessageId: inbound.providerMessageId } });
+      if (existing) {
+        if (existing.conversationId !== conversation.id || existing.body !== inbound.body) throw new AppError(409, "IDEMPOTENCY_CONFLICT");
+        return messageDTO(existing);
+      }
+      const message = await this.ingestion.persistInbound(tx, { organizationId: c.organizationId, conversationId: conversation.id, contactId: identity.contactId, channelId: channel.id, providerMessageId: inbound.providerMessageId, body: inbound.body });
+      await this.event(tx, c, "message.created", message.id, conversation.id, message.sequence);
+      await this.event(tx, c, "conversation.updated", conversation.id, conversation.id);
+      await this.audit(tx, c, "DEMO_MESSAGE_RECEIVED");
+      return messageDTO(message);
+    });
+  }
   async eventVisible(c: ChatContext, e: RealtimeEvent) {
     if (
       e.organizationId !== c.organizationId ||
@@ -926,13 +1096,11 @@ export class Chat {
       throw err;
     }
     const superView = c.permissions.includes("conversations.supervise");
-    if (e.type.startsWith("message."))
-      return (
-        c.permissions.includes("messages.read") &&
-        (superView ||
-          (e.messageSequence !== null &&
-            e.messageSequence >= r.visibleFromMessage))
-      );
+    if (e.type.startsWith("message.")) {
+      const floor = messageReadFloor(c, r);
+      return floor !== null && (superView ||
+        (e.messageSequence !== null && e.messageSequence >= floor));
+    }
     if (e.type === "note.created")
       return (
         c.permissions.includes("notes.read") &&

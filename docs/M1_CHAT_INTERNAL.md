@@ -1,7 +1,12 @@
 # M1 — Backend de chat interno
 
-Este escopo entrega somente Core/REST/WebSocket, sem frontend, Meta, canais,
-mídia, catálogo comercial ou benchmark M5. Produção continua executando M0.
+Este documento preserva o desenho do backend interno M1 original, sem Meta,
+mídia, catálogo comercial ou benchmark M5. Produção agora executa Core 72d05aa,
+com Demo/canais adicionados posteriormente, e Chat 3e23452. Consulte a auditoria
+`M1_ARCHITECTURE_ACCEPTANCE_20261008.md`: a política de histórico abaixo é a regra
+aprovada, mas a prévia da conversa tem uma lacuna A1 e não satisfaz essa regra
+integralmente. Não tratar existência da policy ou testes antigos como aceite
+completo. Nenhuma correção funcional foi feita nesta reconciliação.
 
 ## Persistência e estados
 
@@ -22,6 +27,11 @@ fica para o milestone do provider. Recibos locais permitem SENT → DELIVERED �
 READ ou SENT → READ; repetição do mesmo estado é idempotente, regressão falha.
 READ/DELIVERED são estados agregados locais, não comprovantes externos nem
 recibos individuais de todos os participantes.
+
+O trabalho posterior do Demo Provider adiciona direction INBOUND/OUTBOUND,
+senderContactId, Channel e ContactIdentity de forma aditiva. A semântica M1
+interna descrita aqui continua válida para mensagens existentes. Escopo e
+validação do adaptador simulado estão em `docs/DEMO_PROVIDER.md`.
 
 POST messages exige clientMessageId e texto não vazio. Chave única:
 Organization + Conversation + clientMessageId. Retry do mesmo autor/conteúdo

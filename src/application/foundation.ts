@@ -1,3 +1,4 @@
+import { resolvePermissions, resourceCatalog } from "../domain/resources.js";
 import { PrismaClient, type Session, type User } from "@prisma/client";
 import type { Config } from "../infrastructure/config.js";
 import {
@@ -127,14 +128,13 @@ export class Foundation {
         organization: { status: "ACTIVE" },
       },
       include: {
+        permissionOverrides: { include: { permission: true } },
         organization: true,
         role: { include: { permissions: { include: { permission: true } } } },
       },
     });
     if (!member) throw new AppError(403, "ORGANIZATION_ACCESS_DENIED");
-    const permissions = member.role.permissions
-      .map((p) => p.permission.code)
-      .sort();
+    const permissions = resolvePermissions(member);
     if (permission && !permissions.includes(permission))
       throw new AppError(403, "PERMISSION_DENIED");
     return {
@@ -144,10 +144,12 @@ export class Foundation {
       },
       membership: {
         id: member.id,
+        permissionVersion: member.permissionVersion,
         role: member.role.code,
         consumesSeat: member.consumesSeat,
       },
       permissions,
+      resources: resourceCatalog,
     };
   }
   async organizations(principal: Principal) {
