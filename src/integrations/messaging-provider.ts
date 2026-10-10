@@ -1,3 +1,4 @@
+import type { ProviderCapabilities } from "../../contracts/provider.js";
 export type OutboundText = {
   organizationId: string;
   channelId: string;
@@ -8,6 +9,7 @@ export type OutboundText = {
 export type InboundText = { providerMessageId: string; body: string };
 export interface MessagingProvider {
   readonly code: string;
+  readonly capabilities: ProviderCapabilities;
   sendText(message: OutboundText): Promise<{ providerMessageId: string }>;
   parseInbound(message: { externalMessageId: string; body: string }): InboundText;
 }

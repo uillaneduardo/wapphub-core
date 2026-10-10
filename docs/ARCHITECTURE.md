@@ -329,3 +329,14 @@ Contrato REST, resolvedor, concorrência/auditoria e controle realtime 4003 desc
 em [M2_1_RESOURCES_RBAC.md](M2_1_RESOURCES_RBAC.md). Nenhum módulo comercial ou
 integração Meta implementado. Diagnóstico anterior ao schema em
 [M2_1_RBAC_DIAGNOSIS.md](M2_1_RBAC_DIAGNOSIS.md).
+
+
+## Normalização universal de providers — checkpoint 1
+
+Contrato interno versão1 em contracts/provider.ts, validado sem dependência de SDK.
+Demo e ingestion compartilham texto normalizado, preservando DTO/IDs e conteúdo
+original. Este checkpoint não altera persistência, filas ou realtime.
+[Contratos e limites](PROVIDER_CONTRACT.md), [auditoria e plano](WHATSAPP_WEB_AUDIT.md).
+A isolação do adaptador externo em serviço próprio foi explicitamente solicitada
+pelo usuário; não deslocará conversas/regras/RBAC do monólito Core. Publicação desse
+serviço depende de validação e da decisão de versão Baileys documentada na auditoria.
