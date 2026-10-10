@@ -373,6 +373,9 @@ test("CP4 fix first live message creates one unassigned contact/thread, is visib
 
 test("provider diagnostics requires both admin and specific authorization, isolates tenants and supports empty future providers", async () => {
  const base = "/providers/WHATSAPP_WEB/diagnostics";
+ const withoutOrganization = await auth(orgA, ["providers.manage", "providers.diagnostics.read"]);
+ await db.session.update({ where: { id: withoutOrganization.sessionId }, data: { currentOrganizationId: null } });
+ await request(withoutOrganization, "GET", base, undefined, 409);
  const diagnosticsOnly = await auth(orgA, ["providers.diagnostics.read"]);
  await request(diagnosticsOnly, "GET", base, undefined, 403);
  await request(manager, "GET", base, undefined, 403);
@@ -401,6 +404,9 @@ test("diagnostics records actual failed attempts, recovery, definitive rejection
   await recordSyncFailure(chat, scope(), doomed, token, "PROVIDER_IDEMPOTENCY_CONFLICT", 5, true);
   const dead = (await request(owner, "GET", `${base}?kind=ERRORS&status=DEAD_LETTER`)).json(); assert.ok(dead.items.some((x: { id: string }) => x.id === doomed.eventId));
  });
+ const failedCommand = await db.providerCommand.create({ data: { id: randomUUID(), organizationId: orgA, channelId, actorUserId: owner.userId, sessionId: owner.sessionId, action: "connect", status: "FAILED", errorCode: "PROVIDER_OPERATION_FAILED", attempts: 5, createdAt: new Date(Date.now() - 3600000) } });
+ const commandDetail = (await request(owner, "GET", `${base}/${failedCommand.id}`)).json(); assert.equal(commandDetail.status, "REJECTED"); assert.equal(commandDetail.attempts, 5);
+ await request(other, "GET", `${base}/${failedCommand.id}`, undefined, 404);
  const first = (await request(owner, "GET", `${base}?kind=EVENTS&severity=INFO&limit=1&page=1`)).json(); const next = (await request(owner, "GET", `${base}?kind=EVENTS&severity=INFO&limit=1&page=2`)).json(); assert.equal(first.items.length, 1); assert.equal(first.hasMore, true); assert.notEqual(first.items[0].id, next.items[0].id);
  const health = (await request(owner, "GET", `${base}/health`)).json(); assert.ok(health.failedAttempts >= 2); assert.ok(health.deadLetters >= 1); assert.ok(health.pendingFailures >= 1);
  assert.ok(await db.auditEvent.count({ where: { organizationId: orgA, actorUserId: owner.userId, action: "PROVIDER_DIAGNOSTICS_VIEWED" } }));

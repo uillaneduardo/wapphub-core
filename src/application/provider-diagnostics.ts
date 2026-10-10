@@ -10,6 +10,11 @@ const descriptions: Record<string, string> = {
 export type DiagnosticOccurrence = { id: string; correlationId: string | null; code: string; description: string; occurredAt: string; component: string; stage: string; severity: string; status: string; attempts: number | null; items: number | null; lastAttemptAt: string | null; recoveredAt: string | null; eventType: string | null; deadLetter: boolean | null };
 const knownCode = (code: string | null, fallback: string) => code && code in descriptions ? code : fallback;
 const fromOccurrence = (row: SyncOccurrence): DiagnosticOccurrence => ({ ...row, description: descriptions[row.code]!, recoveredAt: row.recoveredAt ?? null, eventType: "sync.batch", deadLetter: row.status === "DEAD_LETTER" });
+const commandOccurrence = (x: { id: string; status: string; errorCode: string | null; attempts: number; createdAt: Date; updatedAt: Date }): DiagnosticOccurrence => {
+ const failed = x.status === "FAILED" || Boolean(x.errorCode);
+ const code = knownCode(x.errorCode, x.status === "COMPLETED" ? "COMMAND_COMPLETED" : x.status === "PROCESSING" ? "COMMAND_PROCESSING" : x.status === "FAILED" ? "COMMAND_FAILED" : "COMMAND_PENDING");
+ return { id: x.id, correlationId: x.id, code, description: descriptions[code]!, occurredAt: x.createdAt.toISOString(), component: "WORKER", stage: "LIFECYCLE", severity: failed ? "ERROR" : "INFO", status: x.status === "FAILED" ? "REJECTED" : failed ? "ACTIVE" : x.status === "COMPLETED" ? "ACCEPTED" : "WAITING", attempts: x.attempts, items: null, lastAttemptAt: x.attempts ? x.updatedAt.toISOString() : null, recoveredAt: null, eventType: "PROVIDER_COMMAND", deadLetter: null };
+};
 // A bounded read model over existing connection checkpoint, SQL Inbox and commands.
 // No payload, auth material, raw provider identity or stack reaches this boundary.
 export class ProviderDiagnostics {
@@ -38,11 +43,7 @@ export class ProviderDiagnostics {
   ]) : [[], []];
   let items: DiagnosticOccurrence[] = progress.occurrences.map(fromOccurrence);
   if (query.kind !== "ERRORS") items.push(...inbox.slice(0, 200).map((x) => ({ id: x.eventId, correlationId: x.correlationId, code: "PERSISTED", description: descriptions.PERSISTED!, occurredAt: x.receivedAt.toISOString(), component: "CORE", stage: "PERSISTENCE", severity: "INFO", status: "ACCEPTED", attempts: null, items: null, lastAttemptAt: null, recoveredAt: null, eventType: ["sync.batch", "connection.updated", "message.received", "message.sent", "message.updated", "contacts.updated", "conversation.updated"].includes(x.type) ? x.type : "PROVIDER_EVENT", deadLetter: null })));
-  items.push(...commands.slice(0, 50).map((x) => {
-   const failed = x.status === "FAILED" || Boolean(x.errorCode);
-   const code = knownCode(x.errorCode, x.status === "COMPLETED" ? "COMMAND_COMPLETED" : x.status === "PROCESSING" ? "COMMAND_PROCESSING" : x.status === "FAILED" ? "COMMAND_FAILED" : "COMMAND_PENDING");
-   return { id: x.id, correlationId: x.id, code, description: descriptions[code]!, occurredAt: x.createdAt.toISOString(), component: "WORKER", stage: "LIFECYCLE", severity: failed ? "ERROR" : "INFO", status: x.status === "FAILED" ? "REJECTED" : failed ? "ACTIVE" : x.status === "COMPLETED" ? "ACCEPTED" : "WAITING", attempts: x.attempts, items: null, lastAttemptAt: x.attempts ? x.updatedAt.toISOString() : null, recoveredAt: null, eventType: "PROVIDER_COMMAND", deadLetter: null };
-  }));
+  items.push(...commands.slice(0, 50).map(commandOccurrence));
   // Snapshot counters describe this retained window, never an invented global total.
   const errors = items.filter((x) => x.severity === "ERROR");
   const counters = { active: errors.filter((x) => ["ACTIVE", "REJECTED", "DEAD_LETTER"].includes(x.status)).length, recovered: errors.filter((x) => x.status === "RECOVERED").length };
@@ -54,12 +55,13 @@ export class ProviderDiagnostics {
   return { items: items.slice(offset, offset + limit), page, limit, hasMore: offset + limit < items.length, counters, legacyFailures, legacyDescription: legacyFailures ? "Falhas registradas apenas como contador, sem detalhes individuais. Não é possível reconstruir seus detalhes com segurança." : null, retentionDays: 30, truncated: inbox.length > 200 || commands.length > 50 || progress.diagnosticEvictions > 0, coverage: connection ? "CORE_CHECKPOINT_INBOX_COMMANDS" : "NO_PROCESSING_RECORDS" };
  }
  async detail(p: Principal, provider: string, id: string) {
-  // Reuse exactly the same scope, sanitizer and retained-window policy.
-  const page = await this.list(p, provider, { kind: "EVENTS", limit: 50 });
   const { progress, c, channel } = await this.snapshot(p, provider);
-  const found = progress.occurrences.map(fromOccurrence).find((x) => x.id === id) ?? page.items.find((x) => x.id === id);
+  await this.db.auditEvent.create({ data: { organizationId: c.organizationId, actorUserId: c.userId, action: "PROVIDER_DIAGNOSTIC_DETAIL_VIEWED", details: { provider, occurrenceId: id } } });
+  const found = progress.occurrences.map(fromOccurrence).find((x) => x.id === id);
   if (found) return found;
   if (channel) {
+   const command = await this.db.providerCommand.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, id, createdAt: { gte: new Date(Date.now() - 30 * 86400000) } }, select: { id: true, status: true, errorCode: true, attempts: true, createdAt: true, updatedAt: true } });
+   if (command) return commandOccurrence(command);
    const row = await this.db.providerInbox.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, eventId: id, receivedAt: { gte: new Date(Date.now() - 30 * 86400000) } }, select: { eventId: true, correlationId: true, type: true, receivedAt: true } });
    if (row) return { id: row.eventId, correlationId: row.correlationId, code: "PERSISTED", description: descriptions.PERSISTED!, occurredAt: row.receivedAt.toISOString(), component: "CORE", stage: "PERSISTENCE", severity: "INFO", status: "ACCEPTED", attempts: null, items: null, lastAttemptAt: null, recoveredAt: null, eventType: "PROVIDER_EVENT", deadLetter: null };
   }
