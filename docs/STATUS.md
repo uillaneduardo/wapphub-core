@@ -1,3 +1,14 @@
+# WhatsApp Web — checkpoint 1 de normalização (2026-10-10)
+
+Auditoria prévia versionada; contrato interno universal, parser estrito e normalização
+compartilhada de texto Demo implementados. Nenhum SDK no domínio Core.
+Validação local: npm ci/lint/typecheck/build/OpenAPI/Prisma/drift e84 testes aprovados;
+benchmark sintético medido, restrito ao normalizador. Schema/REST/RBAC/realtime inalterados.
+CI/merge/publicação seguem gates. Serviço Web/QR/filas/mídia/UI não implementados nem
+habilitados neste checkpoint; escolha de versão Baileys pendente do usuário.
+[Auditoria](WHATSAPP_WEB_AUDIT.md) · [Contrato e limites](PROVIDER_CONTRACT.md).
+Registros abaixo são históricos; não declara homologação do novo provider.
+
 # M2.1 — atualização técnica de 2026-10-09
 
 Catálogo base, overrides GRANT/REVOKE por Membership, APIs de equipe/permissões,

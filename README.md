@@ -1,3 +1,7 @@
+> WhatsApp Web — checkpoint 1: [auditoria](docs/WHATSAPP_WEB_AUDIT.md) e
+> [contrato interno universal](docs/PROVIDER_CONTRACT.md),84 testes aprovados.
+> Não habilita provider externo, QR ou mídia. Etapas seguintes aguardam escolha de versão Baileys.
+
 # WappHub Core
 
 > M2.1: fundação de catálogo/RBAC tenant-scoped implementada e validada localmente.

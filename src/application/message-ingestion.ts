@@ -1,3 +1,4 @@
+import { normalizeText } from "../../contracts/provider.js";
 import type { Prisma } from "@prisma/client";
 
 /** Shared normalized-message persistence for provider ingress and the Demo adapter. */
@@ -10,6 +11,7 @@ export class MessageIngestionService {
     providerMessageId: string;
     body: string;
   }) {
+    const content = normalizeText(input.body);
     const message = await tx.message.create({
       data: {
         organizationId: input.organizationId,
@@ -19,7 +21,7 @@ export class MessageIngestionService {
         providerMessageId: input.providerMessageId,
         direction: "INBOUND",
         type: "TEXT",
-        body: input.body,
+        body: content.originalBody,
         status: "SENT",
       },
     });
