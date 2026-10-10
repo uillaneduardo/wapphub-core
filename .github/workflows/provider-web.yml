@@ -29,3 +29,4 @@ jobs:
         working-directory: .
       - run: docker run --rm --network none --entrypoint node provider-web-ci --input-type=module -e "import { parseProviderEvent } from './dist/contracts/provider.js'; import { encryptedAuth } from './dist/services/wapphub-provider-web/src/baileys.js'; if (typeof parseProviderEvent !== 'function' || typeof encryptedAuth !== 'function') process.exit(1);"
         working-directory: .
+      - run: PROVIDER_WEB_TEST_IMAGE=provider-web-ci sh scripts/compose-smoke.sh
