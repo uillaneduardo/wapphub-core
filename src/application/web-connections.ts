@@ -82,7 +82,9 @@ export class WebConnections {
       if (!current || current.state !== "QR_REQUIRED" || current.qrRevision !== qr.revision) throw new AppError(409, "QR_CHANGED");
       if (expires <= Date.now()) throw new AppError(409, "QR_EXPIRED");
       await tx.auditEvent.create({ data: { organizationId: c.organizationId, actorUserId: context.userId, action: "WHATSAPP_WEB_QR_VIEWED", details: { channelId: id, revision: qr.revision } } });
-      return { ...qr, expiresInMs: expires - Date.now() };
+      const expiresInMs = expires - Date.now();
+      if (expiresInMs <= 0) throw new AppError(409, "QR_EXPIRED");
+      return { ...qr, expiresInMs };
     });
   }
   async synchronize(scope: { organizationId: string; connectionId: string }, view: ProviderSession, leaseToken: string) {
