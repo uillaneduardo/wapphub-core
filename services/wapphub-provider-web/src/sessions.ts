@@ -20,7 +20,7 @@ export class Sessions {
     private readonly factory: TransportFactory, readonly connectEnabled: boolean,
     private readonly schedule: Scheduler = defaultSchedule,
     private readonly now = Date.now,
-    private readonly log: (code: string) => void = () => undefined,
+    private readonly log: (code: string, fields?: { source: string; stage: string; count: number }) => void = () => undefined,
     private readonly syncOptions: { enabled: boolean; historyEnabled: boolean; approvedScope?: string } = { enabled: false, historyEnabled: false },
   ) {}
   private historyEnabled(scope: Scope) { return this.syncOptions.historyEnabled && this.syncOptions.approvedScope === scopeKey(scope); }
@@ -37,7 +37,7 @@ export class Sessions {
     const queued = (sync?.pending.length ?? 0) + record.events.reduce((sum, entry) => sum + (entry.event.type === "sync.batch" ? entry.event.data.items.length : 0), 0);
     return { state: record.state, revision: record.revision, qrRevision: record.qrRevision, attempts: record.attempts, errorCode: record.errorCode, connectEnabled: this.connectEnabled,
       ...(record.pairingPhase ? { pairingPhase: record.pairingPhase } : {}),
-      ...(sync ? { sync: { historyEnabled: this.historyEnabled(scope), phase: record.events.some((entry) => entry.dead) || sync.failures || sync.limited ? "PARTIAL" : sync.complete && queued === 0 ? "PROCESSED" : sync.phase, queued, contacts: sync.contacts, conversations: sync.conversations, messages: sync.messages, failures: sync.failures + record.events.filter((entry) => entry.dead).length, limited: sync.limited, durationMs: sync.durationMs } } : {}) };
+      ...(sync ? { sync: { historyEnabled: this.historyEnabled(scope), phase: record.events.some((entry) => entry.dead) || sync.failures || sync.limited || sync.diagnostics?.rejected ? "PARTIAL" : sync.complete && queued === 0 ? "PROCESSED" : sync.phase, queued, contacts: sync.contacts, conversations: sync.conversations, messages: sync.messages, failures: sync.failures + record.events.filter((entry) => entry.dead).length, limited: sync.limited, durationMs: sync.durationMs, ...(sync.diagnostics ? { diagnostics: sync.diagnostics } : {}) } } : {}) };
   }
   qr(scope: Scope) {
     this.view(scope);
@@ -149,9 +149,12 @@ export class Sessions {
         receipt: (id, status, chatId) => this.enqueue(scope, actor, generation, async () => {
           await this.journal.append(scope, { ...envelope(scope, "message.updated", id, status + (chatId ?? "")), data: { providerMessageId: id, status, ...(chatId ? { providerConversationId: chatId } : {}) } });
         }),
-        sync: (items, historical, completed, failures, limited) => {
+        sync: (items, historical, completed, failures, limited, observation) => {
           if (!this.syncOptions.enabled) return;
-          return this.enqueue(scope, actor, generation, () => this.journal.stage(scope, items, historical, this.historyEnabled(scope), completed, failures, limited));
+          return this.enqueue(scope, actor, generation, async () => {
+            await this.journal.stage(scope, items, historical, this.historyEnabled(scope), completed, failures, limited, observation);
+            if (observation) for (const [code, count] of Object.entries(observation.reasons)) this.log(`SYNC_${code}`, { source: observation.source, stage: "NORMALIZATION", count });
+          });
         },
       });
       actor.deadline = this.schedule(() => this.enqueue(scope, actor, generation, async () => {

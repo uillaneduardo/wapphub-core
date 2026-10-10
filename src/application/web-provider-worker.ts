@@ -1,6 +1,7 @@
 import type { PrismaClient, Prisma } from "@prisma/client";
 import type { Chat } from "./chat.js";
 import { WebConnections } from "./web-connections.js";
+import { recordSyncFailure } from "./web-sync.js";
 import { WebIngestion } from "./web-ingestion.js";
 import { AppError } from "../domain/errors.js";
 import { WebProviderError, type WebProviderPort, type InternalAction } from "../integrations/web-provider-client.js";
@@ -9,7 +10,7 @@ export class WebProviderWorker {
   private readonly connections: WebConnections;
   private readonly ingestion: WebIngestion;
   private cursor?: { organizationId: string; channelId: string };
-  constructor(private readonly db: PrismaClient, private readonly chat: Chat, private readonly client: WebProviderPort, private readonly onError: (code: string) => void = () => {}, private readonly onMetric: (fields: { code: string; durationMs: number; items: number; historical: boolean; committed: boolean }) => void = () => {}) {
+  constructor(private readonly db: PrismaClient, private readonly chat: Chat, private readonly client: WebProviderPort, private readonly onError: (code: string) => void = () => {}, private readonly onMetric: (fields: { code: string; durationMs: number; items: number; historical: boolean; committed: boolean; stage?: string; errorCode?: string }) => void = () => {}) {
     this.connections = new WebConnections(db, chat, client); this.ingestion = new WebIngestion(chat);
   }
   private async fence(tx: Prisma.TransactionClient, scope: Scope, token: string) {
@@ -55,8 +56,8 @@ export class WebProviderWorker {
       await this.connections.synchronize(scope, view, token);
       // Bounded batch leaves time to refresh the lease, preserving tenant fairness.
       for (const delivery of await this.client.pull(scope)) {
+        const started = performance.now();
         try {
-          const started = performance.now();
           const committed = await this.ingestion.apply(scope, delivery.event, token);
           if (delivery.event.type === "sync.batch") this.onMetric({ code: "PROVIDER_SYNC_BATCH", durationMs: Math.round(performance.now() - started), items: delivery.event.data.items.length, historical: delivery.event.data.historical, committed });
           // Refresh lifecycle from current metadata, never from an old replay event.
@@ -64,8 +65,13 @@ export class WebProviderWorker {
           await this.client.ack(scope, delivery.event.eventId, delivery.leaseId);
         } catch (error) {
           if (error instanceof AppError && error.code === "STALE_PROVIDER_LEASE") throw error;
-          this.onError(error instanceof AppError ? error.code : "PROVIDER_EVENT_PROCESSING_FAILED");
-          await this.client.nack(scope, delivery.event.eventId, delivery.leaseId).catch(() => this.onError("PROVIDER_NACK_FAILED"));
+          const code = error instanceof AppError ? error.code : "PERSISTENCE_FAILED";
+          this.onError(code);
+          const nacked = await this.client.nack(scope, delivery.event.eventId, delivery.leaseId).then(() => true, () => { this.onError("PROVIDER_NACK_FAILED"); return false; });
+          if (delivery.event.type === "sync.batch") {
+            this.onMetric({ code: "PROVIDER_SYNC_BATCH_FAILED", durationMs: Math.round(performance.now() - started), items: delivery.event.data.items.length, historical: delivery.event.data.historical, committed: false, stage: "PERSISTENCE", errorCode: code });
+            await recordSyncFailure(this.chat, scope, delivery.event, token, code, delivery.attempt, nacked && delivery.attempt >= 5).catch(() => this.onError("SYNC_DIAGNOSTIC_WRITE_FAILED"));
+          }
         }
       }
     } catch (error) {

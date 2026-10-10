@@ -3,8 +3,9 @@ import makeWASocket, { BufferJSON, initAuthCreds, proto, processHistoryMessage, 
 import pino from "pino";
 import type { TransportFactory } from "./transport.js";
 import { Vault, type Scope } from "./vault.js";
-import { normalizeContact, normalizeConversation, normalizeSyncMessage, directIdentity } from "./sync-normalization.js";
+import { normalizeContact, normalizeConversation, directIdentity, diagnoseIdentity, diagnoseMessage, type NormalizationOutcome } from "./sync-normalization.js";
 import { readBoundedHistory } from "./history.js";
+import type { SyncObservation } from "../../../contracts/provider-internal.js";
 import type { SyncItem } from "../../../contracts/provider.js";
 
 const signalId = (type: string, id: string) => createHash("sha256").update(JSON.stringify([type, id])).digest("hex");
@@ -71,30 +72,35 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       const reason = update.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined;
       callbacks.connection({ state: update.connection === "open" || update.connection === "close" ? update.connection : undefined, qr: update.qr, code: reason?.output?.statusCode, ...(update.isNewLogin ? { authenticating: true } : {}) });
     });
-    const submit = <T>(values: T[], normalize: (value: T) => SyncItem | undefined, historical: boolean, completed = false) => {
+    const submit = <T>(values: T[], normalize: (value: T) => NormalizationOutcome, historical: boolean, completed = false, source: SyncObservation["source"] = "MESSAGES_NOTIFY") => {
       if (auth.isDisabled() || !syncOptions.enabled || historical && !historyEnabled) return;
       const limit = historical ? 1000 : 250;
       const writes: (void | Promise<void>)[] = [];
-      let items: SyncItem[] = [], failures = 0;
+      const observation: SyncObservation = { source, received: values.length, normalized: 0, ignored: 0, rejected: 0, failures: 0, reasons: {} };
+      let items: SyncItem[] = [];
       for (const value of values.slice(0, limit)) {
-        try { const item = normalize(value); if (item) items.push(item); else failures++; } catch { failures++; }
-        if (items.length === 50) { writes.push(callbacks.sync?.(items, historical, false, failures)); items = []; failures = 0; }
+        let outcome: NormalizationOutcome;
+        try { outcome = normalize(value); } catch { outcome = { type: "failures", code: "NORMALIZATION_FAILED" }; }
+        if (outcome.type === "normalized") { items.push(outcome.item); observation.normalized++; }
+        else { observation[outcome.type]++; observation.reasons[outcome.code] = (observation.reasons[outcome.code] ?? 0) + 1; }
+        if (items.length === 50) { writes.push(callbacks.sync?.(items, historical)); items = []; }
       }
-      writes.push(callbacks.sync?.(items, historical, completed, failures, values.length > limit));
+      if (values.length > limit) { observation.rejected += values.length - limit; observation.reasons.STAGING_LIMIT = values.length - limit; }
+      writes.push(callbacks.sync?.(items, historical, completed, observation.failures, values.length > limit, observation));
       return Promise.all(writes).then(() => undefined);
     };
-    socket.ev.on("contacts.upsert", (values) => submit(values, normalizeContact, false));
-    socket.ev.on("contacts.update", (values) => submit(values, normalizeContact, false));
-    socket.ev.on("chats.upsert", (values) => submit(values, normalizeConversation, false));
-    socket.ev.on("chats.update", (values) => submit(values, normalizeConversation, false));
-    socket.ev.on("lid-mapping.update", ({ lid, pn }) => submit([{ id: pn, lid }], normalizeContact, false));
+    socket.ev.on("contacts.upsert", (values) => submit(values, (value) => diagnoseIdentity(value, () => normalizeContact(value)), false, false, "CONTACTS_UPSERT"));
+    socket.ev.on("contacts.update", (values) => submit(values, (value) => diagnoseIdentity(value, () => normalizeContact(value)), false, false, "CONTACTS_UPDATE"));
+    socket.ev.on("chats.upsert", (values) => submit(values, (value) => diagnoseIdentity(value, () => normalizeConversation(value)), false, false, "CHATS_UPSERT"));
+    socket.ev.on("chats.update", (values) => submit(values, (value) => diagnoseIdentity(value, () => normalizeConversation(value)), false, false, "CHATS_UPDATE"));
+    socket.ev.on("lid-mapping.update", ({ lid, pn }) => submit([{ id: pn, lid }], (value) => diagnoseIdentity(value, () => normalizeContact(value)), false, false, "IDENTITY_MAPPING"));
     const processHistory = async (data: BaileysEventMap["messaging-history.set"]) => {
       if (!historyEnabled) return;
       historyObserved = true;
-      await submit(data.lidPnMappings ?? [], (value) => normalizeContact({ id: value.pn, lid: value.lid }), true);
-      await submit(data.contacts, normalizeContact, true);
-      await submit(data.chats, normalizeConversation, true);
-      await submit(data.messages, (value) => normalizeSyncMessage(scope, value), true, data.progress === 100);
+      await submit(data.lidPnMappings ?? [], (value) => diagnoseIdentity({ id: value.pn, lid: value.lid }, () => normalizeContact({ id: value.pn, lid: value.lid })), true, false, "IDENTITY_MAPPING");
+      await submit(data.contacts, (value) => diagnoseIdentity(value, () => normalizeContact(value)), true, false, "HISTORY_CONTACTS");
+      await submit(data.chats, (value) => diagnoseIdentity(value, () => normalizeConversation(value)), true, false, "HISTORY_CHATS");
+      await submit(data.messages, (value) => diagnoseMessage(scope, value), true, data.progress === 100, "HISTORY_MESSAGES");
     };
     socket.ev.on("messaging-history.set", (data) => { void processHistory(data).catch(() => callbacks.failure()); });
     socket.ev.on("messaging-history.status", (value) => {
@@ -127,13 +133,13 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
             await vault.update(scope, (record) => { record.historyImports!.decodedBytes += decodedBytes; record.historyImports!.seen.push(digest); });
           }).catch(() => { if (!auth.isDisabled()) callbacks.sync?.([], true, false, 1, true); }).finally(() => { downloading = false; });
         }
-        const messages = update.messages.slice(0, update.type === "notify" ? 250 : 1000).filter((message) => !normalizeMessageContent(message.message)?.protocolMessage);
-        if (update.type === "notify" || historyEnabled) submit(messages, (message) => normalizeSyncMessage(scope, message), update.type !== "notify");
+        const messages = update.messages.slice(0, update.type === "notify" ? 250 : 1000);
+        if (update.type === "notify" || historyEnabled) submit(messages, (message) => diagnoseMessage(scope, message), update.type !== "notify", false, update.type === "notify" ? "MESSAGES_NOTIFY" : "MESSAGES_APPEND");
         else {
           // Small recent offline catch-up is continuous ingestion, not a full
           // historical import. Older append data awaits explicit authorization.
           const recent = messages.filter((message) => Number(message.messageTimestamp) * 1000 >= Date.now() - 5 * 60000);
-          submit(recent, (message) => normalizeSyncMessage(scope, message), false);
+          submit(recent, (message) => diagnoseMessage(scope, message), false, false, "MESSAGES_APPEND");
           if (recent.length < messages.length || update.messages.length > 1000) callbacks.sync?.([], false, false, 0, true);
         }
         return;

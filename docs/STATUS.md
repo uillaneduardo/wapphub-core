@@ -100,3 +100,7 @@ Limites explícitos: criação interna apenas; Meta M3; reutilização opt-in se
 ## Histórico preservado
 
 [STATUS integral anterior ao aceite final](history/STATUS_BEFORE_M1_FINAL_20261008.md). Referências históricas à publicação/homologação pendente ou imagens anteriores descrevem o momento da respectiva entrega, não o estado vigente. Registros técnicos e rollback antigos permanecem nos documentos de cada release; nunca retornar Core anterior ao P0.
+
+Correção CP4 e diagnóstico contextual implementados: filtro inicial da Inbox conforme permissões, observabilidade do Core e painel somente leitura em Provedores. Gates técnicos/deploy desta revisão em validação. As duas falhas legadas não têm detalhes reconstruíveis. A homologação funcional/visual continua pendente; CP5 não iniciado. Provider conectado deve permanecer sem reinício nesta publicação.
+
+Padronização de autoria incorporada à correção: REST senderName nullable por relações existentes, sem novo campo persistente, autoria por IDs conservada inclusive em histórico/renomeação. Interface operacional recebe nomes e capacidades genéricas, enquanto providers continuam nos metadados internos. Nenhuma migration de autoria. Homologação final pelo usuário permanece pendente.

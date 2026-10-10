@@ -11,6 +11,7 @@ import { Chat } from "../src/application/chat.js";
 import { DemoProvider } from "../src/integrations/demo-provider.js";
 import { MessageIngestionService } from "../src/application/message-ingestion.js";
 import { WebConnections } from "../src/application/web-connections.js";
+import { syncProgress, recordSyncFailure } from "../src/application/web-sync.js";
 import { WebIngestion } from "../src/application/web-ingestion.js";
 import { WebProviderWorker } from "../src/application/web-provider-worker.js";
 import { WebProviderError, type WebProviderPort, type ProviderScope, type Delivery, type InternalAction } from "../src/integrations/web-provider-client.js";
@@ -64,7 +65,7 @@ function event(type: "message.received" | "message.sent" | "message.updated", id
 }
 before(async () => {
   orgA = (await db.organization.create({ data: { name: `Web A ${randomUUID()}` } })).id; orgB = (await db.organization.create({ data: { name: `Web B ${randomUUID()}` } })).id;
-  owner = await auth(orgA, [...chatPermissions, "providers.manage", "providers.simulate"]); other = await auth(orgB, ["providers.manage"]); denied = await auth(orgA, ["conversations.read"]); manager = await auth(orgA, ["providers.manage"]);
+  owner = await auth(orgA, [...chatPermissions, "providers.manage", "providers.simulate", "providers.diagnostics.read"]); other = await auth(orgB, ["providers.manage", "providers.diagnostics.read"]); denied = await auth(orgA, ["conversations.read"]); manager = await auth(orgA, ["providers.manage"]);
   baseUrl = await app.listen({ host: "127.0.0.1", port: 0 });
 });
 after(async () => {
@@ -216,7 +217,9 @@ test("CP4 deduplicates commit replay and duplicate historical batches with real 
     assert.equal(await ingestion.apply(scope(), batch, token), true);
     const count = (await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } })).syncProgress;
     assert.equal(await ingestion.apply(scope(), batch, token), false);
-    assert.deepEqual((await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } })).syncProgress, count);
+    const before = syncProgress(count), after = syncProgress((await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } })).syncProgress);
+    for (const key of ["contacts", "conversations", "messages", "batches", "receivedItems", "processedItems"] as const) assert.equal(after[key], before[key]);
+    assert.equal(after.duplicateItems, before.duplicateItems + 1);
     await ingestion.apply(scope(), syncBatch([item]), token);
   });
   assert.equal(await db.message.count({ where: { channelId, providerMessageId: "cp4-duplicate" } }), 1);
@@ -267,9 +270,12 @@ test("CP4 transient persistence failures roll back domain/inbox/progress and per
     await assert.rejects(broken.apply(scope(), batch, token), /synthetic persistence outage/);
     assert.equal(await db.message.count({ where: { channelId, providerMessageId: "cp4-retry" } }), 0);
     assert.equal(await db.providerInbox.count({ where: { channelId, deduplicationId: batch.deduplicationId } }), 0);
+    await recordSyncFailure(chat, scope(), batch, token, "PERSISTENCE_FAILED");
+    assert.equal((await current()).sync.pendingFailures, 1);
     await ingestion.apply(scope(), batch, token);
   });
   assert.equal(await db.message.count({ where: { channelId, providerMessageId: "cp4-retry" } }), 1);
+  assert.equal((await current()).sync.pendingFailures, 0); assert.ok((await current()).sync.failedAttempts >= 1);
 });
 test("CP4 batches prove tenant/fencing isolation, RBAC and strict size limits", async () => {
   const batch = syncBatch([syncMessage("private@lid", "cp4-private")]);
@@ -329,4 +335,85 @@ test("CP4 synthetic load measures bounded SQL batches, live latency and deduplic
   assert.equal(await db.message.count({ where: { channelId, providerMessageId: { startsWith: "cp4-load-" } } }), 1001);
   const usage = process.cpuUsage(cpu);
   console.log(JSON.stringify({ metric: "cp4.sql.synthetic", historicalMessages: 1000, liveMessages: 1, batches: 50, replayedBatches: 50, durationMs: Math.round(performance.now() - started), cpuMs: (usage.user + usage.system) / 1000, peakRssBytes: peakRss, liveLatencyMs: Math.round(liveLatencyMs), isolated: true }));
+});
+
+test("CP4 fix first live message creates one unassigned contact/thread, is visible by RBAC and arrives through realtime", async () => {
+  const reader = await auth(orgA, ["conversations.read", "messages.read"]), lid = "first-live-fix@lid", pn = "5511112222@s.whatsapp.net";
+  const checkpoint = String((await db.realtimeEvent.findFirst({ orderBy: { id: "desc" } }))?.id ?? 0), frames: string[] = [];
+  const ws = new WebSocket(baseUrl.replace("http", "ws") + "/api/v1/realtime?lastEventId=" + checkpoint, { headers: { origin, cookie: reader.cookie } });
+  ws.on("message", (frame) => frames.push(String(frame)));
+  await new Promise<void>((resolve, reject) => { ws.once("open", resolve); ws.once("error", reject); });
+  try {
+    const batch = syncBatch([syncMessage(lid, "cp4fix-first-live")], false);
+    await leased((token) => ingestion.apply(scope(), batch, token));
+    const message = await db.message.findFirstOrThrow({ where: { channelId, providerMessageId: "cp4fix-first-live" } });
+    const thread = await db.conversation.findUniqueOrThrow({ where: { id: message.conversationId } });
+    assert.equal(thread.assignedUserId, null); assert.equal(message.direction, "INBOUND"); assert.equal(message.senderUserId, null); assert.equal(message.senderContactId, thread.contactId);
+    const page = (await request(reader, "GET", "/conversations?scope=unassigned")).json(); assert.ok(page.items.some((row: { id: string }) => row.id === thread.id));
+    assert.ok(!(await request(reader, "GET", "/conversations?scope=mine")).json().items.some((row: { id: string }) => row.id === thread.id));
+    await request(reader, "GET", "/conversations?scope=all", undefined, 403);
+    await request(other, "GET", `/conversations/${thread.id}`, undefined, 403);
+    assert.ok((await request(reader, "GET", `/conversations/${thread.id}/messages`)).json().items.some((row: { id: string }) => row.id === message.id));
+    const deadline = Date.now() + 4000; while (!frames.some((frame) => frame.includes(message.id)) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.ok(frames.some((frame) => frame.includes(message.id) && frame.includes("message.created")));
+    assert.ok(!frames.join("").includes("conteúdo original"));
+    await leased(async (token) => {
+      assert.equal(await ingestion.apply(scope(), batch, token), false);
+      const outgoing = syncMessage(pn, "cp4fix-cell-outbound", now(), true); outgoing.identity.aliases = [lid];
+      await ingestion.apply(scope(), syncBatch([outgoing, syncMessage(lid, "cp4fix-first-live")], false), token);
+    });
+    assert.equal(await db.message.count({ where: { channelId, providerMessageId: "cp4fix-first-live" } }), 1);
+    assert.equal(await db.conversation.count({ where: { channelId, contactId: thread.contactId } }), 1);
+    const aliases = await db.contactIdentity.findMany({ where: { channelId, externalId: { in: [lid, pn] } } }); assert.equal(aliases.length, 2); assert.equal(new Set(aliases.map((row) => row.contactId)).size, 1);
+    const sent = await db.message.findFirstOrThrow({ where: { channelId, providerMessageId: "cp4fix-cell-outbound" } }); assert.equal(sent.conversationId, thread.id); assert.equal(sent.senderUserId, null); assert.equal(sent.direction, "OUTBOUND");
+    assert.equal((await request(reader, "GET", `/conversations/${thread.id}/messages`)).json().items.length, 2);
+    const progress = (await current()).sync; assert.ok(progress.duplicateItems > 0 && progress.conversationsLocated > 0); assert.ok(progress.receivedItems >= progress.processedItems); assert.ok(!("failedBatches" in progress));
+  } finally { ws.close(); }
+});
+
+test("provider diagnostics requires both admin and specific authorization, isolates tenants and supports empty future providers", async () => {
+ const base = "/providers/WHATSAPP_WEB/diagnostics";
+ const withoutOrganization = await auth(orgA, ["providers.manage", "providers.diagnostics.read"]);
+ await db.session.update({ where: { id: withoutOrganization.sessionId }, data: { currentOrganizationId: null } });
+ await request(withoutOrganization, "GET", base, undefined, 409);
+ const diagnosticsOnly = await auth(orgA, ["providers.diagnostics.read"]);
+ await request(diagnosticsOnly, "GET", base, undefined, 403);
+ await request(manager, "GET", base, undefined, 403);
+ await request(denied, "GET", `${base}/health`, undefined, 403);
+ const empty = (await request(other, "GET", base)).json(); assert.deepEqual(empty.items, []);
+ const meta = (await request(owner, "GET", "/providers/META/diagnostics/health")).json(); assert.equal(meta.backlog, null); assert.equal(meta.lastProcessedAt, null);
+ const demo = (await request(owner, "GET", "/providers/DEMO/diagnostics")).json(); assert.equal(demo.coverage, "NO_PROCESSING_RECORDS"); assert.deepEqual(demo.items, []);
+ await request(owner, "GET", `${base}?limit=51`, undefined, 400);
+ await request(owner, "GET", `${base}?from=not-a-date`, undefined, 400);
+ await request(owner, "GET", `${base}?from=2099-01-02T00:00:00Z&to=2099-01-01T00:00:00Z`, undefined, 400);
+});
+test("diagnostics records actual failed attempts, recovery, definitive rejection, filtering, pagination and safe export details", async () => {
+ const base = "/providers/WHATSAPP_WEB/diagnostics";
+ const batch = syncBatch([syncMessage("diagnostic-private@lid", "private-phone-token-content")], false);
+ await leased(async (token) => {
+  await recordSyncFailure(chat, scope(), batch, token, "PERSISTENCE_FAILED", 1);
+  let page = (await request(owner, "GET", `${base}?kind=ERRORS&status=ACTIVE&stage=PERSISTENCE`)).json();
+  const row = page.items.find((x: { id: string }) => x.id === batch.eventId); assert.ok(row); assert.equal(row.attempts, 1); assert.equal(row.correlationId, batch.correlationId);
+  await request(other, "GET", `${base}/${batch.eventId}`, undefined, 404);
+  const detail = (await request(owner, "GET", `${base}/${batch.eventId}`)).json(); assert.equal(detail.code, "PERSISTENCE_FAILED");
+  assert.ok(!JSON.stringify(detail).includes("private-phone-token-content")); assert.ok(!JSON.stringify(detail).includes("diagnostic-private")); assert.ok(!("stack" in detail));
+  await ingestion.apply(scope(), batch, token);
+  page = (await request(owner, "GET", `${base}?kind=ERRORS&status=RECOVERED`)).json(); assert.ok(page.items.some((x: { id: string }) => x.id === batch.eventId)); assert.ok(page.counters.recovered >= 1);
+  const recovered = (await request(owner, "GET", `${base}/${batch.eventId}`)).json(); assert.equal(recovered.status, "RECOVERED"); assert.equal(recovered.attempts, 2); assert.ok(recovered.recoveredAt);
+  const doomed = syncBatch([syncMessage("diagnostic-dead@lid", "diagnostic-dead")], false);
+  await recordSyncFailure(chat, scope(), doomed, token, "PROVIDER_IDEMPOTENCY_CONFLICT", 5, true);
+  const dead = (await request(owner, "GET", `${base}?kind=ERRORS&status=DEAD_LETTER`)).json(); assert.ok(dead.items.some((x: { id: string }) => x.id === doomed.eventId));
+ });
+ const failedCommand = await db.providerCommand.create({ data: { id: randomUUID(), organizationId: orgA, channelId, actorUserId: owner.userId, sessionId: owner.sessionId, action: "connect", status: "FAILED", errorCode: "PROVIDER_OPERATION_FAILED", attempts: 5, createdAt: new Date(Date.now() - 3600000) } });
+ const commandDetail = (await request(owner, "GET", `${base}/${failedCommand.id}`)).json(); assert.equal(commandDetail.status, "REJECTED"); assert.equal(commandDetail.attempts, 5);
+ await request(other, "GET", `${base}/${failedCommand.id}`, undefined, 404);
+ const first = (await request(owner, "GET", `${base}?kind=EVENTS&severity=INFO&limit=1&page=1`)).json(); const next = (await request(owner, "GET", `${base}?kind=EVENTS&severity=INFO&limit=1&page=2`)).json(); assert.equal(first.items.length, 1); assert.equal(first.hasMore, true); assert.notEqual(first.items[0].id, next.items[0].id);
+ const health = (await request(owner, "GET", `${base}/health`)).json(); assert.ok(health.failedAttempts >= 2); assert.ok(health.deadLetters >= 1); assert.ok(health.pendingFailures >= 1);
+ assert.ok(await db.auditEvent.count({ where: { organizationId: orgA, actorUserId: owner.userId, action: "PROVIDER_DIAGNOSTICS_VIEWED" } }));
+});
+test("diagnostic checkpoints enforce retention, bounded volume and sanitize unexpected persisted fields", () => {
+ const now = new Date().toISOString(); const good = { id: randomUUID(), correlationId: randomUUID(), code: "PERSISTENCE_FAILED", status: "ACTIVE", stage: "PERSISTENCE", component: "CORE", severity: "ERROR", occurredAt: now, lastAttemptAt: now, attempts: 1, items: 1, token: "DO_NOT_EXPOSE", body: "DO_NOT_EXPOSE" };
+ const progress = syncProgress({ occurrences: Array.from({ length: 100 }, () => good) }); assert.equal(progress.occurrences.length, 64); assert.ok(!JSON.stringify(progress.occurrences).includes("DO_NOT_EXPOSE"));
+ assert.equal(syncProgress({ occurrences: [{ ...good, occurredAt: "2000-01-01T00:00:00Z" }] }).occurrences.length, 0);
+ assert.equal(syncProgress({ occurrences: [{ ...good, code: "SECRET_PHONE_123456789" }] }).occurrences.length, 0);
 });

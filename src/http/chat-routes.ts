@@ -48,6 +48,7 @@ const message = obj({
   conversationId: uuid,
   senderUserId: nullableId,
   senderContactId: nullableId,
+  senderName: { type: ["string", "null"] },
   clientMessageId: { type: ["string", "null"] },
   direction: { type: "string", enum: ["INTERNAL", "INBOUND", "OUTBOUND"] },
   type: { type: "string", enum: ["TEXT", "IMAGE", "AUDIO", "VOICE", "VIDEO", "DOCUMENT"] },

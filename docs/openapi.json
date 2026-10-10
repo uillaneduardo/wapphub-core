@@ -1649,6 +1649,10 @@
                       "format": "uuid",
                       "nullable": true
                     },
+                    "senderName": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "clientMessageId": {
                       "type": "string",
                       "nullable": true
@@ -1759,6 +1763,7 @@
                     "conversationId",
                     "senderUserId",
                     "senderContactId",
+                    "senderName",
                     "clientMessageId",
                     "direction",
                     "type",
@@ -6151,6 +6156,10 @@
                             "format": "uuid",
                             "nullable": true
                           },
+                          "senderName": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "clientMessageId": {
                             "type": "string",
                             "nullable": true
@@ -6261,6 +6270,7 @@
                           "conversationId",
                           "senderUserId",
                           "senderContactId",
+                          "senderName",
                           "clientMessageId",
                           "direction",
                           "type",
@@ -6685,6 +6695,10 @@
                       "format": "uuid",
                       "nullable": true
                     },
+                    "senderName": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "clientMessageId": {
                       "type": "string",
                       "nullable": true
@@ -6795,6 +6809,7 @@
                     "conversationId",
                     "senderUserId",
                     "senderContactId",
+                    "senderName",
                     "clientMessageId",
                     "direction",
                     "type",
@@ -7213,6 +7228,10 @@
                       "format": "uuid",
                       "nullable": true
                     },
+                    "senderName": {
+                      "type": "string",
+                      "nullable": true
+                    },
                     "clientMessageId": {
                       "type": "string",
                       "nullable": true
@@ -7323,6 +7342,7 @@
                     "conversationId",
                     "senderUserId",
                     "senderContactId",
+                    "senderName",
                     "clientMessageId",
                     "direction",
                     "type",
@@ -13850,7 +13870,7 @@
                       "maxLength": 80
                     },
                     "uniqueItems": true,
-                    "maxItems": 19
+                    "maxItems": 20
                   },
                   "revocations": {
                     "type": "array",
@@ -13859,7 +13879,7 @@
                       "maxLength": 80
                     },
                     "uniqueItems": true,
-                    "maxItems": 19
+                    "maxItems": 20
                   }
                 },
                 "required": [
@@ -14757,6 +14777,1284 @@
         }
       }
     },
+    "/api/v1/providers/{provider}/diagnostics": {
+      "get": {
+        "tags": [
+          "Provider diagnostics"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ERRORS",
+                "EVENTS"
+              ]
+            },
+            "in": "query",
+            "name": "kind",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "in": "query",
+            "name": "page",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "in": "query",
+            "name": "from",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "in": "query",
+            "name": "to",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "INFO",
+                "ERROR"
+              ]
+            },
+            "in": "query",
+            "name": "severity",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PERSISTENCE",
+                "VALIDATION",
+                "LIFECYCLE"
+              ]
+            },
+            "in": "query",
+            "name": "stage",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "RECOVERED",
+                "REJECTED",
+                "DEAD_LETTER",
+                "ACCEPTED",
+                "WAITING"
+              ]
+            },
+            "in": "query",
+            "name": "status",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "WHATSAPP_WEB",
+                "DEMO",
+                "META"
+              ]
+            },
+            "in": "path",
+            "name": "provider",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "webSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "correlationId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "code": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "occurredAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "component": {
+                            "type": "string"
+                          },
+                          "stage": {
+                            "type": "string"
+                          },
+                          "severity": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "attempts": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "nullable": true
+                          },
+                          "items": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "nullable": true
+                          },
+                          "lastAttemptAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "recoveredAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "eventType": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "deadLetter": {
+                            "type": "boolean",
+                            "nullable": true
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "correlationId",
+                          "code",
+                          "description",
+                          "occurredAt",
+                          "component",
+                          "stage",
+                          "severity",
+                          "status",
+                          "attempts",
+                          "items",
+                          "lastAttemptAt",
+                          "recoveredAt",
+                          "eventType",
+                          "deadLetter"
+                        ]
+                      }
+                    },
+                    "page": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "hasMore": {
+                      "type": "boolean"
+                    },
+                    "counters": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "active": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "recovered": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "active",
+                        "recovered"
+                      ]
+                    },
+                    "legacyFailures": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "legacyDescription": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "retentionDays": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    },
+                    "coverage": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "page",
+                    "limit",
+                    "hasMore",
+                    "counters",
+                    "legacyFailures",
+                    "legacyDescription",
+                    "retentionDays",
+                    "truncated",
+                    "coverage"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/{provider}/diagnostics/health": {
+      "get": {
+        "tags": [
+          "Provider diagnostics"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "WHATSAPP_WEB",
+                "DEMO",
+                "META"
+              ]
+            },
+            "in": "path",
+            "name": "provider",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "webSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "provider": {
+                      "type": "string"
+                    },
+                    "state": {
+                      "type": "string"
+                    },
+                    "backlog": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "pendingFailures": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "failedAttempts": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "deadLetters": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "pendingCommands": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "legacyFailures": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "lastProcessedAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "lastCheckedAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "diagnosticsSince": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "detailsAvailable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "state",
+                    "backlog",
+                    "pendingFailures",
+                    "failedAttempts",
+                    "deadLetters",
+                    "pendingCommands",
+                    "legacyFailures",
+                    "lastProcessedAt",
+                    "lastCheckedAt",
+                    "diagnosticsSince",
+                    "detailsAvailable"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/{provider}/diagnostics/{id}": {
+      "get": {
+        "tags": [
+          "Provider diagnostics"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "WHATSAPP_WEB",
+                "DEMO",
+                "META"
+              ]
+            },
+            "in": "path",
+            "name": "provider",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "webSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "occurredAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "component": {
+                      "type": "string"
+                    },
+                    "stage": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "attempts": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "lastAttemptAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "recoveredAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "nullable": true
+                    },
+                    "eventType": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "deadLetter": {
+                      "type": "boolean",
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "correlationId",
+                    "code",
+                    "description",
+                    "occurredAt",
+                    "component",
+                    "stage",
+                    "severity",
+                    "status",
+                    "attempts",
+                    "items",
+                    "lastAttemptAt",
+                    "recoveredAt",
+                    "eventType",
+                    "deadLetter"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/providers/whatsapp-web/connections": {
       "get": {
         "tags": [
@@ -14840,6 +16138,38 @@
                           "type": "object",
                           "additionalProperties": false,
                           "properties": {
+                            "receivedItems": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "processedItems": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "duplicateItems": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "rejectedItems": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "conversationsLocated": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "failedAttempts": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "pendingFailures": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "diagnosticsSince": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
                             "contacts": {
                               "type": "integer",
                               "minimum": 0
@@ -14911,6 +16241,81 @@
                                 "durationMs": {
                                   "type": "integer",
                                   "minimum": 0
+                                },
+                                "diagnostics": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "since": {
+                                      "type": "string",
+                                      "format": "date-time"
+                                    },
+                                    "received": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "normalized": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "ignored": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "rejected": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "failures": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "legacyFailures": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "publishedBatches": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "acknowledgedBatches": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "sourceCounts": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      }
+                                    },
+                                    "reasons": {
+                                      "type": "object",
+                                      "additionalProperties": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      }
+                                    },
+                                    "lastSource": {
+                                      "type": "string"
+                                    },
+                                    "lastCode": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "since",
+                                    "received",
+                                    "normalized",
+                                    "ignored",
+                                    "rejected",
+                                    "failures",
+                                    "legacyFailures",
+                                    "publishedBatches",
+                                    "acknowledgedBatches",
+                                    "sourceCounts",
+                                    "reasons"
+                                  ]
                                 }
                               },
                               "required": [
@@ -15433,6 +16838,38 @@
                       "type": "object",
                       "additionalProperties": false,
                       "properties": {
+                        "receivedItems": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "processedItems": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "duplicateItems": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "rejectedItems": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "conversationsLocated": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "failedAttempts": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "pendingFailures": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "diagnosticsSince": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "contacts": {
                           "type": "integer",
                           "minimum": 0
@@ -15504,6 +16941,81 @@
                             "durationMs": {
                               "type": "integer",
                               "minimum": 0
+                            },
+                            "diagnostics": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "since": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                "received": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "normalized": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "ignored": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "rejected": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "failures": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "legacyFailures": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "publishedBatches": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "acknowledgedBatches": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "sourceCounts": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  }
+                                },
+                                "reasons": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  }
+                                },
+                                "lastSource": {
+                                  "type": "string"
+                                },
+                                "lastCode": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "since",
+                                "received",
+                                "normalized",
+                                "ignored",
+                                "rejected",
+                                "failures",
+                                "legacyFailures",
+                                "publishedBatches",
+                                "acknowledgedBatches",
+                                "sourceCounts",
+                                "reasons"
+                              ]
                             }
                           },
                           "required": [
@@ -16047,6 +17559,38 @@
                       "type": "object",
                       "additionalProperties": false,
                       "properties": {
+                        "receivedItems": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "processedItems": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "duplicateItems": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "rejectedItems": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "conversationsLocated": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "failedAttempts": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "pendingFailures": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "diagnosticsSince": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
                         "contacts": {
                           "type": "integer",
                           "minimum": 0
@@ -16118,6 +17662,81 @@
                             "durationMs": {
                               "type": "integer",
                               "minimum": 0
+                            },
+                            "diagnostics": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "since": {
+                                  "type": "string",
+                                  "format": "date-time"
+                                },
+                                "received": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "normalized": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "ignored": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "rejected": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "failures": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "legacyFailures": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "publishedBatches": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "acknowledgedBatches": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "sourceCounts": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  }
+                                },
+                                "reasons": {
+                                  "type": "object",
+                                  "additionalProperties": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  }
+                                },
+                                "lastSource": {
+                                  "type": "string"
+                                },
+                                "lastCode": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "since",
+                                "received",
+                                "normalized",
+                                "ignored",
+                                "rejected",
+                                "failures",
+                                "legacyFailures",
+                                "publishedBatches",
+                                "acknowledgedBatches",
+                                "sourceCounts",
+                                "reasons"
+                              ]
                             }
                           },
                           "required": [
