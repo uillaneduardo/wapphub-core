@@ -1,5 +1,9 @@
 # Contrato interno universal de providers — checkpoint 1
 
+Atualização: versão RC14 autorizada; [checkpoint2](WHATSAPP_WEB_CHECKPOINT2.md)
+reutiliza esta fonte única em serviço independente, com auth/queues locais.
+Contrato CP1 e operações públicas Core permanecem iguais; consumer Core ainda não ativado.
+
 Fonte única: `contracts/provider.ts`, TypeScript/Zod, independente de qualquer SDK.
 A publicação deste checkpoint não instala nem habilita WhatsApp Web, mídia, filas,
 QR, credenciais, novos endpoints ou novas operações do Worker.

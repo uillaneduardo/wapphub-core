@@ -1,4 +1,17 @@
-# WhatsApp Web — checkpoint 1 de normalização (2026-10-10)
+# WhatsApp Web — checkpoint 2, serviço isolado (2026-10-10)
+
+Baileys7.0.0-rc14 autorizado pelo usuário e fixado com lock próprio; provider Docker
+independente implementado em services/wapphub-provider-web. Vault criptografado,
+writer lock de kernel, ciclo de sessão/QR/reconexão limitada, transporte interno
+HMAC com replay persistido e journal de eventos CP1 com leases/ack/dead letter.
+35 testes do serviço e npm ci/lint/typecheck/build/audit aprovados localmente;
+regressão Core/CI/Docker/deploy possuem gates separados e evidências externas.
+Compose bloqueia conexões: sem contas reais. Sem mudança de Core API/Worker,
+Chat/RBAC/schema/REST/realtime/Meta/Demo. Consumer Core, UI QR/envio/mídia permanecem
+pendentes do checkpoint3; nenhuma homologação funcional humana presumida.
+[Checkpoint2: contrato, segurança e operação](WHATSAPP_WEB_CHECKPOINT2.md).
+
+# WhatsApp Web — checkpoint 1 de normalização (histórico, 2026-10-10)
 
 Auditoria prévia versionada; contrato interno universal, parser estrito e normalização
 compartilhada de texto Demo implementados. Nenhum SDK no domínio Core.

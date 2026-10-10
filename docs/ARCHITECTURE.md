@@ -339,4 +339,13 @@ original. Este checkpoint não altera persistência, filas ou realtime.
 [Contratos e limites](PROVIDER_CONTRACT.md), [auditoria e plano](WHATSAPP_WEB_AUDIT.md).
 A isolação do adaptador externo em serviço próprio foi explicitamente solicitada
 pelo usuário; não deslocará conversas/regras/RBAC do monólito Core. Publicação desse
-serviço depende de validação e da decisão de versão Baileys documentada na auditoria.
+serviço depende de validação. RC14 foi autorizada no CP2, conforme documentação abaixo.
+# WhatsApp Web — decisão aprovada para checkpoint 2 (2026-10-10)
+
+Adapter independente services/wapphub-provider-web, Baileys7.0.0-rc14 fixado,
+sem SDK no runtime/domínio Core. Core permanece autoridade de RBAC/organizações/
+conversas/mensagens. Serviço interno de instância única com vault AES-GCM, flock,
+HMAC e journal durável do contrato compartilhado CP1. Nenhum consumer/API pública
+ou migration Core neste checkpoint; conexões desabilitadas em Compose.
+Integração SQL/Worker/Chat/mídia ficará no checkpoint3, preservando contratos M1.
+[Decisão, limites e operação](WHATSAPP_WEB_CHECKPOINT2.md).

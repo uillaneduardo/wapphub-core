@@ -1,0 +1,43 @@
+name: wapphub-provider-web
+services:
+  provider-web:
+    image: ${PROVIDER_WEB_IMAGE:?Set immutable commit image}
+    build:
+      context: ../..
+      dockerfile: services/wapphub-provider-web/Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    stop_grace_period: 20s
+    environment:
+      ALLOW_SESSION_CONNECT: 'false'
+    networks: [core-backend, egress]
+    volumes: [sessions:/data]
+    tmpfs: [/tmp:size=16m,noexec,nosuid]
+    secrets: [session_key, internal_key]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: {max-size: '5m', max-file: '3'}
+networks:
+  core-backend:
+    external: true
+    name: wapphub-core_backend
+  egress: {}
+volumes:
+  sessions: {}
+secrets:
+  session_key:
+    file: ${PROVIDER_SESSION_KEY_FILE:?Set session secret file}
+  internal_key:
+    file: ${PROVIDER_INTERNAL_KEY_FILE:?Set internal secret file}

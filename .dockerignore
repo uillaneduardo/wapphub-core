@@ -13,3 +13,4 @@ dist
 secrets
 credentials*.json
 service-account*.json
+services/wapphub-provider-web
