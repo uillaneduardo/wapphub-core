@@ -1,3 +1,7 @@
+> WhatsApp Web — checkpoint 3: [gestão de conexão/QR, ingestão de texto,
+> migration aditiva e limites](docs/WHATSAPP_WEB_CHECKPOINT3.md).
+> Envio pelo Chat/multimídia bloqueados; homologação humana pendente.
+
 > WhatsApp Web — checkpoint 1: [auditoria](docs/WHATSAPP_WEB_AUDIT.md) e
 > [contrato interno universal](docs/PROVIDER_CONTRACT.md),84 testes aprovados.
 > CP1 preservado; RC14 autorizada e serviço interno CP2 separado. [Estado e limites atuais](docs/WHATSAPP_WEB_CHECKPOINT2.md).

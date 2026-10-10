@@ -1,17 +1,10 @@
-import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { signature } from "../../../contracts/provider-internal.js";
+export { signature, signedHeaders } from "../../../contracts/provider-internal.js";
 import { mkdir, open, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ServiceError } from "./errors.js";
 import { Serial } from "./serial.js";
-
-export function signature(key: Buffer, method: string, path: string, body: unknown, timestamp: string, nonce: string) {
-  const digest = createHash("sha256").update(JSON.stringify(body ?? null)).digest("hex");
-  return createHmac("sha256", key).update(JSON.stringify([1, "core", method, path, timestamp, nonce, digest])).digest("hex");
-}
-export function signedHeaders(key: Buffer, method: string, path: string, body?: unknown, now = Date.now()) {
-  const timestamp = String(now), nonce = randomUUID();
-  return { "x-wapphub-client": "core", "x-wapphub-timestamp": timestamp, "x-wapphub-nonce": nonce, "x-wapphub-signature": signature(key, method, path, body, timestamp, nonce) };
-}
 
 /** Nonces survive restarts. Only validated signatures allocate bounded disk space.
  * Exclusive creation plus the global writer lock also prevents parallel replay. */

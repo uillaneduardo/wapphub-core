@@ -66,6 +66,7 @@ export const conversationDTO = (
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
     lastMessageAt: r.lastMessageAt.toISOString(),
+    outboundEnabled: r.channel?.provider !== "WHATSAPP_WEB",
     visibility: r.visibility,
     tagIds: r.tags?.map((t) => t.tagId) ?? [],
     provider: r.channel?.provider ?? null,
@@ -261,9 +262,15 @@ export class Chat {
     messageSequence?: bigint,
     audienceUserId?: string,
   ) {
+    return this.resourceEvent(tx, c.organizationId, type, entityId, conversationId, messageSequence, audienceUserId);
+  }
+  async resourceEvent(
+    tx: DB, organizationId: string, type: ChatEventType, entityId: string,
+    conversationId?: string, messageSequence?: bigint, audienceUserId?: string,
+  ) {
     return tx.realtimeEvent.create({
       data: {
-        organizationId: c.organizationId,
+        organizationId,
         type,
         entityId,
         conversationId,
@@ -275,6 +282,18 @@ export class Chat {
         },
       },
     });
+  }
+  /** Trusted integration entry; caller must resolve a tenant-scoped Channel.
+   * Uses the same ordering/commit barrier as human Chat operations. */
+  async integrationMutation<T>(organizationId: string, fn: (tx: Prisma.TransactionClient) => Promise<T>, shouldNotify: (result: T) => boolean = () => true) {
+    const result = await this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM Organization WHERE id=${organizationId} FOR UPDATE`;
+      const organization = await tx.organization.findFirst({ where: { id: organizationId, status: "ACTIVE" } });
+      if (!organization) throw new AppError(403, "ORGANIZATION_ACCESS_DENIED");
+      return fn(tx);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 15000 });
+    if (shouldNotify(result)) await this.notify(organizationId).catch(() => {});
+    return result;
   }
   // Per-tenant row lock serializes writes and event allocation through commit.
   // A stream cursor never skips a same-tenant transaction that commits later.
@@ -720,6 +739,7 @@ export class Chat {
         const channel = await tx.channel.findFirst({
           where: { id: r.channelId, organizationId: c.organizationId },
         });
+        if (channel?.provider === "WHATSAPP_WEB") throw new AppError(409, "PROVIDER_SEND_UNAVAILABLE");
         if (!channel || channel.provider !== "DEMO" || channel.status !== "ENABLED")
           throw new AppError(409, "PROVIDER_DISABLED");
       }
@@ -978,9 +998,11 @@ export class Chat {
       where: { organizationId_provider: { organizationId: c.organizationId, provider: "DEMO" } },
       select: { status: true },
     });
+    const web = this.config.PROVIDER_WEB_ENABLED ? await this.db.providerConnection.findFirst({ where: { organizationId: c.organizationId, channel: { provider: "WHATSAPP_WEB" } }, select: { state: true } }) : null;
     return { items: [
       { code: "DEMO", name: "Demo Provider", description: "Canal de demonstração com contatos simulados.", state: "AVAILABLE", enabled: channel?.status === "ENABLED" },
       { code: "META", name: "Meta", description: "Integração em desenvolvimento.", state: "IN_DEVELOPMENT", enabled: false },
+      ...(this.config.PROVIDER_WEB_ENABLED ? [{ code: "WHATSAPP_WEB", name: "WhatsApp Web", description: "Conexão por QR Code usando protocolo não oficial.", state: "AVAILABLE", enabled: web?.state === "CONNECTED" }] : []),
     ] };
   }
   async setDemoProvider(p: Principal, enabled: boolean) {
@@ -1078,6 +1100,7 @@ export class Chat {
       !chatEventTypes.includes(e.type as ChatEventType)
     )
       return false;
+    if (e.type === "provider.connection.updated") return c.permissions.includes("providers.manage");
     // Former assignee receives only this identifier invalidation, never new content.
     if (
       e.type === "conversation.transferred" &&
@@ -1110,8 +1133,8 @@ export class Chat {
       return c.permissions.includes("tags.read");
     return true;
   }
-  async stream(p: Principal, after: string = "0", limit = 100) {
-    const c = await this.context(p, "conversations.read"),
+  async stream(p: Principal, after: string = "0", limit = 100, providersOnly = false) {
+    const c = await this.context(p, providersOnly ? "providers.manage" : "conversations.read"),
       id = decimal(after);
     const rows = await this.db.realtimeEvent.findMany({
       where: { organizationId: c.organizationId, id: { gt: id } },
@@ -1122,7 +1145,7 @@ export class Chat {
       await this.audit(this.db, c, "REALTIME_SUPERVISED");
     const events = [];
     for (const e of rows)
-      if (await this.eventVisible(c, e))
+      if ((!providersOnly || e.type === "provider.connection.updated") && await this.eventVisible(c, e))
         events.push({
           version: 1,
           eventId: e.id.toString(),

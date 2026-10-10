@@ -460,7 +460,7 @@ test("validation, unknown routes, headers and CORS are safe", async () => {
     "NOT_FOUND",
   );
 });
-test("OpenAPI preserves every foundation and M1 route and adds the M2.1 permission contract", async () => {
+test("OpenAPI preserves every foundation and M1 route and adds M2.1 permissions and checkpoint 3 Web connections", async () => {
   const doc = (await app.inject("/api/v1/openapi.json")).json();
   const foundationPaths = [
     "/health",
@@ -498,6 +498,10 @@ test("OpenAPI preserves every foundation and M1 route and adds the M2.1 permissi
     "/providers/demo",
     "/providers/demo/contacts",
     "/providers/demo/messages",
+    "/providers/realtime/events",
+    "/providers/whatsapp-web/connections",
+    "/providers/whatsapp-web/connections/{id}/commands",
+    "/providers/whatsapp-web/connections/{id}/qr",
   ];
   assert.deepEqual(
     Object.keys(doc.paths).sort(),
@@ -506,9 +510,11 @@ test("OpenAPI preserves every foundation and M1 route and adds the M2.1 permissi
   assert.ok(doc.paths["/api/v1/app/bootstrap"].get.security);
   assert.ok(doc.paths["/api/v1/session/organization"].post.security[0].csrf);
   assert.ok(doc.paths["/api/v1/providers/demo"].put.security[0].csrf);
+  assert.ok(doc.paths["/api/v1/providers/whatsapp-web/connections/{id}/commands"].post.security[0].csrf);
+  assert.ok(doc.paths["/api/v1/providers/whatsapp-web/connections/{id}/qr"].get.security[0].webSession);
   assert.doesNotMatch(
     JSON.stringify(doc),
-    /MetaIntegration|WhatsApp|subscriptions/,
+    /MetaIntegration|subscriptions/,
   );
 });
 test("context selection is tenant-scoped in audit records", async () => {

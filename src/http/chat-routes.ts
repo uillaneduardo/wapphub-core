@@ -20,7 +20,7 @@ const str = { type: "string" },
   nullableDate = { anyOf: [date, { type: "null" }] };
 const error = obj({ error: obj({ code: str, requestId: str }) });
 const contact = obj({
-  providers: { type: "array", items: { type: "string", enum: ["DEMO", "META"] } },
+  providers: { type: "array", items: { type: "string", enum: ["DEMO", "META", "WHATSAPP_WEB"] } },
   id: uuid,
   name: str,
   primaryIdentifier: str,
@@ -29,7 +29,8 @@ const contact = obj({
 });
 const conversation = obj({
   tagIds: { type: "array", items: uuid },
-  provider: { anyOf: [{ type: "string", enum: ["DEMO", "META"] }, { type: "null" }] },
+  provider: { anyOf: [{ type: "string", enum: ["DEMO", "META", "WHATSAPP_WEB"] }, { type: "null" }] },
+  outboundEnabled: { type: "boolean" },
   contactName: { anyOf: [str, { type: "null" }] },
   lastMessagePreview: { anyOf: [str, { type: "null" }] },
   id: uuid,
@@ -142,7 +143,7 @@ export async function chatRoutes(
   );
   app.get(
     "/api/v1/providers",
-    { schema: schema(obj({ items: { type: "array", items: obj({ code: { type: "string", enum: ["DEMO", "META"] }, name: str, description: str, state: { type: "string", enum: ["AVAILABLE", "IN_DEVELOPMENT"] }, enabled: { type: "boolean" } }) } }), false, { tags: ["M1 Providers"] }) },
+    { schema: schema(obj({ items: { type: "array", items: obj({ code: { type: "string", enum: ["DEMO", "META", "WHATSAPP_WEB"] }, name: str, description: str, state: { type: "string", enum: ["AVAILABLE", "IN_DEVELOPMENT"] }, enabled: { type: "boolean" } }) } }), false, { tags: ["M1 Providers"] }) },
     async (r) => chat.providerCatalog(await principal(r)),
   );
   app.put<{ Body: { enabled: boolean } }>(

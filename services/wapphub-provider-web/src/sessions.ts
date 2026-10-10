@@ -31,7 +31,7 @@ export class Sessions {
   view(scope: Scope) {
     const record = this.vault.get(scope);
     if (!record) throw new ServiceError("SESSION_NOT_FOUND", 404);
-    return { state: record.state, revision: record.revision, attempts: record.attempts, errorCode: record.errorCode, connectEnabled: this.connectEnabled };
+    return { state: record.state, revision: record.revision, qrRevision: record.qrRevision, attempts: record.attempts, errorCode: record.errorCode, connectEnabled: this.connectEnabled };
   }
   qr(scope: Scope) {
     this.view(scope);
@@ -40,12 +40,12 @@ export class Sessions {
     return { qr: qr.value, revision: qr.revision, expiresAt: new Date(qr.expiresAt).toISOString() };
   }
   async create(scope: Scope) { await this.vault.update(scope, () => undefined); return this.view(scope); }
-  async command(scope: Scope, action: "connect" | "disconnect" | "logout", commandId: string) {
+  async command(scope: Scope, action: "connect" | "refresh" | "disconnect" | "logout", commandId: string) {
     this.view(scope);
     const actor = this.actor(scope);
     return actor.serial.run(async () => {
       if (this.stopping) throw new ServiceError("SERVICE_STOPPING", 503);
-      if (action === "connect" && !this.connectEnabled) throw new ServiceError("CONNECTIONS_DISABLED", 403);
+      if (["connect", "refresh"].includes(action) && !this.connectEnabled) throw new ServiceError("CONNECTIONS_DISABLED", 403);
       const digest = createHash("sha256").update(action).digest("hex");
       const record = this.vault.get(scope);
       if (!record) throw new ServiceError("SESSION_NOT_FOUND", 404);
@@ -54,15 +54,17 @@ export class Sessions {
         if (previous.digest !== digest) throw new ServiceError("IDEMPOTENCY_CONFLICT");
         return this.view(scope);
       }
+      if (action === "refresh" && !["CONNECTING", "QR_REQUIRED"].includes(record.state)) throw new ServiceError("INVALID_SESSION_STATE");
       // Persist intent before network activity; a restart can safely resume it.
       await this.vault.update(scope, (current) => {
         current.commands.push({ id: commandId, digest });
         if (current.commands.length > 256) current.commands.shift();
-        current.desired = action === "connect";
+        current.desired = action === "connect" || action === "refresh";
         if (action === "logout") { delete current.auth; current.keys = {}; }
-        if (action === "connect" && !actor.socket) current.attempts = 0;
+        if ((action === "connect" && !actor.socket) || action === "refresh") current.attempts = 0;
       });
-      if (action === "connect") {
+      if (action === "connect" || action === "refresh") {
+        if (action === "refresh") this.close(actor);
         if (!actor.socket) { actor.cancel?.(); await this.start(scope, actor); }
       } else {
         const socket = actor.socket;
