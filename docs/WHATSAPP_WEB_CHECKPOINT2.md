@@ -8,7 +8,7 @@ endpoints públicos/Chat e consumo pelo Core pertencem ao checkpoint 3.
 
 ## Segurança e arquitetura
 
-Node22.22.1 (SDK exige>=20), imagem Debian bookworm-slim. SDK importado e credenciais
+Node22.23.3 na imagem/CI (SDK exige>=20; host de desenvolvimento22.22.1), imagem Debian bookworm-slim. SDK importado e credenciais
 criptográficas geradas/restauradas nos testes sem abrir socket WhatsApp.
 GHSA-qvv5-jq5g-4cgg/CVE-2026-48063 foi corrigida em rc12; rc14 contém a correção.
 Referência oficial: https://github.com/WhiskeySockets/Baileys/security/advisories/GHSA-qvv5-jq5g-4cgg.
@@ -16,7 +16,9 @@ History sync desativado e upserts com requestId descartados adicionalmente.
 Peer sharp0.35.5 fixado após corrigir advisories de libvips/libheif/librsvg das
 versões anteriores; npm ci/audit retornaram zero vulnerabilidades na árvore
 completa instalada. Lock registra versões/integridade das transitivas; sem Git/master.
-Revalidar auditoria em CI e antes de futuras publicações; ausência de advisory não
+Runtime próprio atualizado para22.23.3 após consultar https://nodejs.org/dist/index.json e
+https://nodejs.org/en/blog/vulnerability/july-2026-security-releases (correções22.23.2 incluídas).
+Runtime dos serviços existentes não é alterado. Revalidar auditoria em CI e antes de futuras publicações; ausência de advisory não
 prova ausência de vulnerabilidade. Dependências opcionais de mídia não são habilitadas.
 
 Compose independente, sem ports, sem Cloudflare/ingress, rede backend real existente

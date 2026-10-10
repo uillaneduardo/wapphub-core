@@ -1,4 +1,4 @@
-FROM node:22.22.1-bookworm-slim AS build
+FROM node:22.23.3-bookworm-slim AS build
 WORKDIR /workspace/services/wapphub-provider-web
 COPY services/wapphub-provider-web/package*.json ./
 RUN npm ci
@@ -9,7 +9,7 @@ COPY services/wapphub-provider-web/src ./src
 COPY services/wapphub-provider-web/scripts ./scripts
 RUN ln -s services/wapphub-provider-web/node_modules /workspace/node_modules && npm run build && npm prune --omit=dev
 
-FROM node:22.22.1-bookworm-slim AS runtime
+FROM node:22.23.3-bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends util-linux && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build --chown=node:node /workspace/services/wapphub-provider-web/node_modules ./node_modules
