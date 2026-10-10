@@ -12,13 +12,15 @@ export type CommandInput = { commandId: string; action: ConnectionAction; expect
 const pending = { in: ["PENDING", "PROCESSING"] };
 export function connectionDTO(record: ProviderConnection, command?: ProviderCommand | null) {
   const state = record.state;
+  const { failedBatches, occurrences: _occurrences, diagnosticEvictions: _evictions, ...progress } = syncProgress(record.syncProgress);
+  void _occurrences; void _evictions; // Private diagnostic fields require a separate permission.
   return { id: record.channelId, state,
     uiState: state === "QR_REQUIRED" ? "QR_READY" : state === "FAILED" ? "ERROR" : state === "LOGGED_OUT" ? "DISCONNECTED" : state,
     version: record.version, qrRevision: record.qrRevision,
     errorCode: record.errorCode,
     lastCheckedAt: record.lastCheckedAt?.toISOString() ?? null,
     pairingPhase: record.pairingPhase ?? null,
-    sync: { ...syncProgress(record.syncProgress), provider: record.providerSync ?? null },
+    sync: { ...progress, pendingFailures: Object.keys(failedBatches).length, provider: record.providerSync ?? null },
     operation: command ? { id: command.id, action: command.action, status: command.status, errorCode: command.errorCode } : null,
     sendingEnabled: false, mediaEnabled: false,
   };

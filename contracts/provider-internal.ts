@@ -3,7 +3,13 @@ import { z } from "zod";
 import { providerEventSchema } from "./provider.js";
 
 export const providerStates = ["DISCONNECTED", "CONNECTING", "QR_REQUIRED", "CONNECTED", "RECONNECTING", "FAILED", "LOGGED_OUT"] as const;
-export const providerSyncSchema = z.strictObject({ historyEnabled: z.boolean(), phase: z.enum(["DISABLED", "AWAITING_HISTORY", "CONTACTS", "MESSAGES", "PROCESSED", "PARTIAL"]), queued: z.number().int().min(0), contacts: z.number().int().min(0), conversations: z.number().int().min(0), messages: z.number().int().min(0), failures: z.number().int().min(0), limited: z.boolean(), durationMs: z.number().int().min(0) });
+const count = z.number().int().min(0);
+export const syncSources = ["CONTACTS_UPSERT", "CONTACTS_UPDATE", "CHATS_UPSERT", "CHATS_UPDATE", "IDENTITY_MAPPING", "HISTORY_CONTACTS", "HISTORY_CHATS", "HISTORY_MESSAGES", "MESSAGES_NOTIFY", "MESSAGES_APPEND"] as const;
+export const syncReasons = ["SYSTEM_NOTICE", "PROTOCOL_MESSAGE", "UNSUPPORTED_CONTENT", "UNSUPPORTED_IDENTITY", "INVALID_IDENTITY", "INVALID_MESSAGE", "INVALID_CONTENT", "NORMALIZATION_FAILED", "STAGING_INVALID", "STAGING_LIMIT"] as const;
+export const syncObservationSchema = z.strictObject({ source: z.enum(syncSources), received: count, normalized: count, ignored: count, rejected: count, failures: count, reasons: z.partialRecord(z.enum(syncReasons), count) });
+export type SyncObservation = z.infer<typeof syncObservationSchema>;
+export const syncDiagnosticsSchema = z.strictObject({ since: z.iso.datetime({ offset: true }), received: count, normalized: count, ignored: count, rejected: count, failures: count, legacyFailures: count, publishedBatches: count, acknowledgedBatches: count, sourceCounts: z.partialRecord(z.enum(syncSources), count), reasons: z.partialRecord(z.enum(syncReasons), count), lastSource: z.enum(syncSources).optional(), lastCode: z.enum(syncReasons).optional() });
+export const providerSyncSchema = z.strictObject({ historyEnabled: z.boolean(), phase: z.enum(["DISABLED", "AWAITING_HISTORY", "CONTACTS", "MESSAGES", "PROCESSED", "PARTIAL"]), queued: count, contacts: count, conversations: count, messages: count, failures: count, limited: z.boolean(), durationMs: count, diagnostics: syncDiagnosticsSchema.optional() });
 export type ProviderSync = z.infer<typeof providerSyncSchema>;
 export const providerSessionSchema = z.strictObject({ state: z.enum(providerStates), revision: z.number().int().min(0), qrRevision: z.number().int().min(0), attempts: z.number().int().min(0), errorCode: z.string().regex(/^[A-Z][A-Z0-9_]{0,79}$/).optional(), connectEnabled: z.boolean(), sync: providerSyncSchema.optional(), pairingPhase: z.enum(["IDLE", "GENERATING_QR", "WAITING_SCAN", "AUTHENTICATING", "CONNECTED", "RECONNECTING"]).optional() });
 export type ProviderSession = z.infer<typeof providerSessionSchema>;

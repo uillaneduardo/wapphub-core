@@ -2,6 +2,22 @@ import { createHash } from "node:crypto";
 import { jidNormalizedUser, normalizeMessageContent, proto, type Contact, type WAMessage, type Chat } from "baileys";
 import { syncItemSchema, type SyncItem } from "../../../contracts/provider.js";
 import type { Scope } from "./vault.js";
+import type { SyncObservation } from "../../../contracts/provider-internal.js";
+
+export type NormalizationOutcome = { type: "normalized"; item: SyncItem } | { type: "ignored" | "rejected" | "failures"; code: keyof SyncObservation["reasons"] };
+export function diagnoseIdentity(value: Partial<Contact> | Partial<Chat>, normalize: () => SyncItem | undefined): NormalizationOutcome {
+  if (value.id && !directIdentity(value.id)) return { type: "ignored", code: "UNSUPPORTED_IDENTITY" };
+  const item = normalize(); return item ? { type: "normalized", item } : { type: "rejected", code: "INVALID_IDENTITY" };
+}
+export function diagnoseMessage(scope: Scope, value: WAMessage): NormalizationOutcome {
+  if (value.key.remoteJid && !directIdentity(value.key.remoteJid)) return { type: "ignored", code: "UNSUPPORTED_IDENTITY" };
+  if (!directIdentity(value.key.remoteJid) || !value.key.id || !Number.isFinite(Number(value.messageTimestamp)) || Number(value.messageTimestamp) <= 0 || Number(value.messageTimestamp) * 1000 > Date.now() + 86400000) return { type: "rejected", code: "INVALID_MESSAGE" };
+  const raw = normalizeMessageContent(value.message);
+  if (!raw) return { type: "ignored", code: "SYSTEM_NOTICE" };
+  if (raw.protocolMessage || raw.senderKeyDistributionMessage && Object.keys(raw).length === 1) return { type: "ignored", code: "PROTOCOL_MESSAGE" };
+  if (!(raw.conversation !== undefined || raw.extendedTextMessage || raw.imageMessage || raw.audioMessage || raw.videoMessage || raw.documentMessage)) return { type: "ignored", code: "UNSUPPORTED_CONTENT" };
+  const item = normalizeSyncMessage(scope, value); return item ? { type: "normalized", item } : { type: "rejected", code: "INVALID_CONTENT" };
+}
 
 export function directIdentity(value: string | null | undefined) {
   if (!value || value.length > 120 || !/^[a-zA-Z0-9_.:-]+@(s\.whatsapp\.net|lid)$/.test(value)) return undefined;

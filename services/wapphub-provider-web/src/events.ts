@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { parseProviderEvent, providerDeduplicationId, syncItemSchema, type ProviderEvent, type SyncItem } from "../../../contracts/provider.js";
 import { ServiceError } from "./errors.js";
 import { Vault, type Scope, type Session } from "./vault.js";
+import { syncObservationSchema, type SyncObservation, type ProviderSync } from "../../../contracts/provider-internal.js";
 
 export const webCapabilities = Object.freeze({ contentTypes: ["TEXT"], receipts: "PROVIDER", messageDeletion: false, groups: false, unofficial: true } as const);
 export const webSyncCapabilities = Object.freeze({ ...webCapabilities, contentTypes: ["TEXT", "IMAGE", "AUDIO", "VOICE", "VIDEO", "DOCUMENT"] as const });
@@ -33,14 +34,22 @@ export class EventJournal {
     if (event.organizationId !== scope.organizationId || event.connectionId !== scope.connectionId) throw new ServiceError("EVENT_SCOPE_MISMATCH", 403);
     return this.vault.update(scope, (record) => appendRecordEvent(record, event));
   }
-  async stage(scope: Scope, items: SyncItem[], historical: boolean, historyEnabled: boolean, completed = false, failures = 0, limited = false) {
+  async stage(scope: Scope, items: SyncItem[], historical: boolean, historyEnabled: boolean, completed = false, failures = 0, limited = false, observation?: SyncObservation) {
     if (historical && !historyEnabled) return;
     await this.vault.update(scope, (record) => {
       const sync = record.sync ??= { historyEnabled, phase: historyEnabled ? "AWAITING_HISTORY" : "DISABLED", queued: 0, contacts: 0, conversations: 0, messages: 0, failures: 0, limited: false, durationMs: 0, pending: [], complete: false, startedAt: this.now(), historyContacts: 0, historyConversations: 0, historyMessages: 0 };
+      const diagnostics: NonNullable<ProviderSync["diagnostics"]> = sync.diagnostics ??= { since: new Date(this.now()).toISOString(), received: 0, normalized: 0, ignored: 0, rejected: 0, failures: 0, legacyFailures: sync.failures, publishedBatches: 0, acknowledgedBatches: 0, sourceCounts: {}, reasons: {} };
+      if (observation) {
+        const safe = syncObservationSchema.parse(observation);
+        for (const key of ["received", "normalized", "ignored", "rejected", "failures"] as const) diagnostics[key] += safe[key];
+        diagnostics.sourceCounts[safe.source] = (diagnostics.sourceCounts[safe.source] ?? 0) + safe.received;
+        diagnostics.lastSource = safe.source;
+        for (const [key, count] of Object.entries(safe.reasons)) { const code = key as keyof SyncObservation["reasons"]; diagnostics.reasons[code] = (diagnostics.reasons[code] ?? 0) + count; diagnostics.lastCode = code; }
+      } else diagnostics.failures += failures;
       sync.historyEnabled = historyEnabled; sync.failures += failures; sync.limited ||= limited;
       let bytes = Buffer.byteLength(JSON.stringify(sync.pending));
       for (const item of items) {
-        if (!syncItemSchema.safeParse(item).success) { sync.failures++; continue; }
+        if (!syncItemSchema.safeParse(item).success) { diagnostics.rejected++; diagnostics.reasons.STAGING_INVALID = (diagnostics.reasons.STAGING_INVALID ?? 0) + 1; continue; }
         const kind = item.kind === "contact" ? "Contacts" : item.kind === "conversation" ? "Conversations" : "Messages";
         const budget = kind === "Messages" ? 1000 : 500;
         if (historical && (sync[`history${kind}`] >= budget || item.kind === "message" && Date.parse(item.occurredAt) < this.now() - 30 * 86400000)) { sync.limited = true; continue; }
@@ -83,7 +92,7 @@ export class EventJournal {
         }
         if (!items.length) break;
         const event = { ...envelope(scope, "sync.batch", randomUUID()), data: { historical, items } };
-        appendRecordEvent(record, event); sync.pending.splice(0, items.length);
+        appendRecordEvent(record, event); if (sync.diagnostics) sync.diagnostics.publishedBatches++; sync.pending.splice(0, items.length);
       }
     });
   }
@@ -107,6 +116,7 @@ export class EventJournal {
       const item = record.events.find((entry) => entry.event.eventId === eventId);
       if (!item) return; // lost ack response is safe to repeat
       if (item.leaseId !== leaseId || item.dead) throw new ServiceError("STALE_EVENT_LEASE");
+      if (item.event.type === "sync.batch" && record.sync?.diagnostics) record.sync.diagnostics.acknowledgedBatches++;
       record.events = record.events.filter((entry) => entry !== item);
     });
   }

@@ -242,3 +242,5 @@ identidades. Histórico tardio respeita fronteiras LIMITED/NONE e previews. Refe
 de mídia não contêm binários/chaves. Logs contêm métricas/códigos, nunca conteúdo.
 Estas proteções não substituem a política de retenção administrativa da organização.
 Ver WHATSAPP_WEB_CHECKPOINT4.md e relatório de deploy para evidências.
+
+Diagnósticos de providers exigem `providers.manage` + `providers.diagnostics.read`, são somente leitura tenant/conexão e retornam projeções permitidas. Não expõem corpos, telefones, JIDs/LIDs, QR, auth, payloads nem stack. Exportação utiliza a mesma projeção sanitizada. Detalhes adicionais são limitados a 64 por conexão e 30 dias no checkpoint existente; os hashes Inbox continuam para deduplicação. Não há alteração de visibilidade do domínio ou autoria por prefixos de texto.

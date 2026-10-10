@@ -75,11 +75,14 @@ export const conversationDTO = (
       ? latest.body : null,
   };
 };
+const messageAuthors = { sender: { select: { name: true } }, senderContact: { select: { name: true } } } as const;
 export const messageDTO = (r: {
   id: string;
   conversationId: string;
   senderUserId: string | null;
   senderContactId: string | null;
+  sender?: { name: string } | null;
+  senderContact?: { name: string } | null;
   clientMessageId: string | null;
   direction: string;
   type: string;
@@ -94,6 +97,7 @@ export const messageDTO = (r: {
   conversationId: r.conversationId,
   senderUserId: r.senderUserId,
   senderContactId: r.senderContactId,
+  senderName: r.direction === "INBOUND" ? r.senderContact?.name ?? null : r.senderUserId ? r.sender?.name ?? null : null,
   clientMessageId: r.clientMessageId,
   direction: r.direction,
   type: r.type,
@@ -707,6 +711,7 @@ export class Chat {
       },
       orderBy: web ? [{ createdAt: "desc" }, { id: "desc" }] : { sequence: "desc" },
       take: limit + 1,
+      include: messageAuthors,
     });
     if (c.permissions.includes("conversations.supervise"))
       await this.audit(this.db, c, "MESSAGES_SUPERVISED");
@@ -730,6 +735,7 @@ export class Chat {
     return this.mutation(p, "messages.send", async (tx, c) => {
       const r = await this.conversation(c, id, tx);
       const existing = await tx.message.findUnique({
+        include: messageAuthors,
         where: {
           organizationId_conversationId_clientMessageId: {
             organizationId: c.organizationId,
@@ -768,6 +774,7 @@ export class Chat {
           })
         : null;
       const message = await tx.message.create({
+        include: messageAuthors,
         data: {
           organizationId: c.organizationId,
           conversationId: id,
@@ -812,6 +819,7 @@ export class Chat {
       const floor = messageReadFloor(c, r);
       if (floor === null) throw new AppError(403, "PERMISSION_DENIED");
       const m = await tx.message.findFirst({
+        include: messageAuthors,
         where: {
           id: messageId,
           organizationId: c.organizationId,
@@ -833,6 +841,7 @@ export class Chat {
         throw new AppError(409, "INVALID_MESSAGE_TRANSITION");
       if (m.status === status) return messageDTO(m);
       const updated = await tx.message.update({
+        include: messageAuthors,
         where: { id: m.id },
         data: { status },
       });
@@ -1097,7 +1106,7 @@ export class Chat {
       const conversation = await tx.conversation.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, contactId: identity.contactId } });
       if (!conversation) throw new AppError(404, "NOT_FOUND");
       const inbound = this.provider.parseInbound(data);
-      const existing = await tx.message.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, providerMessageId: inbound.providerMessageId } });
+      const existing = await tx.message.findFirst({ include: messageAuthors, where: { organizationId: c.organizationId, channelId: channel.id, providerMessageId: inbound.providerMessageId } });
       if (existing) {
         if (existing.conversationId !== conversation.id || existing.body !== inbound.body) throw new AppError(409, "IDEMPOTENCY_CONFLICT");
         return messageDTO(existing);
