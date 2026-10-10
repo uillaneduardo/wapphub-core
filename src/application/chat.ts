@@ -52,7 +52,7 @@ const messageReadFloor = (c: ChatContext, r: Pick<Conversation, "organizationId"
     : null;
 
 export const conversationDTO = (
-  r: Conversation & { tags?: { tagId: string }[]; channel?: { provider: string } | null; contact?: { name: string }; messages?: { body: string | null; sequence: bigint }[] },
+  r: Conversation & { tags?: { tagId: string }[]; channel?: { provider: string } | null; contact?: { name: string }; messages?: { body: string | null; sequence: bigint; historical?: boolean; importedAt?: Date }[] },
   c: ChatContext,
 ) => {
   const floor = messageReadFloor(c, r);
@@ -71,7 +71,7 @@ export const conversationDTO = (
     tagIds: r.tags?.map((t) => t.tagId) ?? [],
     provider: r.channel?.provider ?? null,
     contactName: r.contact?.name ?? null,
-    lastMessagePreview: floor !== null && latest && latest.sequence >= floor
+    lastMessagePreview: floor !== null && latest && latest.sequence >= floor && (!latest.historical || r.visibility === "FULL" || c.permissions.includes("conversations.supervise") || r.historyBoundaryAt && latest.importedAt && latest.importedAt <= r.historyBoundaryAt)
       ? latest.body : null,
   };
 };
@@ -87,6 +87,8 @@ export const messageDTO = (r: {
   status: string;
   createdAt: Date;
   updatedAt: Date;
+  historical?: boolean;
+  mediaMetadata?: Prisma.JsonValue | null;
 }) => ({
   id: r.id,
   conversationId: r.conversationId,
@@ -97,6 +99,8 @@ export const messageDTO = (r: {
   type: r.type,
   body: r.body,
   status: r.status,
+  historical: r.historical ?? false,
+  media: r.mediaMetadata ?? null,
   createdAt: r.createdAt.toISOString(),
   updatedAt: r.updatedAt.toISOString(),
 });
@@ -236,7 +240,7 @@ export class Chat {
   async conversation(c: ChatContext, id: string, tx: DB = this.db, withPreview = false) {
     this.require(c, "conversations.read");
     const r = await tx.conversation.findFirst({
-      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: withPreview && c.permissions.includes("messages.read") ? { orderBy: { sequence: "desc" }, take: 1, select: { body: true, sequence: true } } : false },
+      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: withPreview && c.permissions.includes("messages.read") ? { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { body: true, sequence: true, historical: true, importedAt: true } } : false },
       where: { id, organizationId: c.organizationId },
     });
     if (
@@ -446,7 +450,7 @@ export class Chat {
     }
     const limit = q.limit ?? 50;
     const rows = await this.db.conversation.findMany({
-      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: c.permissions.includes("messages.read") ? { orderBy: { sequence: "desc" }, take: 1, select: { body: true, sequence: true } } : false },
+      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: c.permissions.includes("messages.read") ? { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { body: true, sequence: true, historical: true, importedAt: true } } : false },
       where: {
         organizationId: c.organizationId,
         status: q.archived ? "ARCHIVED" : { not: "ARCHIVED" },
@@ -646,6 +650,7 @@ export class Chat {
             visibility,
             visibleFromMessage,
             visibleFromEvent: visibility === "FULL" ? 0n : ev.id,
+            historyBoundaryAt: visibility === "FULL" ? null : new Date(),
           },
         });
         if (transfer && data.note) {
@@ -675,7 +680,8 @@ export class Chat {
   async messages(p: Principal, id: string, q: PageQuery) {
     const c = await this.context(p, "messages.read"),
       r = await this.conversation(c, id);
-    const scope = this.scope(c, "messages", id),
+    const web = r.channel?.provider === "WHATSAPP_WEB";
+    const scope = this.scope(c, web ? "web-message-time" : "messages", id),
       before = cursorDecode(
         this.config.ENCRYPTION_KEY,
         scope,
@@ -684,13 +690,22 @@ export class Chat {
       limit = q.limit ?? 50;
     const floor = messageReadFloor(c, r);
     if (floor === null) throw new AppError(403, "PERMISSION_DENIED");
+    let timeCursor: { createdAt: Date; id: string } | undefined;
+    if (web && before) {
+      try { const [date, messageId] = JSON.parse(before); if (typeof messageId !== "string" || !/^[a-f0-9-]{36}$/i.test(messageId) || !Number.isFinite(Date.parse(date))) throw new Error(); timeCursor = { createdAt: new Date(date), id: messageId }; }
+      catch { throw new AppError(400, "INVALID_CURSOR"); }
+    }
     const rows = await this.db.message.findMany({
       where: {
         organizationId: c.organizationId,
         conversationId: id,
-        sequence: { gte: floor, ...(before ? { lt: decimal(before) } : {}) },
+        sequence: { gte: floor, ...(!web && before ? { lt: decimal(before) } : {}) },
+        AND: [
+          ...(web && !c.permissions.includes("conversations.supervise") && r.visibility !== "FULL" ? [{ OR: [{ historical: false }, { historical: true, importedAt: { lte: r.historyBoundaryAt ?? new Date(0) } }] }] : []),
+          ...(timeCursor ? [{ OR: [{ createdAt: { lt: timeCursor.createdAt } }, { createdAt: timeCursor.createdAt, id: { lt: timeCursor.id } }] }] : []),
+        ],
       },
-      orderBy: { sequence: "desc" },
+      orderBy: web ? [{ createdAt: "desc" }, { id: "desc" }] : { sequence: "desc" },
       take: limit + 1,
     });
     if (c.permissions.includes("conversations.supervise"))
@@ -702,7 +717,7 @@ export class Chat {
           ? cursorEncode(
               this.config.ENCRYPTION_KEY,
               scope,
-              rows[limit - 1]!.sequence.toString(),
+              web ? JSON.stringify([rows[limit - 1]!.createdAt.toISOString(), rows[limit - 1]!.id]) : rows[limit - 1]!.sequence.toString(),
             )
           : null,
     };
@@ -1101,6 +1116,7 @@ export class Chat {
     )
       return false;
     if (e.type === "provider.connection.updated") return c.permissions.includes("providers.manage");
+    if (e.type === "contacts.updated") return c.permissions.includes("contacts.read");
     // Former assignee receives only this identifier invalidation, never new content.
     if (
       e.type === "conversation.transferred" &&
@@ -1133,8 +1149,8 @@ export class Chat {
       return c.permissions.includes("tags.read");
     return true;
   }
-  async stream(p: Principal, after: string = "0", limit = 100, providersOnly = false) {
-    const c = await this.context(p, providersOnly ? "providers.manage" : "conversations.read"),
+  async stream(p: Principal, after: string = "0", limit = 100, providersOnly = false, contactsOnly = false) {
+    const c = await this.context(p, providersOnly ? "providers.manage" : contactsOnly ? "contacts.read" : "conversations.read"),
       id = decimal(after);
     const rows = await this.db.realtimeEvent.findMany({
       where: { organizationId: c.organizationId, id: { gt: id } },
@@ -1145,7 +1161,7 @@ export class Chat {
       await this.audit(this.db, c, "REALTIME_SUPERVISED");
     const events = [];
     for (const e of rows)
-      if ((!providersOnly || e.type === "provider.connection.updated") && await this.eventVisible(c, e))
+      if ((!providersOnly || e.type === "provider.connection.updated") && (!contactsOnly || e.type === "contacts.updated") && await this.eventVisible(c, e))
         events.push({
           version: 1,
           eventId: e.id.toString(),

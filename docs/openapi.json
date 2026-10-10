@@ -1664,8 +1664,72 @@
                     "type": {
                       "type": "string",
                       "enum": [
-                        "TEXT"
+                        "TEXT",
+                        "IMAGE",
+                        "AUDIO",
+                        "VOICE",
+                        "VIDEO",
+                        "DOCUMENT"
                       ]
+                    },
+                    "historical": {
+                      "type": "boolean"
+                    },
+                    "media": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "mediaId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "IMAGE",
+                            "AUDIO",
+                            "VOICE",
+                            "VIDEO",
+                            "DOCUMENT"
+                          ]
+                        },
+                        "mimeType": {
+                          "type": "string"
+                        },
+                        "fileName": {
+                          "type": "string"
+                        },
+                        "size": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 26214400
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "PENDING",
+                            "TRANSFERRING",
+                            "READY",
+                            "FAILED"
+                          ]
+                        },
+                        "sha256": {
+                          "type": "string"
+                        },
+                        "thumbnailMediaId": {
+                          "type": "string",
+                          "format": "uuid"
+                        }
+                      },
+                      "required": [
+                        "mediaId",
+                        "type",
+                        "mimeType",
+                        "fileName",
+                        "size",
+                        "state"
+                      ],
+                      "nullable": true
                     },
                     "body": {
                       "type": "string",
@@ -1698,6 +1762,8 @@
                     "clientMessageId",
                     "direction",
                     "type",
+                    "historical",
+                    "media",
                     "body",
                     "status",
                     "createdAt",
@@ -6100,8 +6166,72 @@
                           "type": {
                             "type": "string",
                             "enum": [
-                              "TEXT"
+                              "TEXT",
+                              "IMAGE",
+                              "AUDIO",
+                              "VOICE",
+                              "VIDEO",
+                              "DOCUMENT"
                             ]
+                          },
+                          "historical": {
+                            "type": "boolean"
+                          },
+                          "media": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "mediaId": {
+                                "type": "string",
+                                "format": "uuid"
+                              },
+                              "type": {
+                                "type": "string",
+                                "enum": [
+                                  "IMAGE",
+                                  "AUDIO",
+                                  "VOICE",
+                                  "VIDEO",
+                                  "DOCUMENT"
+                                ]
+                              },
+                              "mimeType": {
+                                "type": "string"
+                              },
+                              "fileName": {
+                                "type": "string"
+                              },
+                              "size": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 26214400
+                              },
+                              "state": {
+                                "type": "string",
+                                "enum": [
+                                  "PENDING",
+                                  "TRANSFERRING",
+                                  "READY",
+                                  "FAILED"
+                                ]
+                              },
+                              "sha256": {
+                                "type": "string"
+                              },
+                              "thumbnailMediaId": {
+                                "type": "string",
+                                "format": "uuid"
+                              }
+                            },
+                            "required": [
+                              "mediaId",
+                              "type",
+                              "mimeType",
+                              "fileName",
+                              "size",
+                              "state"
+                            ],
+                            "nullable": true
                           },
                           "body": {
                             "type": "string",
@@ -6134,6 +6264,8 @@
                           "clientMessageId",
                           "direction",
                           "type",
+                          "historical",
+                          "media",
                           "body",
                           "status",
                           "createdAt",
@@ -6568,8 +6700,72 @@
                     "type": {
                       "type": "string",
                       "enum": [
-                        "TEXT"
+                        "TEXT",
+                        "IMAGE",
+                        "AUDIO",
+                        "VOICE",
+                        "VIDEO",
+                        "DOCUMENT"
                       ]
+                    },
+                    "historical": {
+                      "type": "boolean"
+                    },
+                    "media": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "mediaId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "IMAGE",
+                            "AUDIO",
+                            "VOICE",
+                            "VIDEO",
+                            "DOCUMENT"
+                          ]
+                        },
+                        "mimeType": {
+                          "type": "string"
+                        },
+                        "fileName": {
+                          "type": "string"
+                        },
+                        "size": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 26214400
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "PENDING",
+                            "TRANSFERRING",
+                            "READY",
+                            "FAILED"
+                          ]
+                        },
+                        "sha256": {
+                          "type": "string"
+                        },
+                        "thumbnailMediaId": {
+                          "type": "string",
+                          "format": "uuid"
+                        }
+                      },
+                      "required": [
+                        "mediaId",
+                        "type",
+                        "mimeType",
+                        "fileName",
+                        "size",
+                        "state"
+                      ],
+                      "nullable": true
                     },
                     "body": {
                       "type": "string",
@@ -6602,6 +6798,8 @@
                     "clientMessageId",
                     "direction",
                     "type",
+                    "historical",
+                    "media",
                     "body",
                     "status",
                     "createdAt",
@@ -7030,8 +7228,72 @@
                     "type": {
                       "type": "string",
                       "enum": [
-                        "TEXT"
+                        "TEXT",
+                        "IMAGE",
+                        "AUDIO",
+                        "VOICE",
+                        "VIDEO",
+                        "DOCUMENT"
                       ]
+                    },
+                    "historical": {
+                      "type": "boolean"
+                    },
+                    "media": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "mediaId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "IMAGE",
+                            "AUDIO",
+                            "VOICE",
+                            "VIDEO",
+                            "DOCUMENT"
+                          ]
+                        },
+                        "mimeType": {
+                          "type": "string"
+                        },
+                        "fileName": {
+                          "type": "string"
+                        },
+                        "size": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 26214400
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "PENDING",
+                            "TRANSFERRING",
+                            "READY",
+                            "FAILED"
+                          ]
+                        },
+                        "sha256": {
+                          "type": "string"
+                        },
+                        "thumbnailMediaId": {
+                          "type": "string",
+                          "format": "uuid"
+                        }
+                      },
+                      "required": [
+                        "mediaId",
+                        "type",
+                        "mimeType",
+                        "fileName",
+                        "size",
+                        "state"
+                      ],
+                      "nullable": true
                     },
                     "body": {
                       "type": "string",
@@ -7064,6 +7326,8 @@
                     "clientMessageId",
                     "direction",
                     "type",
+                    "historical",
+                    "media",
                     "body",
                     "status",
                     "createdAt",
@@ -11518,6 +11782,8 @@
                             "type": "string",
                             "enum": [
                               "provider.connection.updated",
+                              "contacts.updated",
+                              "conversation.history.updated",
                               "conversation.created",
                               "conversation.updated",
                               "conversation.archived",
@@ -14558,6 +14824,118 @@
                           "format": "date-time",
                           "nullable": true
                         },
+                        "pairingPhase": {
+                          "type": "string",
+                          "enum": [
+                            "IDLE",
+                            "GENERATING_QR",
+                            "WAITING_SCAN",
+                            "AUTHENTICATING",
+                            "CONNECTED",
+                            "RECONNECTING"
+                          ],
+                          "nullable": true
+                        },
+                        "sync": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "contacts": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "conversations": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "messages": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "failures": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "batches": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "lastProcessedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "lastErrorCode": {
+                              "type": "string"
+                            },
+                            "provider": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "historyEnabled": {
+                                  "type": "boolean"
+                                },
+                                "phase": {
+                                  "type": "string",
+                                  "enum": [
+                                    "DISABLED",
+                                    "AWAITING_HISTORY",
+                                    "CONTACTS",
+                                    "MESSAGES",
+                                    "PROCESSED",
+                                    "PARTIAL"
+                                  ]
+                                },
+                                "queued": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "contacts": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "conversations": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "messages": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "failures": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "limited": {
+                                  "type": "boolean"
+                                },
+                                "durationMs": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                }
+                              },
+                              "required": [
+                                "historyEnabled",
+                                "phase",
+                                "queued",
+                                "contacts",
+                                "conversations",
+                                "messages",
+                                "failures",
+                                "limited",
+                                "durationMs"
+                              ],
+                              "nullable": true
+                            }
+                          },
+                          "required": [
+                            "contacts",
+                            "conversations",
+                            "messages",
+                            "failures",
+                            "batches",
+                            "provider"
+                          ]
+                        },
                         "operation": {
                           "type": "object",
                           "additionalProperties": false,
@@ -14618,6 +14996,8 @@
                         "qrRevision",
                         "errorCode",
                         "lastCheckedAt",
+                        "pairingPhase",
+                        "sync",
                         "operation",
                         "sendingEnabled",
                         "mediaEnabled"
@@ -15037,6 +15417,118 @@
                       "format": "date-time",
                       "nullable": true
                     },
+                    "pairingPhase": {
+                      "type": "string",
+                      "enum": [
+                        "IDLE",
+                        "GENERATING_QR",
+                        "WAITING_SCAN",
+                        "AUTHENTICATING",
+                        "CONNECTED",
+                        "RECONNECTING"
+                      ],
+                      "nullable": true
+                    },
+                    "sync": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "contacts": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "conversations": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "messages": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "failures": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "batches": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "lastProcessedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "lastErrorCode": {
+                          "type": "string"
+                        },
+                        "provider": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "historyEnabled": {
+                              "type": "boolean"
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "DISABLED",
+                                "AWAITING_HISTORY",
+                                "CONTACTS",
+                                "MESSAGES",
+                                "PROCESSED",
+                                "PARTIAL"
+                              ]
+                            },
+                            "queued": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "contacts": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "conversations": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "messages": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "failures": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "limited": {
+                              "type": "boolean"
+                            },
+                            "durationMs": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "historyEnabled",
+                            "phase",
+                            "queued",
+                            "contacts",
+                            "conversations",
+                            "messages",
+                            "failures",
+                            "limited",
+                            "durationMs"
+                          ],
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "contacts",
+                        "conversations",
+                        "messages",
+                        "failures",
+                        "batches",
+                        "provider"
+                      ]
+                    },
                     "operation": {
                       "type": "object",
                       "additionalProperties": false,
@@ -15097,6 +15589,8 @@
                     "qrRevision",
                     "errorCode",
                     "lastCheckedAt",
+                    "pairingPhase",
+                    "sync",
                     "operation",
                     "sendingEnabled",
                     "mediaEnabled"
@@ -15537,6 +16031,118 @@
                       "format": "date-time",
                       "nullable": true
                     },
+                    "pairingPhase": {
+                      "type": "string",
+                      "enum": [
+                        "IDLE",
+                        "GENERATING_QR",
+                        "WAITING_SCAN",
+                        "AUTHENTICATING",
+                        "CONNECTED",
+                        "RECONNECTING"
+                      ],
+                      "nullable": true
+                    },
+                    "sync": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "contacts": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "conversations": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "messages": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "failures": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "batches": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "lastProcessedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "lastErrorCode": {
+                          "type": "string"
+                        },
+                        "provider": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "historyEnabled": {
+                              "type": "boolean"
+                            },
+                            "phase": {
+                              "type": "string",
+                              "enum": [
+                                "DISABLED",
+                                "AWAITING_HISTORY",
+                                "CONTACTS",
+                                "MESSAGES",
+                                "PROCESSED",
+                                "PARTIAL"
+                              ]
+                            },
+                            "queued": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "contacts": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "conversations": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "messages": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "failures": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "limited": {
+                              "type": "boolean"
+                            },
+                            "durationMs": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "historyEnabled",
+                            "phase",
+                            "queued",
+                            "contacts",
+                            "conversations",
+                            "messages",
+                            "failures",
+                            "limited",
+                            "durationMs"
+                          ],
+                          "nullable": true
+                        }
+                      },
+                      "required": [
+                        "contacts",
+                        "conversations",
+                        "messages",
+                        "failures",
+                        "batches",
+                        "provider"
+                      ]
+                    },
                     "operation": {
                       "type": "object",
                       "additionalProperties": false,
@@ -15597,6 +16203,8 @@
                     "qrRevision",
                     "errorCode",
                     "lastCheckedAt",
+                    "pairingPhase",
+                    "sync",
                     "operation",
                     "sendingEnabled",
                     "mediaEnabled"
@@ -16373,6 +16981,460 @@
                             "type": "string",
                             "enum": [
                               "provider.connection.updated",
+                              "contacts.updated",
+                              "conversation.history.updated",
+                              "conversation.created",
+                              "conversation.updated",
+                              "conversation.archived",
+                              "conversation.assigned",
+                              "conversation.transferred",
+                              "message.created",
+                              "message.updated",
+                              "note.created",
+                              "tag.created",
+                              "tag.updated",
+                              "tag.deleted",
+                              "conversation.tag.added",
+                              "conversation.tag.removed"
+                            ]
+                          },
+                          "entityId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "occurredAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "payload": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                              "resourceId": {
+                                "type": "string",
+                                "format": "uuid"
+                              }
+                            },
+                            "required": [
+                              "resourceId"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "version",
+                          "eventId",
+                          "organizationId",
+                          "type",
+                          "entityId",
+                          "occurredAt",
+                          "payload"
+                        ]
+                      }
+                    },
+                    "lastEventId": {
+                      "type": "string"
+                    },
+                    "hasMore": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "events",
+                    "lastEventId",
+                    "hasMore"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/contacts/realtime/events": {
+      "get": {
+        "tags": [
+          "WhatsApp Web"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$"
+            },
+            "in": "query",
+            "name": "lastEventId",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "webSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "version": {
+                            "type": "integer",
+                            "enum": [
+                              1
+                            ]
+                          },
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "organizationId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "provider.connection.updated",
+                              "contacts.updated",
+                              "conversation.history.updated",
                               "conversation.created",
                               "conversation.updated",
                               "conversation.archived",

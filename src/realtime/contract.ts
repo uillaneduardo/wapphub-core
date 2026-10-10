@@ -1,6 +1,8 @@
 /** M1 version-1 event contract; identifiers only, content is fetched with REST authorization. */
 export const chatEventTypes = [
   "provider.connection.updated",
+  "contacts.updated",
+  "conversation.history.updated",
   "conversation.created",
   "conversation.updated",
   "conversation.archived",

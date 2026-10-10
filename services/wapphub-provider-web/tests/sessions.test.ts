@@ -106,3 +106,11 @@ test("explicit refresh rotates an expired QR without replaying old sockets or di
   await assert.rejects(f.sessions.command(f.scope, "refresh", randomUUID()), /INVALID_SESSION_STATE/);
   assert.equal(f.sessions.view(f.scope).state, "CONNECTED"); assert.equal(f.stats().starts, 2);
 });
+test("CP4 authentication clears QR and cannot be interrupted by a refresh command", async (t) => {
+  const f = await fixture(t); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID());
+  f.callbacks[0]!.connection({ qr: "SYNTHETIC_QR" }); await f.sessions.settle(f.scope);
+  f.callbacks[0]!.connection({ authenticating: true }); await f.sessions.settle(f.scope);
+  assert.equal(f.sessions.view(f.scope).pairingPhase, "AUTHENTICATING"); assert.throws(() => f.sessions.qr(f.scope), /QR_NOT_AVAILABLE/);
+  await assert.rejects(f.sessions.command(f.scope, "refresh", randomUUID()), /INVALID_SESSION_STATE/);
+  f.callbacks[0]!.connection({ state: "open" }); await f.sessions.settle(f.scope); assert.equal(f.sessions.view(f.scope).state, "CONNECTED");
+});

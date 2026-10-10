@@ -50,7 +50,9 @@ const message = obj({
   senderContactId: nullableId,
   clientMessageId: { type: ["string", "null"] },
   direction: { type: "string", enum: ["INTERNAL", "INBOUND", "OUTBOUND"] },
-  type: { type: "string", enum: ["TEXT"] },
+  type: { type: "string", enum: ["TEXT", "IMAGE", "AUDIO", "VOICE", "VIDEO", "DOCUMENT"] },
+  historical: { type: "boolean" },
+  media: { anyOf: [{ type: "null" }, obj({ mediaId: uuid, type: { type: "string", enum: ["IMAGE", "AUDIO", "VOICE", "VIDEO", "DOCUMENT"] }, mimeType: str, fileName: str, size: { type: "integer", minimum: 0, maximum: 26214400 }, state: { type: "string", enum: ["PENDING", "TRANSFERRING", "READY", "FAILED"] }, sha256: str, thumbnailMediaId: uuid }, ["mediaId", "type", "mimeType", "fileName", "size", "state"])] },
   body: { type: ["string", "null"] },
   status: {
     type: "string",

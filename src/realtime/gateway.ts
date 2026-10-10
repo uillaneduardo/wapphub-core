@@ -15,6 +15,7 @@ type Client = {
   permissionStamp: string;
   sessionOnly: boolean;
   providersOnly: boolean;
+  contactsOnly: boolean;
   running: boolean;
   pending: boolean;
 };
@@ -66,7 +67,7 @@ export class RealtimeGateway {
       throw new AppError(403, "PERMISSIONS_CHANGED");
     }
     if (!c.sessionOnly) {
-      try { await this.chat.context(p, c.providersOnly ? "providers.manage" : "conversations.read"); }
+      try { await this.chat.context(p, c.providersOnly ? "providers.manage" : c.contactsOnly ? "contacts.read" : "conversations.read"); }
       catch (error) {
         // A revocation can commit between the stamp read and the operational
         // permission check. Preserve the refresh signal without delivering data.
@@ -112,7 +113,7 @@ export class RealtimeGateway {
           c.socket.send(JSON.stringify({ version: 1, type: "sync.checkpoint", lastEventId: "0", hasMore: false }));
           return;
         }
-        const batch = await this.chat.stream(p, c.cursor, 100, c.providersOnly);
+        const batch = await this.chat.stream(p, c.cursor, 100, c.providersOnly, c.contactsOnly);
         await this.principal(c); // Do not deliver a batch resolved with stale authority.
         if (c.socket.readyState !== 1) return;
         if (c.socket.bufferedAmount > 1024 * 1024) {
@@ -141,11 +142,11 @@ export class RealtimeGateway {
     }
   }
   async routes(app: FastifyInstance, config: Config, cookieName: string) {
-    for (const kind of ["chat", "session", "providers"] as const) {
-    const sessionOnly = kind === "session", providersOnly = kind === "providers";
-    const permission = sessionOnly ? "organization.read" : providersOnly ? "providers.manage" : "conversations.read";
+    for (const kind of ["chat", "session", "providers", "contacts"] as const) {
+    const sessionOnly = kind === "session", providersOnly = kind === "providers", contactsOnly = kind === "contacts";
+    const permission = sessionOnly ? "organization.read" : providersOnly ? "providers.manage" : contactsOnly ? "contacts.read" : "conversations.read";
     app.get<{ Querystring: { lastEventId?: string } }>(
-      sessionOnly ? "/api/v1/session/updates" : providersOnly ? "/api/v1/providers/realtime" : "/api/v1/realtime",
+      sessionOnly ? "/api/v1/session/updates" : providersOnly ? "/api/v1/providers/realtime" : contactsOnly ? "/api/v1/contacts/realtime" : "/api/v1/realtime",
       {
         websocket: true,
         schema: {
@@ -196,6 +197,7 @@ export class RealtimeGateway {
             cursor: req.query.lastEventId ?? "0",
             sessionOnly,
             providersOnly,
+            contactsOnly,
             permissionStamp: `${authorization.membership.permissionVersion}:${authorization.permissions.join(",")}`,
             running: false,
             pending: false,

@@ -21,7 +21,9 @@ export class Sessions {
     private readonly schedule: Scheduler = defaultSchedule,
     private readonly now = Date.now,
     private readonly log: (code: string) => void = () => undefined,
+    private readonly syncOptions: { enabled: boolean; historyEnabled: boolean; approvedScope?: string } = { enabled: false, historyEnabled: false },
   ) {}
+  private historyEnabled(scope: Scope) { return this.syncOptions.historyEnabled && this.syncOptions.approvedScope === scopeKey(scope); }
   private actor(scope: Scope) {
     const key = scopeKey(scope);
     let actor = this.actors.get(key);
@@ -31,7 +33,11 @@ export class Sessions {
   view(scope: Scope) {
     const record = this.vault.get(scope);
     if (!record) throw new ServiceError("SESSION_NOT_FOUND", 404);
-    return { state: record.state, revision: record.revision, qrRevision: record.qrRevision, attempts: record.attempts, errorCode: record.errorCode, connectEnabled: this.connectEnabled };
+    const sync = record.sync;
+    const queued = (sync?.pending.length ?? 0) + record.events.reduce((sum, entry) => sum + (entry.event.type === "sync.batch" ? entry.event.data.items.length : 0), 0);
+    return { state: record.state, revision: record.revision, qrRevision: record.qrRevision, attempts: record.attempts, errorCode: record.errorCode, connectEnabled: this.connectEnabled,
+      ...(record.pairingPhase ? { pairingPhase: record.pairingPhase } : {}),
+      ...(sync ? { sync: { historyEnabled: this.historyEnabled(scope), phase: record.events.some((entry) => entry.dead) || sync.failures || sync.limited ? "PARTIAL" : sync.complete && queued === 0 ? "PROCESSED" : sync.phase, queued, contacts: sync.contacts, conversations: sync.conversations, messages: sync.messages, failures: sync.failures + record.events.filter((entry) => entry.dead).length, limited: sync.limited, durationMs: sync.durationMs } } : {}) };
   }
   qr(scope: Scope) {
     this.view(scope);
@@ -54,7 +60,7 @@ export class Sessions {
         if (previous.digest !== digest) throw new ServiceError("IDEMPOTENCY_CONFLICT");
         return this.view(scope);
       }
-      if (action === "refresh" && !["CONNECTING", "QR_REQUIRED"].includes(record.state)) throw new ServiceError("INVALID_SESSION_STATE");
+      if (action === "refresh" && (record.pairingPhase === "AUTHENTICATING" || !["CONNECTING", "QR_REQUIRED"].includes(record.state))) throw new ServiceError("INVALID_SESSION_STATE");
       // Persist intent before network activity; a restart can safely resume it.
       await this.vault.update(scope, (current) => {
         current.commands.push({ id: commandId, digest });
@@ -94,7 +100,7 @@ export class Sessions {
     try { socket?.close(); } catch { this.log("TRANSPORT_CLOSE_FAILED"); }
   }
   private enqueue(scope: Scope, actor: Actor, generation: number, operation: () => Promise<void>) {
-    void actor.serial.run(async () => {
+    return actor.serial.run(async () => {
       if (actor.generation !== generation || this.stopping) return;
       await operation();
     }).catch((error: unknown) => {
@@ -108,6 +114,7 @@ export class Sessions {
     const qr = this.actor(scope).qr;
     await this.vault.update(scope, (record) => {
       record.state = state; record.errorCode = errorCode; record.revision++;
+      record.pairingPhase = state === "CONNECTING" ? "GENERATING_QR" : state === "QR_REQUIRED" ? "WAITING_SCAN" : state === "CONNECTED" ? "CONNECTED" : state === "RECONNECTING" ? "RECONNECTING" : "IDLE";
       appendRecordEvent(record, {
         ...envelope(scope, "connection.updated", "connection", `${record.revision}`),
         data: { state, retryable, ...(errorCode ? { errorCode } : {}),
@@ -139,9 +146,13 @@ export class Sessions {
               direction: message.fromMe ? "OUTBOUND" : "INBOUND", content: normalizeText(message.body), status: "SENT" },
           });
         }),
-        receipt: (id, status) => this.enqueue(scope, actor, generation, async () => {
-          await this.journal.append(scope, { ...envelope(scope, "message.updated", id, status), data: { providerMessageId: id, status } });
+        receipt: (id, status, chatId) => this.enqueue(scope, actor, generation, async () => {
+          await this.journal.append(scope, { ...envelope(scope, "message.updated", id, status + (chatId ?? "")), data: { providerMessageId: id, status, ...(chatId ? { providerConversationId: chatId } : {}) } });
         }),
+        sync: (items, historical, completed, failures, limited) => {
+          if (!this.syncOptions.enabled) return;
+          return this.enqueue(scope, actor, generation, () => this.journal.stage(scope, items, historical, this.historyEnabled(scope), completed, failures, limited));
+        },
       });
       actor.deadline = this.schedule(() => this.enqueue(scope, actor, generation, async () => {
         this.close(actor);
@@ -151,6 +162,13 @@ export class Sessions {
     } catch { await this.connection(scope, actor, { state: "close", code: 503 }); }
   }
   private async connection(scope: Scope, actor: Actor, update: ConnectionUpdate) {
+    if (update.authenticating && update.state !== "open") {
+      actor.qr = undefined;
+      await this.vault.update(scope, (record) => {
+        record.state = "CONNECTING"; record.pairingPhase = "AUTHENTICATING"; record.revision++;
+        appendRecordEvent(record, { ...envelope(scope, "connection.updated", "connection", String(record.revision)), data: { state: "CONNECTING", retryable: false } });
+      });
+    }
     if (update.qr) {
       if (Buffer.byteLength(update.qr) > 8192) throw new ServiceError("INVALID_QR");
       const revision = await this.vault.update(scope, (record) => { record.qrRevision++; return record.qrRevision; });
@@ -184,12 +202,13 @@ export class Sessions {
     for (const record of this.vault.all()) {
       const scope = { organizationId: record.organizationId, connectionId: record.connectionId };
       const actor = this.actor(scope);
+      if (this.syncOptions.enabled) await this.journal.stage(scope, [], false, this.historyEnabled(scope));
       if (record.desired && this.connectEnabled) await actor.serial.run(() => this.start(scope, actor));
       else if (!["DISCONNECTED", "LOGGED_OUT", "FAILED"].includes(record.state)) await this.transition(scope, "DISCONNECTED");
     }
   }
   async settle(scope: Scope) { await this.actor(scope).serial.run(async () => undefined); }
-  ready() { return !this.stopping && !this.failedStorage && this.journal.metrics().dead === 0 && this.journal.metrics().pending < 4096; }
+  ready() { const metrics = this.journal.metrics(); return !this.stopping && !this.failedStorage && metrics.dead === metrics.syncDead && metrics.pending < 4096; }
   metrics() { return { sessions: this.vault.metrics().sessions, active: [...this.actors.values()].filter((actor) => !!actor.socket).length, ...this.journal.metrics() }; }
   async shutdown() {
     this.stopping = true;

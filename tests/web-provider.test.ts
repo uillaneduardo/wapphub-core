@@ -14,7 +14,7 @@ import { WebConnections } from "../src/application/web-connections.js";
 import { WebIngestion } from "../src/application/web-ingestion.js";
 import { WebProviderWorker } from "../src/application/web-provider-worker.js";
 import { WebProviderError, type WebProviderPort, type ProviderScope, type Delivery, type InternalAction } from "../src/integrations/web-provider-client.js";
-import { providerDeduplicationId, type ProviderEvent } from "../contracts/provider.js";
+import { providerDeduplicationId, parseProviderEvent, type ProviderEvent, type SyncItem } from "../contracts/provider.js";
 import type { ProviderSession, ProviderQr } from "../contracts/provider-internal.js";
 import { chatPermissions } from "../src/domain/chat.js";
 if (process.env.NODE_ENV !== "test" || !new URL(process.env.DATABASE_URL!).pathname.endsWith("_test")) throw new Error("Web provider tests require isolated test infrastructure");
@@ -181,4 +181,152 @@ test("provider outage is visible without faking lifecycle and recovers without a
   const unavailable = await current(); assert.equal(unavailable.uiState, "CONNECTED"); assert.equal(unavailable.errorCode, "PROVIDER_UNAVAILABLE");
   await request(owner, "PUT", "/providers/demo", { enabled: true }); assert.equal((await request(owner, "GET", "/providers/demo/contacts")).json().enabled, true);
   provider.fail = false; await worker.runConnection(scope()); assert.equal((await current()).errorCode, null);
+});
+
+const now = () => new Date(Date.now() - 1000).toISOString();
+function syncMessage(externalId: string, id: string, occurredAt = now(), outbound = false): SyncItem {
+  return { kind: "message", identity: { externalId }, occurredAt, message: { providerMessageId: id, providerConversationId: externalId, sender: { origin: outbound ? "DEVICE" : "CONTACT", externalId }, direction: outbound ? "OUTBOUND" : "INBOUND", status: "SENT", content: { type: "TEXT", originalBody: "  *Maria:* conteúdo original\n😀  " } } };
+}
+function syncBatch(items: SyncItem[], historical = true): ProviderEvent {
+  const seed = event("message.received", randomUUID());
+  return { ...seed, type: "sync.batch", capabilities: { ...seed.capabilities, contentTypes: ["TEXT", "IMAGE", "AUDIO", "VOICE", "VIDEO", "DOCUMENT"] }, data: { items, historical } };
+}
+async function leased<T>(operation: (token: string) => Promise<T>) {
+  const token = await connections.claim({ organizationId: orgA, channelId }); assert.ok(token);
+  try { return await operation(token); }
+  finally { await db.providerConnection.updateMany({ where: { organizationId: orgA, channelId, leaseToken: token }, data: { leaseToken: null, leaseUntil: null } }); }
+}
+test("CP4 initial history links verified PN/LID aliases, preserves opaque identities and never merges names", async () => {
+  const batch = syncBatch([
+    { kind: "contact", identity: { externalId: "551111@s.whatsapp.net", aliases: ["opaque111@lid"], name: "Mesmo nome" } },
+    { kind: "contact", identity: { externalId: "opaque222@lid", name: "Mesmo nome" } },
+    syncMessage("opaque111@lid", "cp4-alias-incoming"), syncMessage("551111@s.whatsapp.net", "cp4-device-outgoing", now(), true),
+  ]);
+  await leased((token) => ingestion.apply(scope(), batch, token));
+  const identities = await db.contactIdentity.findMany({ where: { organizationId: orgA, channelId, externalId: { in: ["opaque111@lid", "551111@s.whatsapp.net", "opaque222@lid"] } } });
+  assert.equal(identities.length, 3); assert.equal(identities.find((row) => row.externalId === "opaque111@lid")!.contactId, identities.find((row) => row.externalId === "551111@s.whatsapp.net")!.contactId);
+  assert.notEqual(identities.find((row) => row.externalId === "opaque222@lid")!.contactId, identities[0]!.contactId);
+  const incoming = await db.message.findFirstOrThrow({ where: { channelId, providerMessageId: "cp4-alias-incoming" } });
+  const outgoing = await db.message.findFirstOrThrow({ where: { channelId, providerMessageId: "cp4-device-outgoing" } });
+  assert.equal(incoming.conversationId, outgoing.conversationId); assert.equal(outgoing.senderUserId, null); assert.equal(outgoing.senderContactId, null); assert.equal(incoming.historical, true); assert.equal(incoming.body, "  *Maria:* conteúdo original\n😀  ");
+});
+test("CP4 deduplicates commit replay and duplicate historical batches with real counters", async () => {
+  const item = syncMessage("dedup@lid", "cp4-duplicate"), batch = syncBatch([item]);
+  await leased(async (token) => {
+    assert.equal(await ingestion.apply(scope(), batch, token), true);
+    const count = (await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } })).syncProgress;
+    assert.equal(await ingestion.apply(scope(), batch, token), false);
+    assert.deepEqual((await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } })).syncProgress, count);
+    await ingestion.apply(scope(), syncBatch([item]), token);
+  });
+  assert.equal(await db.message.count({ where: { channelId, providerMessageId: "cp4-duplicate" } }), 1);
+});
+test("CP4 orders late messages by original timestamp with deterministic cursor pagination and monotonic inbox time", async () => {
+  const late = new Date(Date.now() - 86400000).toISOString(), recent = new Date(Date.now() - 60000).toISOString();
+  await leased(async (token) => { await ingestion.apply(scope(), syncBatch([syncMessage("ordered@lid", "cp4-newer", recent)]), token); await ingestion.apply(scope(), syncBatch([syncMessage("ordered@lid", "cp4-older", late)]), token); });
+  const thread = await db.conversation.findFirstOrThrow({ where: { organizationId: orgA, channelId, providerConversationId: "ordered@lid" } });
+  assert.equal(thread.lastMessageAt.toISOString(), recent);
+  const first = (await request(owner, "GET", `/conversations/${thread.id}/messages?limit=1`)).json();
+  assert.equal(first.items[0].createdAt, recent); assert.ok(first.nextCursor);
+  const second = (await request(owner, "GET", `/conversations/${thread.id}/messages?limit=1&before=${encodeURIComponent(first.nextCursor)}`)).json(); assert.equal(second.items[0].createdAt, late);
+  assert.equal((await request(owner, "GET", `/conversations/${thread.id}`)).json().lastMessageAt, recent);
+});
+test("CP4 stores receipts arriving before device messages and never regresses read state", async () => {
+  await leased(async (token) => {
+    await ingestion.apply(scope(), event("message.updated", "cp4-receipt-before", "READ"), token);
+    await ingestion.apply(scope(), syncBatch([syncMessage("receipts@lid", "cp4-receipt-before", now(), true)]), token);
+    await ingestion.apply(scope(), event("message.updated", "cp4-receipt-before", "DELIVERED"), token);
+  });
+  assert.equal((await db.message.findFirstOrThrow({ where: { channelId, providerMessageId: "cp4-receipt-before" } })).status, "READ");
+});
+test("CP4 metadata preserves manual names, assignment, archived state, tags and notes", async () => {
+  const id = "administrative@lid";
+  await leased((token) => ingestion.apply(scope(), syncBatch([{ kind: "contact", identity: { externalId: id, name: "Nome externo" } }, syncMessage(id, "cp4-administrative")]), token));
+  const thread = await db.conversation.findFirstOrThrow({ where: { channelId, providerConversationId: id } });
+  await db.contact.update({ where: { id: thread.contactId }, data: { name: "Nome manual" } });
+  await db.conversation.update({ where: { id: thread.id }, data: { assignedUserId: owner.userId, status: "ARCHIVED", archivedAt: new Date(), visibility: "NONE", visibleFromMessage: 999999n } });
+  const tag = await db.tag.create({ data: { organizationId: orgA, name: "CP4 tag" } });
+  await db.conversationTag.create({ data: { organizationId: orgA, conversationId: thread.id, tagId: tag.id } });
+  await db.internalNote.create({ data: { organizationId: orgA, conversationId: thread.id, authorUserId: owner.userId, body: "Nota administrativa", eventSequence: 0n } });
+  await leased((token) => ingestion.apply(scope(), syncBatch([{ kind: "conversation", identity: { externalId: id, name: "Novo nome externo" }, metadata: { archived: false, unreadCount: 10 } }], false), token));
+  const after = await db.conversation.findUniqueOrThrow({ where: { id: thread.id }, include: { contact: true, tags: true, notes: true } });
+  assert.equal(after.contact.name, "Nome manual"); assert.equal(after.assignedUserId, owner.userId); assert.equal(after.status, "ARCHIVED"); assert.equal(after.visibility, "NONE"); assert.equal(after.visibleFromMessage, 999999n); assert.equal(after.tags.length, 1); assert.equal(after.notes[0]?.body, "Nota administrativa");
+});
+test("CP4 known identity conflicts are isolated and remaining batch items persist", async () => {
+  await leased(async (token) => {
+    await ingestion.apply(scope(), syncBatch([{ kind: "contact", identity: { externalId: "conflict-a@lid" } }, { kind: "contact", identity: { externalId: "conflict-b@s.whatsapp.net" } }]), token);
+    await ingestion.apply(scope(), syncBatch([{ kind: "contact", identity: { externalId: "conflict-b@s.whatsapp.net", aliases: ["conflict-a@lid"] } }, syncMessage("good-after-conflict@lid", "cp4-partial")]), token);
+  });
+  assert.equal(await db.message.count({ where: { channelId, providerMessageId: "cp4-partial" } }), 1);
+  const progress = (await current()).sync; assert.ok(progress.failures >= 1); assert.equal(progress.lastErrorCode, "IDENTITY_MAPPING_CONFLICT");
+});
+test("CP4 transient persistence failures roll back domain/inbox/progress and permit durable retry", async () => {
+  class Broken extends MessageIngestionService { override async persistExternal(): Promise<never> { throw new Error("synthetic persistence outage"); } }
+  const broken = new WebIngestion(chat, new Broken()), batch = syncBatch([syncMessage("retry@lid", "cp4-retry")]);
+  await leased(async (token) => {
+    await assert.rejects(broken.apply(scope(), batch, token), /synthetic persistence outage/);
+    assert.equal(await db.message.count({ where: { channelId, providerMessageId: "cp4-retry" } }), 0);
+    assert.equal(await db.providerInbox.count({ where: { channelId, deduplicationId: batch.deduplicationId } }), 0);
+    await ingestion.apply(scope(), batch, token);
+  });
+  assert.equal(await db.message.count({ where: { channelId, providerMessageId: "cp4-retry" } }), 1);
+});
+test("CP4 batches prove tenant/fencing isolation, RBAC and strict size limits", async () => {
+  const batch = syncBatch([syncMessage("private@lid", "cp4-private")]);
+  await leased(async (token) => {
+    await assert.rejects(ingestion.apply({ organizationId: orgB, connectionId: channelId }, batch, token), /SCOPE_MISMATCH/);
+    await assert.rejects(ingestion.apply(scope(), batch, randomUUID()), /STALE_PROVIDER_LEASE/);
+    await ingestion.apply(scope(), batch, token);
+  });
+  const thread = await db.conversation.findFirstOrThrow({ where: { channelId, providerConversationId: "private@lid" } });
+  await request(other, "GET", `/conversations/${thread.id}/messages`, undefined, 403);
+  await request(manager, "GET", `/conversations/${thread.id}/messages`, undefined, 403);
+  assert.throws(() => parseProviderEvent(syncBatch(Array.from({ length: 21 }, () => syncMessage("limit@lid", randomUUID())))), /INVALID_PROVIDER_EVENT/);
+});
+test("CP4 late imported history cannot widen a transferred NONE boundary and historical events are aggregated", async () => {
+  const restricted = await auth(orgA, ["conversations.read", "messages.read"]), externalId = "boundary@lid";
+  await leased((token) => ingestion.apply(scope(), syncBatch([syncMessage(externalId, "cp4-before-boundary")]), token));
+  const thread = await db.conversation.findFirstOrThrow({ where: { channelId, providerConversationId: externalId } });
+  const before = await db.message.findFirstOrThrow({ where: { conversationId: thread.id } });
+  await db.conversation.update({ where: { id: thread.id }, data: { assignedUserId: restricted.userId, visibility: "NONE", visibleFromMessage: before.sequence + 1n, historyBoundaryAt: new Date(Date.now() - 1000) } });
+  await leased(async (token) => { await ingestion.apply(scope(), syncBatch([syncMessage(externalId, "cp4-late-history", new Date(Date.now() - 86400000).toISOString())]), token); await ingestion.apply(scope(), syncBatch([syncMessage(externalId, "cp4-live-after-boundary")], false), token); });
+  const authorized = (await request(restricted, "GET", `/conversations/${thread.id}/messages`)).json().items;
+  assert.equal(authorized.length, 1); assert.equal(authorized[0].historical, false);
+  const frames = await db.realtimeEvent.findMany({ where: { organizationId: orgA, conversationId: thread.id } });
+  assert.equal(frames.filter((row) => row.type === "conversation.history.updated").length, 2);
+  assert.equal(frames.filter((row) => row.type === "message.created").length, 1);
+  assert.ok(!JSON.stringify(frames, (_, value) => typeof value === "bigint" ? value.toString() : value).includes("conteúdo original"));
+});
+test("CP4 stores canonical historical media references without binaries or transfer jobs", async () => {
+  const item = syncMessage("media@lid", "cp4-media") as Extract<SyncItem, { kind: "message" }>;
+  item.message.content = { type: "IMAGE", originalBody: "*Legenda*", media: { mediaId: randomUUID(), type: "IMAGE", mimeType: "image/jpeg", fileName: "imagem.jpg", size: 1000, state: "PENDING" } };
+  await leased((token) => ingestion.apply(scope(), syncBatch([item]), token));
+  const stored = await db.message.findFirstOrThrow({ where: { channelId, providerMessageId: "cp4-media" } });
+  assert.equal(stored.type, "IMAGE"); assert.equal(stored.body, "*Legenda*"); assert.equal((stored.mediaMetadata as { state: string }).state, "PENDING");
+  const dto = (await request(owner, "GET", `/conversations/${stored.conversationId}/messages`)).json().items[0]; assert.equal(dto.type, "IMAGE"); assert.equal(dto.media.mimeType, "image/jpeg");
+});
+test("CP4 contact-only replay/realtime requires contacts.read and cannot disclose conversation events", async () => {
+  const reader = await auth(orgA, ["contacts.read"]);
+  const response = (await request(reader, "GET", "/contacts/realtime/events")).json();
+  assert.ok(response.events.length); assert.ok(response.events.every((row: { type: string }) => row.type === "contacts.updated"));
+  await request(reader, "GET", "/realtime/events", undefined, 403);
+  await request(manager, "GET", "/contacts/realtime/events", undefined, 403);
+  const frames: string[] = [], ws = new WebSocket(baseUrl.replace("http", "ws") + "/api/v1/contacts/realtime", { headers: { origin, cookie: reader.cookie } });
+  ws.on("message", (frame) => frames.push(String(frame)));
+  await new Promise<void>((resolve, reject) => { ws.once("open", resolve); ws.once("error", reject); });
+  const until = Date.now() + 4000; while (!frames.some((frame) => frame.includes("sync.checkpoint")) && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 20));
+  ws.close(); assert.ok(frames.some((frame) => frame.includes("contacts.updated"))); assert.ok(!frames.join("").includes("message.created")); assert.ok(!frames.join("").includes("conversation.history.updated"));
+});
+test("CP4 synthetic load measures bounded SQL batches, live latency and deduplicated replay", async () => {
+  const cpu = process.cpuUsage(), started = performance.now(); let peakRss = process.memoryUsage().rss, liveLatencyMs = 0;
+  const batches = Array.from({ length: 50 }, (_, batch) => syncBatch(Array.from({ length: 20 }, (_, index) => syncMessage(`load-${index % 10}@lid`, `cp4-load-${batch}-${index}`, new Date(Date.now() - 86400000 + batch * 20 + index).toISOString()))));
+  for (let index = 0; index < batches.length; index++) {
+    await leased((token) => ingestion.apply(scope(), batches[index]!, token));
+    peakRss = Math.max(peakRss, process.memoryUsage().rss);
+    if (index === 25) { const liveStart = performance.now(); await leased((token) => ingestion.apply(scope(), syncBatch([syncMessage("load-live@lid", "cp4-load-priority")], false), token)); liveLatencyMs = performance.now() - liveStart; }
+  }
+  for (const batch of batches) assert.equal(await leased((token) => ingestion.apply(scope(), batch, token)), false);
+  assert.equal(await db.message.count({ where: { channelId, providerMessageId: { startsWith: "cp4-load-" } } }), 1001);
+  const usage = process.cpuUsage(cpu);
+  console.log(JSON.stringify({ metric: "cp4.sql.synthetic", historicalMessages: 1000, liveMessages: 1, batches: 50, replayedBatches: 50, durationMs: Math.round(performance.now() - started), cpuMs: (usage.user + usage.system) / 1000, peakRssBytes: peakRss, liveLatencyMs: Math.round(liveLatencyMs), isolated: true }));
 });

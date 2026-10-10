@@ -23,7 +23,8 @@ async function start() {
   const auth = new InternalAuth(await secret(process.env.INTERNAL_KEY_FILE ?? "/run/secrets/internal_key"), join(directory, "nonces"));
   await auth.initialize();
   const journal = new EventJournal(vault);
-  const sessions = new Sessions(vault, journal, baileysFactory(vault), process.env.ALLOW_SESSION_CONNECT === "true", undefined, undefined, log);
+  const syncOptions = { enabled: process.env.PROVIDER_SYNC_ENABLED !== "false", historyEnabled: process.env.PROVIDER_HISTORY_ENABLED === "true", approvedScope: process.env.PROVIDER_HISTORY_APPROVED_SCOPE };
+  const sessions = new Sessions(vault, journal, baileysFactory(vault, undefined, syncOptions), process.env.ALLOW_SESSION_CONNECT === "true", undefined, undefined, log, syncOptions);
   await sessions.recover();
   const app = createHttp(sessions, journal, auth, log);
   await app.listen({ host: "0.0.0.0", port: 3000 });

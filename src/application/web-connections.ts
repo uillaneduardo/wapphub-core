@@ -6,6 +6,7 @@ import type { Chat } from "./chat.js";
 import type { WebProviderPort } from "../integrations/web-provider-client.js";
 import { WebProviderError } from "../integrations/web-provider-client.js";
 import { AppError } from "../domain/errors.js";
+import { syncProgress } from "./web-sync.js";
 export type ConnectionAction = "connect" | "refresh" | "disconnect";
 export type CommandInput = { commandId: string; action: ConnectionAction; expectedVersion: number };
 const pending = { in: ["PENDING", "PROCESSING"] };
@@ -16,6 +17,8 @@ export function connectionDTO(record: ProviderConnection, command?: ProviderComm
     version: record.version, qrRevision: record.qrRevision,
     errorCode: record.errorCode,
     lastCheckedAt: record.lastCheckedAt?.toISOString() ?? null,
+    pairingPhase: record.pairingPhase ?? null,
+    sync: { ...syncProgress(record.syncProgress), provider: record.providerSync ?? null },
     operation: command ? { id: command.id, action: command.action, status: command.status, errorCode: command.errorCode } : null,
     sendingEnabled: false, mediaEnabled: false,
   };
@@ -56,7 +59,7 @@ export class WebConnections {
       }
       if (record.version !== input.expectedVersion) throw new AppError(409, "CONNECTION_VERSION_CONFLICT");
       if (await tx.providerCommand.count({ where: { organizationId: c.organizationId, channelId: id, status: pending } })) throw new AppError(409, "CONNECTION_OPERATION_PENDING");
-      if (input.action === "refresh" && !["QR_REQUIRED", "CONNECTING"].includes(record.state)) throw new AppError(409, "INVALID_SESSION_STATE");
+      if (input.action === "refresh" && (record.pairingPhase === "AUTHENTICATING" || !["QR_REQUIRED", "CONNECTING"].includes(record.state))) throw new AppError(409, "INVALID_SESSION_STATE");
       if (input.action === "connect" && record.state === "CONNECTED") throw new AppError(409, "CONNECTION_ALREADY_CONNECTED");
       const command = await tx.providerCommand.create({ data: { id: input.commandId, organizationId: c.organizationId, channelId: id, actorUserId: c.userId, sessionId: p.session.id, action: input.action } });
       const updated = await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: c.organizationId, channelId: id } }, data: { version: { increment: 1 } } });
@@ -92,8 +95,8 @@ export class WebConnections {
       const record = await tx.providerConnection.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, leaseToken, leaseUntil: { gt: new Date() }, channel: { provider: "WHATSAPP_WEB" } } });
       if (!record) throw new AppError(409, "STALE_PROVIDER_LEASE");
       if (view.revision < record.providerRevision) return false;
-      const changed = view.revision !== record.providerRevision || view.state !== record.state || record.errorCode !== (view.errorCode ?? null);
-      await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { state: view.state, qrRevision: view.qrRevision, providerRevision: view.revision, errorCode: view.errorCode ?? null, lastCheckedAt: new Date(), ...(changed ? { version: { increment: 1 } } : {}) } });
+      const changed = view.revision !== record.providerRevision || view.state !== record.state || record.errorCode !== (view.errorCode ?? null) || JSON.stringify(record.providerSync) !== JSON.stringify(view.sync ?? null) || record.pairingPhase !== (view.pairingPhase ?? null);
+      await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { state: view.state, qrRevision: view.qrRevision, providerRevision: view.revision, errorCode: view.errorCode ?? null, lastCheckedAt: new Date(), pairingPhase: view.pairingPhase ?? null, ...(view.sync ? { providerSync: view.sync } : {}), ...(changed ? { version: { increment: 1 } } : {}) } });
       await tx.channel.update({ where: { organizationId_id: { organizationId: scope.organizationId, id: scope.connectionId } }, data: { status: view.state === "CONNECTED" ? "ENABLED" : "DISABLED" } });
       if (changed) await this.chat.resourceEvent(tx, scope.organizationId, "provider.connection.updated", scope.connectionId);
       return changed;

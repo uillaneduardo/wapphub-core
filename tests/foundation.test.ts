@@ -474,6 +474,7 @@ test("OpenAPI preserves every foundation and M1 route and adds M2.1 permissions 
   ];
   const chatPaths = [
     "/contacts",
+    "/contacts/realtime/events",
     "/contacts/{id}",
     "/conversations",
     "/conversations/{id}",

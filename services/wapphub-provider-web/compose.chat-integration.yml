@@ -3,3 +3,6 @@ services:
   provider-web:
     environment:
       ALLOW_SESSION_CONNECT: 'true'
+      PROVIDER_SYNC_ENABLED: 'true'
+      # Extensive real import requires a separately authorized bounded operation.
+      PROVIDER_HISTORY_ENABLED: 'false'

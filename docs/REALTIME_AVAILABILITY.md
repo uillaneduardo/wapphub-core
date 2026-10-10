@@ -171,3 +171,11 @@ WebSocket e event stream persistente agora são implementados na branch M1.
 Transporte/escopos/checkpoints estão em `REALTIME_CONTRACT.md`; segurança de
 histórico e limites em `M1_CHAT_INTERNAL.md`. Worker não processa provider nem
 fila externa. QUEUED/Outbox/Inbox continuam reservados ao milestone externo.
+
+
+## WhatsApp Web CP4
+
+Histórico usa conversation.history.updated agregado por conversa/lote e contacts.updated,
+sem message.created individual. /api/v1/contacts/realtime e replay /events requerem
+contacts.read e filtram conversas; stream existente conserva RBAC/tenant/visibilidade.
+Ver WHATSAPP_WEB_CHECKPOINT4.md para limites e recuperação.

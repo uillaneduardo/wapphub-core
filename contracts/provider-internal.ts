@@ -3,7 +3,9 @@ import { z } from "zod";
 import { providerEventSchema } from "./provider.js";
 
 export const providerStates = ["DISCONNECTED", "CONNECTING", "QR_REQUIRED", "CONNECTED", "RECONNECTING", "FAILED", "LOGGED_OUT"] as const;
-export const providerSessionSchema = z.strictObject({ state: z.enum(providerStates), revision: z.number().int().min(0), qrRevision: z.number().int().min(0), attempts: z.number().int().min(0), errorCode: z.string().regex(/^[A-Z][A-Z0-9_]{0,79}$/).optional(), connectEnabled: z.boolean() });
+export const providerSyncSchema = z.strictObject({ historyEnabled: z.boolean(), phase: z.enum(["DISABLED", "AWAITING_HISTORY", "CONTACTS", "MESSAGES", "PROCESSED", "PARTIAL"]), queued: z.number().int().min(0), contacts: z.number().int().min(0), conversations: z.number().int().min(0), messages: z.number().int().min(0), failures: z.number().int().min(0), limited: z.boolean(), durationMs: z.number().int().min(0) });
+export type ProviderSync = z.infer<typeof providerSyncSchema>;
+export const providerSessionSchema = z.strictObject({ state: z.enum(providerStates), revision: z.number().int().min(0), qrRevision: z.number().int().min(0), attempts: z.number().int().min(0), errorCode: z.string().regex(/^[A-Z][A-Z0-9_]{0,79}$/).optional(), connectEnabled: z.boolean(), sync: providerSyncSchema.optional(), pairingPhase: z.enum(["IDLE", "GENERATING_QR", "WAITING_SCAN", "AUTHENTICATING", "CONNECTED", "RECONNECTING"]).optional() });
 export type ProviderSession = z.infer<typeof providerSessionSchema>;
 export const providerQrSchema = z.strictObject({ qr: z.string().min(1).max(8192), revision: z.number().int().min(1), expiresAt: z.iso.datetime({ offset: true }) });
 export type ProviderQr = z.infer<typeof providerQrSchema>;

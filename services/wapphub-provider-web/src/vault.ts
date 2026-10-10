@@ -2,7 +2,8 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { parseProviderEvent, type ProviderEvent } from "../../../contracts/provider.js";
+import { parseProviderEvent, type ProviderEvent, type SyncItem } from "../../../contracts/provider.js";
+import type { ProviderSync } from "../../../contracts/provider-internal.js";
 import { ServiceError } from "./errors.js";
 import { Serial } from "./serial.js";
 
@@ -14,6 +15,9 @@ export type Session = Scope & {
   version: 1; desired: boolean; state: State; revision: number; qrRevision: number;
   attempts: number; errorCode?: string; auth?: string; keys: Record<string, string>;
   events: Delivery[]; dedup: string[]; commands: { id: string; digest: string }[];
+  pairingPhase?: string;
+  historyImports?: { downloads: number; decodedBytes: number; seen: string[] };
+  sync?: ProviderSync & { pending: { item: SyncItem; historical: boolean }[]; complete: boolean; startedAt: number; historyContacts: number; historyConversations: number; historyMessages: number; historyIdentities?: string[][] };
 };
 const filename = (scope: Scope) => createHash("sha256").update(JSON.stringify([scope.organizationId, scope.connectionId])).digest("hex");
 const MAX_RECORD_BYTES = 8 * 1024 * 1024;
@@ -61,9 +65,12 @@ export class Vault {
   all(): Session[] { return structuredClone([...this.records.values()]); }
   async flush() { await this.serial.run(async () => undefined); }
   metrics() {
-    let pending = 0, dead = 0;
-    for (const record of this.records.values()) for (const item of record.events) { if (item.dead) dead++; else pending++; }
-    return { sessions: this.records.size, pending, dead };
+    let pending = 0, dead = 0, syncDead = 0, syncQueued = 0;
+    for (const record of this.records.values()) {
+      syncQueued += record.sync?.pending.length ?? 0;
+      for (const item of record.events) { if (item.dead) { dead++; if (item.event.type === "sync.batch") syncDead++; } else pending++; }
+    }
+    return { sessions: this.records.size, pending, dead, syncDead, syncQueued };
   }
   async update<T>(scope: Scope, mutate: (record: Session) => T): Promise<T> {
     scopeSchema.parse(scope);
