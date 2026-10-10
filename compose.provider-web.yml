@@ -1,0 +1,20 @@
+# Opt-in CP3 overlay. Base Compose and Demo behavior remain unchanged.
+services:
+  wapphub-core-api:
+    image: ${CORE_IMAGE:?Set validated commit image}
+    environment:
+      PROVIDER_WEB_ENABLED: 'true'
+      PROVIDER_WEB_URL: http://provider-web:3000
+      PROVIDER_WEB_KEY_FILE: /run/secrets/provider_web_key
+    secrets: [provider_web_key]
+  wapphub-core-worker:
+    image: ${CORE_IMAGE:?Set validated commit image}
+    environment:
+      PROVIDER_WEB_ENABLED: 'true'
+      PROVIDER_WEB_URL: http://provider-web:3000
+      PROVIDER_WEB_KEY_FILE: /run/secrets/provider_web_key
+    secrets: [provider_web_key]
+    stop_grace_period: 120s
+secrets:
+  provider_web_key:
+    file: ${PROVIDER_INTERNAL_KEY_FILE:?Set existing provider internal key file}

@@ -349,3 +349,12 @@ HMAC e journal durável do contrato compartilhado CP1. Nenhum consumer/API públ
 ou migration Core neste checkpoint; conexões desabilitadas em Compose.
 Integração SQL/Worker/Chat/mídia ficará no checkpoint3, preservando contratos M1.
 [Decisão, limites e operação](WHATSAPP_WEB_CHECKPOINT2.md).
+
+## WhatsApp Web — checkpoint 3
+
+Core agrega outbox administrativo, inbox deduplicado e lease por Channel, consumidos
+pelo Worker. Só o provider isolado importa Baileys. Browser chama Core, com RBAC/
+tenant/CSRF, e recebe QR temporário autorizado fora do realtime. Texto reutiliza
+histórico/visibilidade M1; mídia/envio permanecem bloqueados. A integração é opt-in
+por compose.provider-web.yml e overlay privado do provider, sem novo ingress.
+[Contratos, migration, estados, segurança e rollback](WHATSAPP_WEB_CHECKPOINT3.md).

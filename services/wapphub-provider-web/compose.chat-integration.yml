@@ -1,0 +1,5 @@
+# Explicit CP3 overlay. Allows QR only after an authenticated Core command.
+services:
+  provider-web:
+    environment:
+      ALLOW_SESSION_CONNECT: 'true'

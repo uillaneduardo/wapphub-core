@@ -234,6 +234,8 @@ model Message {
   direction       String        @default("INTERNAL") @db.VarChar(20)
   type            String        @default("TEXT") @db.VarChar(20)
   body            String?       @db.Text
+  transmittedBody String?       @db.Text
+  providerOccurredAt DateTime?
   status          MessageStatus @default(SENT)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -258,9 +260,59 @@ model Channel {
   conversations         Conversation[]
   messages              Message[]
   contactIdentities     ContactIdentity[]
+  webConnection         ProviderConnection?
 
   @@unique([organizationId, id])
   @@unique([organizationId, provider])
+}
+
+model ProviderConnection {
+  organizationId String @db.Char(36)
+  channelId String @db.Char(36)
+  state String @default("DISCONNECTED") @db.VarChar(24)
+  version Int @default(1)
+  providerRevision Int @default(0)
+  qrRevision Int @default(0)
+  lastCheckedAt DateTime?
+  errorCode String? @db.VarChar(80)
+  leaseToken String? @db.Char(36)
+  leaseUntil DateTime?
+  channel Channel @relation(fields: [organizationId, channelId], references: [organizationId, id], onDelete: Restrict)
+  commands ProviderCommand[]
+  inbox ProviderInbox[]
+  @@id([organizationId, channelId])
+  @@index([leaseUntil])
+}
+
+model ProviderCommand {
+  id String @id @db.Char(36)
+  organizationId String @db.Char(36)
+  channelId String @db.Char(36)
+  actorUserId String @db.Char(36)
+  sessionId String @db.Char(36)
+  action String @db.VarChar(20)
+  status String @default("PENDING") @db.VarChar(20)
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  errorCode String? @db.VarChar(80)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  connection ProviderConnection @relation(fields: [organizationId, channelId], references: [organizationId, channelId], onDelete: Restrict)
+  @@index([organizationId, channelId, status, nextAttemptAt])
+}
+
+model ProviderInbox {
+  organizationId String @db.Char(36)
+  channelId String @db.Char(36)
+  deduplicationId String @db.Char(64)
+  eventId String @db.Char(36)
+  correlationId String @db.Char(36)
+  type String @db.VarChar(40)
+  dataHash String @db.Char(64)
+  receivedAt DateTime @default(now())
+  connection ProviderConnection @relation(fields: [organizationId, channelId], references: [organizationId, channelId], onDelete: Restrict)
+  @@id([organizationId, channelId, deduplicationId])
+  @@index([organizationId, channelId, receivedAt])
 }
 
 model ContactIdentity {

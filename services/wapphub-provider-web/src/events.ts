@@ -33,6 +33,8 @@ export class EventJournal {
     return this.vault.update(scope, (record) => appendRecordEvent(record, event));
   }
   async pull(scope: Scope, limit: number) {
+    // Idle sessions do not rewrite ciphertext/fsync on every worker scan.
+    if (!this.vault.get(scope)?.events.some((item) => !item.dead && item.leaseUntil <= this.now())) return [];
     return this.vault.update(scope, (record) => {
       const available = record.events.filter((item) => !item.dead && item.leaseUntil <= this.now()).slice(0, limit);
       return available.flatMap((item) => {

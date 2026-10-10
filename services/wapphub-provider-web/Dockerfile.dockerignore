@@ -2,6 +2,7 @@
 !package.json
 !contracts/
 !contracts/provider.ts
+!contracts/provider-internal.ts
 !services/
 !services/wapphub-provider-web/
 !services/wapphub-provider-web/package.json

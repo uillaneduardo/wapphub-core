@@ -14,6 +14,9 @@ const schema = z.object({
     .string()
     .regex(/^[a-zA-Z0-9_-]+$/)
     .default("1"),
+  PROVIDER_WEB_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+  PROVIDER_WEB_URL: z.string().url().default("http://provider-web:3000"),
+  PROVIDER_WEB_KEY_FILE: z.string().default("/run/secrets/provider_web_key"),
   SESSION_ABSOLUTE_SECONDS: z.coerce.number().int().min(60).default(43200),
   SESSION_IDLE_SECONDS: z.coerce.number().int().min(60).default(1800),
 });
@@ -43,6 +46,8 @@ export function loadConfig(env = process.env) {
     .filter(Boolean);
   if (trustedCloudflaredIPs.some((address) => !isIP(address)))
     throw new Error("Invalid trusted connector configuration");
+  const providerUrl = new URL(result.data.PROVIDER_WEB_URL);
+  if (result.data.PROVIDER_WEB_ENABLED && (providerUrl.protocol !== "http:" || providerUrl.username || providerUrl.password || providerUrl.pathname !== "/" || providerUrl.search || providerUrl.hash || (result.data.NODE_ENV !== "test" && providerUrl.hostname !== "provider-web"))) throw new Error("Invalid internal provider configuration");
   return { ...result.data, origins, trustedCloudflaredIPs };
 }
 export type Config = ReturnType<typeof loadConfig>;

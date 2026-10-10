@@ -1,3 +1,18 @@
+# WhatsApp Web — checkpoint 3, Core/Worker/Chat (2026-10-10)
+
+Gerenciamento de conexão e QR implementado no Chat pela Core API, usando
+providers.manage efetiva, tenant/CSRF e versões concorrentes. QR temporário restrito,
+sem persistência/WS/log; Worker consome journal normalizado CP1 com outbox/inbox/lease,
+texto original e autoria externa, deduplicação e commit-before-ack. Demo preservado.
+Migration aditiva validada em restauração isolada, dados/perfis preservados.
+103 testes Core (mais regressão direcionada final), 36 Provider e 249 Chat aprovados
+localmente; lint/typecheck/build/OpenAPI/drift/audits verificados. CI/merge/deploy
+seguem gates separados e são registrados no homelab. Não há homologação humana.
+Envio pelo Chat e multimídia permanecem bloqueados; nenhuma conta real foi conectada.
+[Contrato, segurança, limites e rollback](WHATSAPP_WEB_CHECKPOINT3.md).
+
+O conteúdo abaixo preserva os checkpoints históricos.
+
 # WhatsApp Web — checkpoint 2, serviço isolado (2026-10-10)
 
 Baileys7.0.0-rc14 autorizado pelo usuário e fixado com lock próprio; provider Docker

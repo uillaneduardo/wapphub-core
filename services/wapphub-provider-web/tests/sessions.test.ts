@@ -95,3 +95,14 @@ test("event queue exhaustion fails closed and readiness becomes unavailable", as
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(f.sessions.ready(), false); assert.equal(f.sessions.metrics().active, 0);
 });
+test("explicit refresh rotates an expired QR without replaying old sockets or disconnecting linked sessions", async (t) => {
+  const f = await fixture(t); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID());
+  f.callbacks[0]!.connection({ qr: "SYNTHETIC_OLD_QR" }); await f.sessions.settle(f.scope); f.advance(20_001);
+  const id = randomUUID(); await f.sessions.command(f.scope, "refresh", id); await f.sessions.command(f.scope, "refresh", id);
+  assert.equal(f.stats().starts, 2); assert.equal(f.sessions.view(f.scope).state, "CONNECTING");
+  f.callbacks[0]!.connection({ state: "open" }); f.callbacks[1]!.connection({ qr: "SYNTHETIC_NEW_QR" }); await f.sessions.settle(f.scope);
+  assert.equal(f.sessions.view(f.scope).qrRevision, 2); assert.equal(f.sessions.qr(f.scope).revision, 2);
+  f.callbacks[1]!.connection({ state: "open" }); await f.sessions.settle(f.scope);
+  await assert.rejects(f.sessions.command(f.scope, "refresh", randomUUID()), /INVALID_SESSION_STATE/);
+  assert.equal(f.sessions.view(f.scope).state, "CONNECTED"); assert.equal(f.stats().starts, 2);
+});
