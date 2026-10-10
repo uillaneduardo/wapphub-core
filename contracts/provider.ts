@@ -4,7 +4,7 @@ import { z } from "zod";
 /** Internal service protocol, NOT the public realtime envelope. No SDK types. */
 export const providerEventTypes = [
   "message.received", "message.sent", "message.updated", "message.failed",
-  "message.deleted", "connection.updated", "media.updated",
+  "message.deleted", "connection.updated", "media.updated", "sync.batch",
 ] as const;
 export const contentTypes = ["TEXT", "IMAGE", "AUDIO", "VOICE", "VIDEO", "DOCUMENT"] as const;
 export const MAX_PROVIDER_EVENT_BYTES = 65536;
@@ -46,7 +46,7 @@ const sender = z.strictObject({
   if (value.origin !== "WAPPHUB" && value.userId) ctx.addIssue({ code: "custom", message: "External origin cannot assert internal authorship" });
   if (value.origin === "CONTACT" && !value.externalId) ctx.addIssue({ code: "custom", message: "Contact identity required" });
 });
-const message = z.strictObject({
+export const normalizedMessageSchema = z.strictObject({
   providerMessageId: externalId,
   providerConversationId: z.string().min(1).max(120),
   messageId: id.optional(),
@@ -58,6 +58,19 @@ const message = z.strictObject({
 }).superRefine((value, ctx) => {
   if ((value.direction === "INBOUND") !== (value.sender.origin === "CONTACT")) ctx.addIssue({ code: "custom", message: "Direction and sender origin conflict" });
 });
+export const normalizedIdentitySchema = z.strictObject({
+  externalId: z.string().min(1).max(120),
+  aliases: z.array(z.string().min(1).max(120)).max(2).optional(),
+  name: z.string().min(1).max(120).optional(),
+});
+export const syncItemSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("contact"), identity: normalizedIdentitySchema }),
+  z.strictObject({ kind: z.literal("conversation"), identity: normalizedIdentitySchema,
+    lastMessageAt: z.iso.datetime({ offset: true }).optional(),
+    metadata: z.strictObject({ name: z.string().max(120).optional(), archived: z.boolean().optional(), unreadCount: z.number().int().min(0).max(1000000).optional() }).optional() }),
+  z.strictObject({ kind: z.literal("message"), identity: normalizedIdentitySchema, message: normalizedMessageSchema, occurredAt: z.iso.datetime({ offset: true }) }),
+]);
+export type SyncItem = z.infer<typeof syncItemSchema>;
 const base = {
   version: z.literal(1), eventId: id, correlationId: id,
   organizationId: id, connectionId: id,
@@ -66,15 +79,16 @@ const base = {
   deduplicationId: z.string().regex(/^[a-f0-9]{64}$/),
   capabilities: capabilitiesSchema,
 };
-const update = z.strictObject({ providerMessageId: externalId, messageId: id.optional(), status: z.enum(["SENT", "DELIVERED", "READ"]), content: normalizedContentSchema.optional() });
+const update = z.strictObject({ providerMessageId: externalId, providerConversationId: z.string().min(1).max(120).optional(), messageId: id.optional(), status: z.enum(["SENT", "DELIVERED", "READ"]), content: normalizedContentSchema.optional() });
 export const providerEventSchema = z.discriminatedUnion("type", [
-  z.strictObject({ ...base, type: z.literal("message.received"), data: message }),
-  z.strictObject({ ...base, type: z.literal("message.sent"), data: message }),
+  z.strictObject({ ...base, type: z.literal("message.received"), data: normalizedMessageSchema }),
+  z.strictObject({ ...base, type: z.literal("message.sent"), data: normalizedMessageSchema }),
   z.strictObject({ ...base, type: z.literal("message.updated"), data: update }),
   z.strictObject({ ...base, type: z.literal("message.failed"), data: z.strictObject({ providerMessageId: externalId.optional(), messageId: id, errorCode, retryable: z.boolean(), outcome: z.enum(["NOT_SENT", "UNKNOWN"]) }) }),
   z.strictObject({ ...base, type: z.literal("message.deleted"), data: z.strictObject({ providerMessageId: externalId, messageId: id.optional(), origin: z.enum(["CONTACT", "WAPPHUB", "DEVICE"]) }) }),
   z.strictObject({ ...base, type: z.literal("connection.updated"), data: z.strictObject({ state: z.enum(["DISCONNECTED", "CONNECTING", "QR_REQUIRED", "CONNECTED", "RECONNECTING", "FAILED", "LOGGED_OUT"]), qrRevision: z.number().int().min(0).optional(), qrExpiresAt: z.iso.datetime({ offset: true }).optional(), errorCode: errorCode.optional(), retryable: z.boolean() }) }),
   z.strictObject({ ...base, type: z.literal("media.updated"), data: z.strictObject({ messageId: id, media: mediaReferenceSchema, errorCode: errorCode.optional() }) }),
+  z.strictObject({ ...base, type: z.literal("sync.batch"), data: z.strictObject({ historical: z.boolean(), items: z.array(syncItemSchema).max(20), completed: z.boolean().optional(), failures: z.number().int().min(0).max(1000000).optional(), limited: z.boolean().optional() }) }),
 ]);
 export type ProviderEvent = z.infer<typeof providerEventSchema>;
 export class ProviderContractError extends Error {
@@ -96,6 +110,9 @@ export function parseProviderEvent(input: unknown): ProviderEvent {
       if ((event.type === "message.received") !== (event.data.direction === "INBOUND")) throw new ProviderContractError();
       if (["PENDING", "FAILED"].includes(event.data.status)) throw new ProviderContractError();
       if (!event.capabilities.contentTypes.includes(event.data.content.type)) throw new ProviderContractError("UNSUPPORTED_PROVIDER_CONTENT");
+    }
+    if (event.type === "sync.batch") for (const item of event.data.items) {
+      if (item.kind === "message" && (!["SENT", "DELIVERED", "READ"].includes(item.message.status) || !event.capabilities.contentTypes.includes(item.message.content.type))) throw new ProviderContractError("UNSUPPORTED_PROVIDER_CONTENT");
     }
     if (event.type === "connection.updated" && event.data.state === "QR_REQUIRED" && (!event.data.qrRevision || !event.data.qrExpiresAt)) throw new ProviderContractError();
     if (event.type === "message.deleted" && !event.capabilities.messageDeletion) throw new ProviderContractError("UNSUPPORTED_PROVIDER_OPERATION");

@@ -9,7 +9,7 @@ export class WebProviderWorker {
   private readonly connections: WebConnections;
   private readonly ingestion: WebIngestion;
   private cursor?: { organizationId: string; channelId: string };
-  constructor(private readonly db: PrismaClient, private readonly chat: Chat, private readonly client: WebProviderPort, private readonly onError: (code: string) => void = () => {}) {
+  constructor(private readonly db: PrismaClient, private readonly chat: Chat, private readonly client: WebProviderPort, private readonly onError: (code: string) => void = () => {}, private readonly onMetric: (fields: { code: string; durationMs: number; items: number; historical: boolean; committed: boolean }) => void = () => {}) {
     this.connections = new WebConnections(db, chat, client); this.ingestion = new WebIngestion(chat);
   }
   private async fence(tx: Prisma.TransactionClient, scope: Scope, token: string) {
@@ -56,7 +56,9 @@ export class WebProviderWorker {
       // Bounded batch leaves time to refresh the lease, preserving tenant fairness.
       for (const delivery of await this.client.pull(scope)) {
         try {
-          await this.ingestion.apply(scope, delivery.event, token);
+          const started = performance.now();
+          const committed = await this.ingestion.apply(scope, delivery.event, token);
+          if (delivery.event.type === "sync.batch") this.onMetric({ code: "PROVIDER_SYNC_BATCH", durationMs: Math.round(performance.now() - started), items: delivery.event.data.items.length, historical: delivery.event.data.historical, committed });
           // Refresh lifecycle from current metadata, never from an old replay event.
           if (delivery.event.type === "connection.updated") await this.connections.synchronize(scope, await this.client.session(scope), token);
           await this.client.ack(scope, delivery.event.eventId, delivery.leaseId);

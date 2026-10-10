@@ -232,3 +232,13 @@ retorna preview null; não há corpo no realtime. Policy unificada implementada 
 validada localmente (58 testes Core), ainda não publicada; ver
 P0_PREVIEW_AUTHORIZATION.md. O achado A1 acima é registro histórico da versão
 publicada, que permanece vulnerável até deploy específico autorizado.
+
+
+## WhatsApp Web CP4
+
+Sessão real preservada; histórico operacional opt-in por escopo exato, janela30dias
+e volumes cumulativos limitados. PN/LID não implica telefone; nomes não fundem
+identidades. Histórico tardio respeita fronteiras LIMITED/NONE e previews. Referências
+de mídia não contêm binários/chaves. Logs contêm métricas/códigos, nunca conteúdo.
+Estas proteções não substituem a política de retenção administrativa da organização.
+Ver WHATSAPP_WEB_CHECKPOINT4.md e relatório de deploy para evidências.

@@ -179,6 +179,7 @@ model Contact {
   id                String         @id @default(uuid()) @db.Char(36)
   organizationId    String         @db.Char(36)
   name              String         @db.VarChar(120)
+  providerName      String?        @db.VarChar(120)
   primaryIdentifier String         @db.VarChar(254)
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
@@ -204,6 +205,8 @@ model Conversation {
   visibility         HistoryVisibility               @default(FULL)
   channelId          String?                         @db.Char(36)
   providerConversationId String?                     @db.VarChar(120)
+  providerMetadata   Json?
+  historyBoundaryAt  DateTime?
   visibleFromMessage BigInt                          @default(0)
   visibleFromEvent   BigInt                          @default(0)
   organization       Organization                    @relation(fields: [organizationId], references: [id])
@@ -236,6 +239,9 @@ model Message {
   body            String?       @db.Text
   transmittedBody String?       @db.Text
   providerOccurredAt DateTime?
+  historical      Boolean       @default(false)
+  importedAt      DateTime      @default(now())
+  mediaMetadata   Json?
   status          MessageStatus @default(SENT)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -246,6 +252,7 @@ model Message {
 
   @@unique([organizationId, conversationId, clientMessageId])
   @@index([organizationId, conversationId, sequence])
+  @@index([organizationId, conversationId, createdAt, id])
   @@unique([organizationId, channelId, providerMessageId])
 }
 
@@ -275,6 +282,10 @@ model ProviderConnection {
   qrRevision Int @default(0)
   lastCheckedAt DateTime?
   errorCode String? @db.VarChar(80)
+  pairingPhase String? @db.VarChar(24)
+  providerSync Json?
+  syncProgress Json?
+  pendingReceipts Json?
   leaseToken String? @db.Char(36)
   leaseUntil DateTime?
   channel Channel @relation(fields: [organizationId, channelId], references: [organizationId, id], onDelete: Restrict)
@@ -325,7 +336,7 @@ model ContactIdentity {
   contact        Contact      @relation(fields: [organizationId, contactId], references: [organizationId, id], onDelete: Cascade)
 
   @@id([organizationId, channelId, externalId])
-  @@unique([organizationId, channelId, contactId])
+  @@index([organizationId, channelId, contactId])
   @@index([organizationId, contactId])
 }
 

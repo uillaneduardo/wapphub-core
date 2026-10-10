@@ -1,14 +1,15 @@
-import { randomUUID } from "node:crypto";
-import { parseProviderEvent, providerDeduplicationId, type ProviderEvent } from "../../../contracts/provider.js";
+import { createHash, randomUUID } from "node:crypto";
+import { parseProviderEvent, providerDeduplicationId, syncItemSchema, type ProviderEvent, type SyncItem } from "../../../contracts/provider.js";
 import { ServiceError } from "./errors.js";
 import { Vault, type Scope, type Session } from "./vault.js";
 
 export const webCapabilities = Object.freeze({ contentTypes: ["TEXT"], receipts: "PROVIDER", messageDeletion: false, groups: false, unofficial: true } as const);
+export const webSyncCapabilities = Object.freeze({ ...webCapabilities, contentTypes: ["TEXT", "IMAGE", "AUDIO", "VOICE", "VIDEO", "DOCUMENT"] as const });
 export function envelope(scope: Scope, type: ProviderEvent["type"], externalId: string, revision = "") {
   return {
     ...scope, version: 1, eventId: randomUUID(), correlationId: randomUUID(),
     provider: "WHATSAPP_WEB", type, occurredAt: new Date().toISOString(),
-    capabilities: webCapabilities,
+    capabilities: type === "sync.batch" ? webSyncCapabilities : webCapabilities,
     deduplicationId: providerDeduplicationId({ ...scope, provider: "WHATSAPP_WEB", type, externalId, revision }),
   };
 }
@@ -32,11 +33,66 @@ export class EventJournal {
     if (event.organizationId !== scope.organizationId || event.connectionId !== scope.connectionId) throw new ServiceError("EVENT_SCOPE_MISMATCH", 403);
     return this.vault.update(scope, (record) => appendRecordEvent(record, event));
   }
+  async stage(scope: Scope, items: SyncItem[], historical: boolean, historyEnabled: boolean, completed = false, failures = 0, limited = false) {
+    if (historical && !historyEnabled) return;
+    await this.vault.update(scope, (record) => {
+      const sync = record.sync ??= { historyEnabled, phase: historyEnabled ? "AWAITING_HISTORY" : "DISABLED", queued: 0, contacts: 0, conversations: 0, messages: 0, failures: 0, limited: false, durationMs: 0, pending: [], complete: false, startedAt: this.now(), historyContacts: 0, historyConversations: 0, historyMessages: 0 };
+      sync.historyEnabled = historyEnabled; sync.failures += failures; sync.limited ||= limited;
+      let bytes = Buffer.byteLength(JSON.stringify(sync.pending));
+      for (const item of items) {
+        if (!syncItemSchema.safeParse(item).success) { sync.failures++; continue; }
+        const kind = item.kind === "contact" ? "Contacts" : item.kind === "conversation" ? "Conversations" : "Messages";
+        const budget = kind === "Messages" ? 1000 : 500;
+        if (historical && (sync[`history${kind}`] >= budget || item.kind === "message" && Date.parse(item.occurredAt) < this.now() - 30 * 86400000)) { sync.limited = true; continue; }
+        const identity = [item.identity.externalId, ...(item.identity.aliases ?? [])].map((id) => createHash("sha256").update(id).digest("hex"));
+        const admitted = sync.historyIdentities ??= [];
+        const known = admitted.find((ids) => ids.some((id) => identity.includes(id)));
+        if (historical && !known && admitted.length >= 500) { sync.limited = true; continue; }
+        const entry = { item, historical }, size = Buffer.byteLength(JSON.stringify(entry));
+        const maxItems = historical ? 1500 : 2000, maxBytes = (historical ? 1.5 : 2) * 1024 * 1024;
+        if (sync.pending.length >= maxItems || bytes + size > maxBytes) {
+          if (!historical) throw new ServiceError("SYNC_BACKPRESSURE", 503);
+          sync.limited = true; sync.failures++; continue;
+        }
+        sync.pending.push(entry); bytes += size;
+        if (historical) {
+          sync[`history${kind}`]++;
+          if (!known) admitted.push(identity); else for (const id of identity) if (!known.includes(id) && known.length < 3) known.push(id);
+        }
+        if (item.kind === "contact") sync.contacts++; else if (item.kind === "conversation") sync.conversations++; else sync.messages++;
+      }
+      if (historical) { sync.complete ||= completed; sync.phase = sync.pending.some((entry) => entry.item.kind === "contact") ? "CONTACTS" : "MESSAGES"; }
+      else if (sync.pending.length) sync.phase = sync.pending.some((entry) => entry.item.kind === "contact") ? "CONTACTS" : "MESSAGES";
+      sync.durationMs = this.now() - sync.startedAt;
+    });
+  }
+  private async promote(scope: Scope) {
+    const existing = this.vault.get(scope);
+    if (!existing?.sync?.pending.length || !existing.sync.pending.some((entry) => !entry.historical) && existing.events.filter((entry) => entry.event.type === "sync.batch").length >= 4 || existing.events.length >= 128) return;
+    await this.vault.update(scope, (record) => {
+      const sync = record.sync!;
+      // Live items precede historical work, with at most two batches per pull.
+      sync.pending.sort((a, b) => Number(a.historical) - Number(b.historical));
+      for (let batch = 0; batch < 2 && sync.pending.length; batch++) {
+        const historical = sync.pending[0]!.historical;
+        const items: SyncItem[] = []; let bytes = 0;
+        for (const entry of sync.pending) {
+          const size = Buffer.byteLength(JSON.stringify(entry.item));
+          if (entry.historical !== historical || items.length === 20 || bytes + size > 48000) break;
+          items.push(entry.item); bytes += size;
+        }
+        if (!items.length) break;
+        const event = { ...envelope(scope, "sync.batch", randomUUID()), data: { historical, items } };
+        appendRecordEvent(record, event); sync.pending.splice(0, items.length);
+      }
+    });
+  }
   async pull(scope: Scope, limit: number) {
+    await this.promote(scope);
     // Idle sessions do not rewrite ciphertext/fsync on every worker scan.
     if (!this.vault.get(scope)?.events.some((item) => !item.dead && item.leaseUntil <= this.now())) return [];
     return this.vault.update(scope, (record) => {
-      const available = record.events.filter((item) => !item.dead && item.leaseUntil <= this.now()).slice(0, limit);
+      const available = record.events.filter((item) => !item.dead && item.leaseUntil <= this.now()).sort((a, b) => Number(a.event.type === "sync.batch" && a.event.data.historical) - Number(b.event.type === "sync.batch" && b.event.data.historical)).slice(0, limit);
       return available.flatMap((item) => {
         if (item.attempts >= 5) { item.dead = true; return []; }
         item.attempts++;
@@ -71,7 +127,7 @@ export class EventJournal {
     });
   }
   metrics() {
-    const { pending, dead } = this.vault.metrics();
-    return { pending, dead };
+    const { pending, dead, syncDead, syncQueued } = this.vault.metrics();
+    return { pending, dead, syncDead, syncQueued };
   }
 }

@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
-import makeWASocket, { BufferJSON, initAuthCreds, proto, type AuthenticationState, type SignalDataTypeMap } from "baileys";
+import makeWASocket, { BufferJSON, initAuthCreds, proto, processHistoryMessage, normalizeMessageContent, type AuthenticationState, type SignalDataTypeMap, type BaileysEventMap } from "baileys";
 import pino from "pino";
 import type { TransportFactory } from "./transport.js";
 import { Vault, type Scope } from "./vault.js";
+import { normalizeContact, normalizeConversation, normalizeSyncMessage, directIdentity } from "./sync-normalization.js";
+import { readBoundedHistory } from "./history.js";
+import type { SyncItem } from "../../../contracts/provider.js";
 
 const signalId = (type: string, id: string) => createHash("sha256").update(JSON.stringify([type, id])).digest("hex");
 /** Auth persistence is independent of SDK logging and never uses plaintext files. */
@@ -46,9 +49,11 @@ export async function encryptedAuth(vault: Vault, scope: Scope, failure: () => v
     return { state: { creds, keys }, saveCreds, disable: (revoke = false) => { closed = true; revoked ||= revoke; }, isDisabled: () => closed };
 }
 type SocketCreator = (options: Parameters<typeof makeWASocket>[0]) => Pick<ReturnType<typeof makeWASocket>, "ev" | "end" | "logout">;
-export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket): TransportFactory {
+export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; approvedScope?: string } = { enabled: false, historyEnabled: false }): TransportFactory {
   return async (scope, callbacks) => {
+    const historyEnabled = syncOptions.historyEnabled && syncOptions.approvedScope === `${scope.organizationId}:${scope.connectionId}`;
     const auth = await encryptedAuth(vault, scope, callbacks.failure);
+    const downloads = new AbortController(); let downloading = false, historyObserved = false;
     const socket = createSocket({
       auth: auth.state, logger: pino({ level: "silent" }),
       markOnlineOnConnect: false, syncFullHistory: false,
@@ -64,11 +69,76 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
     });
     socket.ev.on("connection.update", (update) => {
       const reason = update.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined;
-      callbacks.connection({ state: update.connection === "open" || update.connection === "close" ? update.connection : undefined, qr: update.qr, code: reason?.output?.statusCode });
+      callbacks.connection({ state: update.connection === "open" || update.connection === "close" ? update.connection : undefined, qr: update.qr, code: reason?.output?.statusCode, ...(update.isNewLogin ? { authenticating: true } : {}) });
+    });
+    const submit = <T>(values: T[], normalize: (value: T) => SyncItem | undefined, historical: boolean, completed = false) => {
+      if (auth.isDisabled() || !syncOptions.enabled || historical && !historyEnabled) return;
+      const limit = historical ? 1000 : 250;
+      const writes: (void | Promise<void>)[] = [];
+      let items: SyncItem[] = [], failures = 0;
+      for (const value of values.slice(0, limit)) {
+        try { const item = normalize(value); if (item) items.push(item); else failures++; } catch { failures++; }
+        if (items.length === 50) { writes.push(callbacks.sync?.(items, historical, false, failures)); items = []; failures = 0; }
+      }
+      writes.push(callbacks.sync?.(items, historical, completed, failures, values.length > limit));
+      return Promise.all(writes).then(() => undefined);
+    };
+    socket.ev.on("contacts.upsert", (values) => submit(values, normalizeContact, false));
+    socket.ev.on("contacts.update", (values) => submit(values, normalizeContact, false));
+    socket.ev.on("chats.upsert", (values) => submit(values, normalizeConversation, false));
+    socket.ev.on("chats.update", (values) => submit(values, normalizeConversation, false));
+    socket.ev.on("lid-mapping.update", ({ lid, pn }) => submit([{ id: pn, lid }], normalizeContact, false));
+    const processHistory = async (data: BaileysEventMap["messaging-history.set"]) => {
+      if (!historyEnabled) return;
+      historyObserved = true;
+      await submit(data.lidPnMappings ?? [], (value) => normalizeContact({ id: value.pn, lid: value.lid }), true);
+      await submit(data.contacts, normalizeContact, true);
+      await submit(data.chats, normalizeConversation, true);
+      await submit(data.messages, (value) => normalizeSyncMessage(scope, value), true, data.progress === 100);
+    };
+    socket.ev.on("messaging-history.set", (data) => { void processHistory(data).catch(() => callbacks.failure()); });
+    socket.ev.on("messaging-history.status", (value) => {
+      if (historyEnabled && historyObserved && !downloading && !auth.isDisabled()) callbacks.sync?.([], true, value.status === "complete" && value.explicit, value.explicit ? 0 : 1);
     });
     socket.ev.on("messages.upsert", (update) => {
       // No history, placeholder resend, groups, status broadcasts or raw payloads.
-      if (update.type !== "notify" || update.requestId) return;
+      if (auth.isDisabled() || update.requestId) return;
+      if (syncOptions.enabled) {
+        // RC14 authenticates self-only protocol messages. Keep SDK automatic
+        // history off; our bounded reader accepts only self-origin notifications.
+        for (const message of update.messages.slice(0, 250)) {
+          const notification = normalizeMessageContent(message.message)?.protocolMessage?.historySyncNotification;
+          if (!notification || !message.key.fromMe || !historyEnabled) continue;
+          if (downloading) { callbacks.sync?.([], true, false, 1, true); continue; }
+          downloading = true;
+          const digest = createHash("sha256").update(notification.fileSha256 ?? notification.initialHistBootstrapInlinePayload ?? Buffer.alloc(0)).digest("hex");
+          void vault.update(scope, (record) => {
+            const imports = record.historyImports ??= { downloads: 0, decodedBytes: 0, seen: [] };
+            if (imports.seen.includes(digest)) return false;
+            if (imports.downloads >= 16 || imports.decodedBytes + 8 * 1024 * 1024 > 32 * 1024 * 1024) throw new Error("HISTORY_OPERATION_LIMIT");
+            imports.downloads++; return true;
+          }).then(async (admitted) => {
+            if (!admitted || auth.isDisabled()) return;
+            await callbacks.sync?.([], true, false);
+            const { history, decodedBytes } = await readBoundedHistory(notification, downloads.signal);
+            if (auth.isDisabled()) return;
+            await processHistory({ ...processHistoryMessage(history), isLatest: false });
+            if (auth.isDisabled()) return;
+            await vault.update(scope, (record) => { record.historyImports!.decodedBytes += decodedBytes; record.historyImports!.seen.push(digest); });
+          }).catch(() => { if (!auth.isDisabled()) callbacks.sync?.([], true, false, 1, true); }).finally(() => { downloading = false; });
+        }
+        const messages = update.messages.slice(0, update.type === "notify" ? 250 : 1000).filter((message) => !normalizeMessageContent(message.message)?.protocolMessage);
+        if (update.type === "notify" || historyEnabled) submit(messages, (message) => normalizeSyncMessage(scope, message), update.type !== "notify");
+        else {
+          // Small recent offline catch-up is continuous ingestion, not a full
+          // historical import. Older append data awaits explicit authorization.
+          const recent = messages.filter((message) => Number(message.messageTimestamp) * 1000 >= Date.now() - 5 * 60000);
+          submit(recent, (message) => normalizeSyncMessage(scope, message), false);
+          if (recent.length < messages.length || update.messages.length > 1000) callbacks.sync?.([], false, false, 0, true);
+        }
+        return;
+      }
+      if (update.type !== "notify") return;
       for (const message of update.messages) {
         const chatId = message.key.remoteJid;
         const id = message.key.id;
@@ -83,11 +153,12 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       for (const { key, update } of updates) {
         if (!key.id || !key.fromMe) continue;
         const status = update.status;
-        if (status === proto.WebMessageInfo.Status.SERVER_ACK) callbacks.receipt(key.id, "SENT");
-        if (status === proto.WebMessageInfo.Status.DELIVERY_ACK) callbacks.receipt(key.id, "DELIVERED");
-        if (status === proto.WebMessageInfo.Status.READ || status === proto.WebMessageInfo.Status.PLAYED) callbacks.receipt(key.id, "READ");
+        const chatId = directIdentity(key.remoteJid);
+        if (status === proto.WebMessageInfo.Status.SERVER_ACK) callbacks.receipt(key.id, "SENT", chatId);
+        if (status === proto.WebMessageInfo.Status.DELIVERY_ACK) callbacks.receipt(key.id, "DELIVERED", chatId);
+        if (status === proto.WebMessageInfo.Status.READ || status === proto.WebMessageInfo.Status.PLAYED) callbacks.receipt(key.id, "READ", chatId);
       }
     });
-    return { close: () => { auth.disable(); void socket.end(new Error("CONTROLLED_SHUTDOWN")).catch(() => callbacks.failure()); }, logout: () => { auth.disable(true); return socket.logout(); } };
+    return { close: () => { downloads.abort(); auth.disable(); void socket.end(new Error("CONTROLLED_SHUTDOWN")).catch(() => callbacks.failure()); }, logout: () => { downloads.abort(); auth.disable(true); return socket.logout(); } };
   };
 }

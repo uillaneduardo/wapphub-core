@@ -3,6 +3,7 @@ import { parseProviderEvent } from "../../contracts/provider.js";
 import type { Chat } from "./chat.js";
 import { MessageIngestionService } from "./message-ingestion.js";
 import { AppError } from "../domain/errors.js";
+import { WebSync, pendingReceipts, receiptKey, higherStatus, syncProgress } from "./web-sync.js";
 
 /** Domain authority remains in Core. Adapter events never assert an employee or
  * supply internal conversation/contact IDs. Commit domain + inbox + realtime
@@ -12,6 +13,7 @@ export class WebIngestion {
   async apply(scope: { organizationId: string; connectionId: string }, input: unknown, leaseToken: string) {
     const event = parseProviderEvent(input);
     if (event.provider !== "WHATSAPP_WEB" || event.organizationId !== scope.organizationId || event.connectionId !== scope.connectionId) throw new AppError(403, "PROVIDER_EVENT_SCOPE_MISMATCH");
+    if (event.type === "sync.batch") return new WebSync(this.chat, this.messages).apply(scope, event, leaseToken);
     const dataHash = createHash("sha256").update(JSON.stringify([event.type, event.data])).digest("hex");
     return this.chat.integrationMutation(scope.organizationId, async (tx) => {
       const connection = await tx.providerConnection.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, leaseToken, leaseUntil: { gt: new Date() }, channel: { provider: "WHATSAPP_WEB" } } });
@@ -38,17 +40,34 @@ export class WebIngestion {
           }
           let conversation = await tx.conversation.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, providerConversationId: data.providerConversationId } });
           if (!conversation) {
-            conversation = await tx.conversation.create({ data: { organizationId: scope.organizationId, channelId: scope.connectionId, providerConversationId: data.providerConversationId, contactId: contactIdentity.contactId } });
+            conversation = await tx.conversation.create({ data: { organizationId: scope.organizationId, channelId: scope.connectionId, providerConversationId: data.providerConversationId, contactId: contactIdentity.contactId, lastMessageAt: new Date(event.occurredAt) } });
             await this.chat.resourceEvent(tx, scope.organizationId, "conversation.created", conversation.id, conversation.id);
           }
-          const message = await this.messages.persistExternal(tx, { organizationId: scope.organizationId, channelId: scope.connectionId, conversationId: conversation.id, contactId: contactIdentity.contactId, providerMessageId: data.providerMessageId, direction: data.direction, body: data.content.originalBody, transmittedBody: data.content.transmittedBody, occurredAt: new Date(event.occurredAt) });
+          const receipts = pendingReceipts(connection.pendingReceipts), receipt = receipts[receiptKey(data.providerMessageId)];
+          const message = await this.messages.persistExternal(tx, { organizationId: scope.organizationId, channelId: scope.connectionId, conversationId: conversation.id, contactId: contactIdentity.contactId, providerMessageId: data.providerMessageId, direction: data.direction, body: data.content.originalBody, transmittedBody: data.content.transmittedBody, occurredAt: new Date(event.occurredAt), status: data.direction === "OUTBOUND" && receipt ? receipt.status : "SENT" });
+          if (receipt) { delete receipts[receiptKey(data.providerMessageId)]; await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { pendingReceipts: receipts } }); }
           await this.chat.resourceEvent(tx, scope.organizationId, "message.created", message.id, conversation.id, message.sequence);
           await this.chat.resourceEvent(tx, scope.organizationId, "conversation.updated", conversation.id, conversation.id);
         }
       } else if (event.type === "message.updated") {
         if (event.data.content || event.data.messageId) throw new AppError(409, "UNSUPPORTED_PROVIDER_EVENT");
-        const message = await tx.message.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, providerMessageId: event.data.providerMessageId, direction: "OUTBOUND" } });
-        // Ack unknown external receipts; they cannot create a message or employee.
+        const message = await tx.message.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, providerMessageId: event.data.providerMessageId, direction: "OUTBOUND" }, include: { conversation: true } });
+        if (message && event.data.providerConversationId && event.data.providerConversationId !== message.conversation.providerConversationId) {
+          const alias = await tx.contactIdentity.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, contactId: message.conversation.contactId, externalId: event.data.providerConversationId } });
+          if (!alias) throw new AppError(409, "PROVIDER_IDENTITY_CONFLICT");
+        }
+        if (!message) {
+          const pending = pendingReceipts(connection.pendingReceipts), key = receiptKey(event.data.providerMessageId), old = pending[key];
+          if (old?.chatId && event.data.providerConversationId && old.chatId !== event.data.providerConversationId) throw new AppError(409, "PROVIDER_IDENTITY_CONFLICT");
+          if (!old && Object.keys(pending).length >= 256) {
+            const progress = syncProgress(connection.syncProgress); progress.failures++; progress.lastErrorCode = "RECEIPT_RETENTION_LIMIT";
+            await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { syncProgress: progress, version: { increment: 1 } } });
+            await this.chat.resourceEvent(tx, scope.organizationId, "provider.connection.updated", scope.connectionId);
+          } else {
+            pending[key] = { status: old ? higherStatus(old.status, event.data.status) : event.data.status, expiresAt: Date.now() + 7 * 86400000, ...(event.data.providerConversationId ? { chatId: event.data.providerConversationId } : old?.chatId ? { chatId: old.chatId } : {}) };
+            await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { pendingReceipts: pending } });
+          }
+        }
         const order = ["PENDING", "SENT", "DELIVERED", "READ"];
         if (message && order.indexOf(event.data.status) > order.indexOf(message.status)) {
           await tx.message.update({ where: { id: message.id }, data: { status: event.data.status } });

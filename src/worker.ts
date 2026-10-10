@@ -16,7 +16,7 @@ try {
   await Promise.all([resources.db.$queryRaw`SELECT 1`, resources.redis.ping()]);
   const client = await configuredWebProvider(config);
   const chat = new Chat(resources.db, config, async (org) => { await resources.redis.publish(`wapphub:realtime:${org}`, "wake"); }, new DemoProvider(), new MessageIngestionService());
-  const worker = client ? new WebProviderWorker(resources.db, chat, client, log) : undefined;
+  const worker = client ? new WebProviderWorker(resources.db, chat, client, log, (fields) => process.stdout.write(JSON.stringify({ ...fields, time: new Date().toISOString() }) + "\n")) : undefined;
   log(worker ? "PROVIDER_WORKER_READY" : "FOUNDATION_WORKER_READY");
   while (!stopping) {
     try { await worker?.tick(); } catch { log("PROVIDER_WORKER_TICK_FAILED"); }

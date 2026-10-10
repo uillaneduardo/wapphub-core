@@ -15,7 +15,7 @@ function received() {
   return envelope("message.received", { providerMessageId: "external-1", providerConversationId: "conversation-1", sender: { origin: "CONTACT", externalId: "contact-1" }, direction: "INBOUND", content: { type: "TEXT", originalBody: "  Olá\n🙂 e\u0301  " }, status: "SENT" });
 }
 const media = { mediaId: randomUUID(), type: "IMAGE", mimeType: "image/jpeg", fileName: "foto.jpg", size: 512, state: "PENDING" };
-test("all seven normalized event kinds have an explicit versioned contract", () => {
+test("all eight normalized event kinds have an explicit versioned contract", () => {
   const event = received();
   const events = [
     event,
@@ -25,6 +25,7 @@ test("all seven normalized event kinds have an explicit versioned contract", () 
     { ...envelope("message.deleted", { providerMessageId: "external-2", origin: "DEVICE" }), capabilities: { ...event.capabilities, messageDeletion: true } },
     envelope("connection.updated", { state: "CONNECTING", retryable: true }),
     { ...envelope("media.updated", { messageId, media }), capabilities: { ...event.capabilities, contentTypes: ["TEXT", "IMAGE"] } },
+    envelope("sync.batch", { historical: true, items: [{ kind: "contact", identity: { externalId: "opaque@lid" } }] }),
   ];
   assert.deepEqual(events.map((item) => parseProviderEvent(JSON.stringify(item)).type), providerEventTypes);
   for (const item of events) assert.equal(parseProviderEvent(item).organizationId, org);
