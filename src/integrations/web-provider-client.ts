@@ -23,7 +23,7 @@ export class WebProviderClient implements WebProviderPort {
   constructor(private readonly url: string, private readonly key: Buffer) { if (key.length !== 32) throw new WebProviderError("PROVIDER_CONFIGURATION_ERROR"); }
   private async request(method: string, path: string, body?: unknown): Promise<unknown> {
     try {
-      const response = await fetch(this.url + path, { method, redirect: "error", signal: AbortSignal.timeout(7000), headers: { ...signedHeaders(this.key, method, path, body), "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+      const response = await fetch(this.url + path, { method, redirect: "error", signal: AbortSignal.timeout(7000), headers: { ...signedHeaders(this.key, method, path, body), ...(body === undefined ? {} : { "content-type": "application/json" }) }, body: body === undefined ? undefined : JSON.stringify(body) });
       const reader = response.body?.getReader(); if (!reader) throw new Error();
       const chunks: Uint8Array[] = []; let bytes = 0;
       try { for (;;) { const next = await reader.read(); if (next.done) break; bytes += next.value.byteLength; if (bytes > 256 * 1024) throw new Error(); chunks.push(next.value); } } finally { await reader.cancel(); }
