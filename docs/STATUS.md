@@ -1,9 +1,12 @@
-# WhatsApp Web — Checkpoint 4 em validação (2026-10-10)
+# WhatsApp Web — Checkpoint 4 publicado tecnicamente (2026-10-10)
 
-Sincronização normalizada limitada implementada; sessão real existente preservada.
-Testes, CI, backup, imagens e deploy têm gates registrados separadamente. Histórico
-real permanece desligado até autorização específica; envio/mídia bloqueados.
-[Contrato e operação CP4](WHATSAPP_WEB_CHECKPOINT4.md). Homologação manual pendente.
+Core/API/Worker/Provider9423b0b e Chat0b6b2ee publicados; 115 testes Core,
+47 Provider,256 Chat e gates de CI/lint/typecheck/build/OpenAPI/drift aprovados.
+Migration/backup/restore verificados; seis serviços healthy, sessão real existente
+CONNECTED e mesmo QR, Demo preservado. Histórico real desativado, aguardando
+autorização específica; homologação funcional/visual manual pendente. Envio pelo
+Chat e download completo de mídia continuam bloqueados. CP5 não iniciado.
+[Relatório técnico](DEPLOY_WHATSAPP_WEB_CP4_20261010.md).
 
 O conteúdo abaixo preserva os registros anteriores.
 

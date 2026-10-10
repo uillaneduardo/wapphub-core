@@ -72,3 +72,12 @@ Medir:
 - latência realtime.
 
 Os números finais de infraestrutura devem ser derivados dos testes, não fixados apenas por estimativa.
+
+
+## CP4 — sincronização sintética medida em 10/10/2026
+
+SQL isolado:1000 históricas+1 nova,50 lotes reprocessados sem duplicação;26,1s,
+CPU13,9s/RSS205MiB, nova100ms. Vault/journal:1001 mensagens+restart,51 lotes,
+9,2s,CPU5,7s/RSS221MiB,nova439ms,fila/dead finais0. Medidas de processos locais,
+sem conta real/mídia/network, não SLA. Evidências core-load.json/provider-load.json
+em deploy-records/wapphub-provider-web/20261010-checkpoint4.

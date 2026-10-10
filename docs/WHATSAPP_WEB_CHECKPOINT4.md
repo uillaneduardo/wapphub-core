@@ -87,7 +87,7 @@ operacional específica; novo pareamento exige autorização e nunca é automát
 Minimização, isolamento e acesso seguem SECURITY_PRIVACY.md. Janela de30dias limita
 admissão, não apaga dados existentes nem substitui política de retenção da organização.
 Exclusão/consentimento/retenção administrativa continuam nas políticas existentes;
-não presumir conformidade legal integral só com este checkpoint. Backups criptografados
+não presumir conformidade legal integral só com este checkpoint. Snapshot de sessão criptografado, backup de banco
 e chaves ficam restritos em homelab/backups, evidências sem conteúdo pessoal.
 
 Rollback preferencial mantém imagem CP4/parser compatível com eventos duráveis,
