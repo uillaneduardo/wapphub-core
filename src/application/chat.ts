@@ -29,17 +29,23 @@ export type PageQuery = {
   contactId?: string;
   q?: string;
 };
+type ContactPresentation = { name: string; providerName?: string | null; primaryIdentifier?: string };
+const contactPresentationSelect = { name: true, providerName: true, primaryIdentifier: true } as const;
+// Compatibility for a legacy adapter-generated placeholder at the DTO boundary.
+// Explicit contact names and all persisted metadata remain unchanged.
+const contactDisplayName = (contact: ContactPresentation) => contact.name === "Contato WhatsApp Web" && contact.providerName === null && /^web:[a-f0-9-]{36}:/.test(contact.primaryIdentifier ?? "") ? "Contato" : contact.name;
 export const contactDTO = (r: {
   id: string;
   name: string;
   primaryIdentifier: string;
+  providerName?: string | null;
   createdAt: Date;
   updatedAt: Date;
   channelIdentities?: { channel: { provider: string } }[];
 }) => ({
   providers: [...new Set(r.channelIdentities?.map((identity) => identity.channel.provider) ?? [])],
   id: r.id,
-  name: r.name,
+  name: contactDisplayName(r),
   primaryIdentifier: r.primaryIdentifier,
   createdAt: r.createdAt.toISOString(),
   updatedAt: r.updatedAt.toISOString(),
@@ -52,7 +58,7 @@ const messageReadFloor = (c: ChatContext, r: Pick<Conversation, "organizationId"
     : null;
 
 export const conversationDTO = (
-  r: Conversation & { tags?: { tagId: string }[]; channel?: { provider: string } | null; contact?: { name: string }; messages?: { body: string | null; sequence: bigint; historical?: boolean; importedAt?: Date }[] },
+  r: Conversation & { tags?: { tagId: string }[]; channel?: { provider: string } | null; contact?: ContactPresentation; messages?: { body: string | null; sequence: bigint; historical?: boolean; importedAt?: Date }[] },
   c: ChatContext,
 ) => {
   const floor = messageReadFloor(c, r);
@@ -70,19 +76,19 @@ export const conversationDTO = (
     visibility: r.visibility,
     tagIds: r.tags?.map((t) => t.tagId) ?? [],
     provider: r.channel?.provider ?? null,
-    contactName: r.contact?.name ?? null,
+    contactName: r.contact ? contactDisplayName(r.contact) : null,
     lastMessagePreview: floor !== null && latest && latest.sequence >= floor && (!latest.historical || r.visibility === "FULL" || c.permissions.includes("conversations.supervise") || r.historyBoundaryAt && latest.importedAt && latest.importedAt <= r.historyBoundaryAt)
       ? latest.body : null,
   };
 };
-const messageAuthors = { sender: { select: { name: true } }, senderContact: { select: { name: true } } } as const;
+const messageAuthors = { sender: { select: { name: true } }, senderContact: { select: contactPresentationSelect } } as const;
 export const messageDTO = (r: {
   id: string;
   conversationId: string;
   senderUserId: string | null;
   senderContactId: string | null;
   sender?: { name: string } | null;
-  senderContact?: { name: string } | null;
+  senderContact?: ContactPresentation | null;
   clientMessageId: string | null;
   direction: string;
   type: string;
@@ -97,7 +103,7 @@ export const messageDTO = (r: {
   conversationId: r.conversationId,
   senderUserId: r.senderUserId,
   senderContactId: r.senderContactId,
-  senderName: r.direction === "INBOUND" ? r.senderContact?.name ?? null : r.senderUserId ? r.sender?.name ?? null : null,
+  senderName: r.direction === "INBOUND" ? r.senderContact ? contactDisplayName(r.senderContact) : null : r.senderUserId ? r.sender?.name ?? null : null,
   clientMessageId: r.clientMessageId,
   direction: r.direction,
   type: r.type,
@@ -244,7 +250,7 @@ export class Chat {
   async conversation(c: ChatContext, id: string, tx: DB = this.db, withPreview = false) {
     this.require(c, "conversations.read");
     const r = await tx.conversation.findFirst({
-      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: withPreview && c.permissions.includes("messages.read") ? { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { body: true, sequence: true, historical: true, importedAt: true } } : false },
+      include: { tags: true, channel: { select: { provider: true } }, contact: { select: contactPresentationSelect }, messages: withPreview && c.permissions.includes("messages.read") ? { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { body: true, sequence: true, historical: true, importedAt: true } } : false },
       where: { id, organizationId: c.organizationId },
     });
     if (
@@ -454,7 +460,7 @@ export class Chat {
     }
     const limit = q.limit ?? 50;
     const rows = await this.db.conversation.findMany({
-      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: c.permissions.includes("messages.read") ? { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { body: true, sequence: true, historical: true, importedAt: true } } : false },
+      include: { tags: true, channel: { select: { provider: true } }, contact: { select: contactPresentationSelect }, messages: c.permissions.includes("messages.read") ? { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { body: true, sequence: true, historical: true, importedAt: true } } : false },
       where: {
         organizationId: c.organizationId,
         status: q.archived ? "ARCHIVED" : { not: "ARCHIVED" },
@@ -510,13 +516,13 @@ export class Chat {
           where: { organizationId: c.organizationId, contactId, channelId: null, status: { in: ["OPEN", "PENDING"] },
             ...(c.permissions.includes("conversations.supervise") ? {} : { OR: [{ assignedUserId: c.userId }, { assignedUserId: null }] }),
           },
-          include: { contact: { select: { name: true } }, tags: { select: { tagId: true } } },
+          include: { contact: { select: contactPresentationSelect }, tags: { select: { tagId: true } } },
           orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }],
         });
         if (existing) { await this.audit(tx, c, "CONVERSATION_REUSED"); return { ...conversationDTO(existing, c), reused: true }; }
       }
       const r = await tx.conversation.create({
-        include: { contact: { select: { name: true } } },
+        include: { contact: { select: contactPresentationSelect } },
         data: { organizationId: c.organizationId, contactId },
       });
       await this.audit(tx, c, "CONVERSATION_CREATED");
@@ -528,7 +534,7 @@ export class Chat {
     return this.mutation(p, "conversations.archive", async (tx, c) => {
       await this.conversation(c, id, tx);
       const r = await tx.conversation.update({
-        include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } } },
+        include: { tags: true, channel: { select: { provider: true } }, contact: { select: contactPresentationSelect } },
         where: { organizationId_id: { organizationId: c.organizationId, id } },
         data: {
           status: archived ? "ARCHIVED" : "OPEN",
@@ -645,7 +651,7 @@ export class Chat {
           transfer ? (r.assignedUserId ?? undefined) : undefined,
         );
         const updated = await tx.conversation.update({
-          include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } } },
+          include: { tags: true, channel: { select: { provider: true } }, contact: { select: contactPresentationSelect } },
           where: {
             organizationId_id: { organizationId: c.organizationId, id },
           },

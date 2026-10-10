@@ -1381,6 +1381,11 @@ test("message authorship resolves persisted identities across history and user r
  assert.ok(!page.items.some((m: { senderName: string | null }) => m.senderName === "Pessoa visualizando"));
  await db.user.update({ where: { id: writer.userId }, data: { name: "Autora renomeada" } });
  page = await request(viewer, "GET", `/conversations/${c.id}/messages`); const renamed = page.items.find((m: { id: string }) => m.id === sent.id); assert.equal(renamed.senderName, "Autora renomeada"); assert.equal(renamed.senderUserId, writer.userId); assert.equal(renamed.body, body);
+ await db.contact.update({ where: { id: c.contactId }, data: { name: "Contato WhatsApp Web", providerName: null, primaryIdentifier: `web:${randomUUID()}:opaque@lid` } });
+ assert.equal((await request(viewer, "GET", `/contacts/${c.contactId}`)).name, "Contato");
+ assert.equal((await request(viewer, "GET", `/conversations/${c.id}`)).contactName, "Contato");
+ page = await request(viewer, "GET", `/conversations/${c.id}/messages`); assert.equal(page.items.find((m: { id: string }) => m.id === inbound.id).senderName, "Contato");
+ assert.equal((await db.contact.findUniqueOrThrow({ where: { id: c.contactId } })).name, "Contato WhatsApp Web");
  const stored = await db.message.findUniqueOrThrow({ where: { id: sent.id } }); assert.equal(stored.senderUserId, writer.userId); assert.equal(stored.body, body); assert.equal(stored.historical, true);
  await request(tenantB, "GET", `/conversations/${c.id}/messages`, undefined, 404);
 });
