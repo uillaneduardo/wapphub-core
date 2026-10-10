@@ -1,5 +1,11 @@
 # Auditoria WhatsApp Web — 2026-10-10, antes da implementação
 
+Atualização CP2: usuário aprovou explicitamente Baileys7.0.0-rc14. Plano inicial de
+schema/Core foi separado para CP3 para preservar integralmente os serviços neste
+checkpoint: adapter independente com vault/journal criptografados locais, sem
+migration/consumer Core ativado. [Decisão vigente](WHATSAPP_WEB_CHECKPOINT2.md).
+O diagnóstico/plano original abaixo é preservado como registro anterior à decisão.
+
 ## Estado confirmado
 
 Core main/origin/main limpos em c427fb6cb55a05b1e651ef63cd25cdd382fb0ed9.

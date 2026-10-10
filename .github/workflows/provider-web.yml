@@ -1,0 +1,31 @@
+name: Provider Web checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  provider-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/wapphub-provider-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3
+          cache: npm
+          cache-dependency-path: services/wapphub-provider-web/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: ln -s services/wapphub-provider-web/node_modules ../../node_modules
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: docker build -f services/wapphub-provider-web/Dockerfile -t provider-web-ci .
+        working-directory: .
+      - run: docker run --rm --network none --entrypoint node provider-web-ci --input-type=module -e "import { parseProviderEvent } from './dist/contracts/provider.js'; import { encryptedAuth } from './dist/services/wapphub-provider-web/src/baileys.js'; if (typeof parseProviderEvent !== 'function' || typeof encryptedAuth !== 'function') process.exit(1);"
+        working-directory: .

@@ -1,6 +1,6 @@
 > WhatsApp Web — checkpoint 1: [auditoria](docs/WHATSAPP_WEB_AUDIT.md) e
 > [contrato interno universal](docs/PROVIDER_CONTRACT.md),84 testes aprovados.
-> Não habilita provider externo, QR ou mídia. Etapas seguintes aguardam escolha de versão Baileys.
+> CP1 preservado; RC14 autorizada e serviço interno CP2 separado. [Estado e limites atuais](docs/WHATSAPP_WEB_CHECKPOINT2.md).
 
 # WappHub Core
 
@@ -98,3 +98,9 @@ Contatos e criação manual interna publicados e homologados pelo usuário. [Rel
 ## Decisão arquitetural M2 — administração
 
 A divisão aprovada é: **Chat** atende e administra cada Organization (equipe, integração Meta, uso, custos e assinatura); **Platform** é exclusivo para administração GLOBAL do SaaS; **Core** aplica autorização e regras do domínio. O frontend `wapphub-account` não será criado. Para fronteiras de segurança, usuários multi-Organization e planejamento, consultar [ADR-0001 — M2](docs/ADR-0001-M2-ADMIN-BOUNDARIES.md). Esta decisão é documental; não altera o M1 homologado.
+# WhatsApp Web Provider — checkpoint 2
+
+Serviço interno independente em `services/wapphub-provider-web`, com package,
+lockfile, Dockerfile e Compose próprios. Baileys7.0.0-rc14 fixado e autorizado;
+deploy inicial bloqueia conexões reais. Core/Worker/Chat/Demo permanecem intactos.
+[Documentação de segurança, contrato interno e operação](docs/WHATSAPP_WEB_CHECKPOINT2.md).

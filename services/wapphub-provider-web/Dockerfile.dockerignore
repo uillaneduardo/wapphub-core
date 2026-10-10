@@ -1,0 +1,13 @@
+**
+!package.json
+!contracts/
+!contracts/provider.ts
+!services/
+!services/wapphub-provider-web/
+!services/wapphub-provider-web/package.json
+!services/wapphub-provider-web/package-lock.json
+!services/wapphub-provider-web/tsconfig.json
+!services/wapphub-provider-web/src/
+!services/wapphub-provider-web/src/**
+!services/wapphub-provider-web/scripts/
+!services/wapphub-provider-web/scripts/**
