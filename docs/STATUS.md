@@ -1,3 +1,17 @@
+# WhatsApp Web — Checkpoint 3 publicado (2026-10-10)
+
+Merge e deploy técnico concluídos: Core/API/Worker e Provider `42a7651`, Chat
+`da38c2f`. Migration aditiva aplicada com backup fresco/restauração verificada;
+seis serviços healthy, endpoints/HTTPS/assets/rotas/heartbeat conferidos.
+103 testes Core, 36 Provider e 249 Chat confirmados; CI de PRs e merges aprovado.
+Provider privado, zero sessões/contas reais; 37 outros containers preservados.
+Homologação manual do Checkpoint 4 pelo usuário permanece pendente; envio pelo
+Chat e multimídia continuam bloqueados. Nenhum browser executado no Homelab.
+
+[Relatório de publicação](DEPLOY_WHATSAPP_WEB_CP3_20261010.md).
+
+O conteúdo abaixo preserva o registro anterior à publicação.
+
 # WhatsApp Web — checkpoint 3, Core/Worker/Chat (2026-10-10)
 
 Gerenciamento de conexão e QR implementado no Chat pela Core API, usando
