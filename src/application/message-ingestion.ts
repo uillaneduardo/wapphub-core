@@ -31,6 +31,7 @@ export class MessageIngestionService {
   }) {
     const content = normalizeText(input.body);
     const message = await tx.message.create({
+      include: { senderContact: { select: { name: true } } },
       data: {
         organizationId: input.organizationId,
         conversationId: input.conversationId,

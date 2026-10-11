@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { normalizeText, ProviderContractError } from "../../../contracts/provider.js";
 import { appendRecordEvent, envelope, EventJournal } from "./events.js";
 import { ServiceError } from "./errors.js";
@@ -6,7 +6,7 @@ import { Serial } from "./serial.js";
 import type { ConnectionUpdate, Transport, TransportFactory } from "./transport.js";
 import { Vault, type Scope, type State } from "./vault.js";
 
-type Actor = { serial: Serial; generation: number; socket?: Transport; cancel?: () => void; deadline?: () => void; qr?: { value: string; expiresAt: number; revision: number } };
+type Actor = { serial: Serial; generation: number; socket?: Transport; cancel?: () => void; deadline?: () => void; failureCode?: string; qr?: { value: string; expiresAt: number; revision: number } };
 type Scheduler = (callback: () => void, delay: number) => () => void;
 const defaultSchedule: Scheduler = (callback, delay) => { const timer = setTimeout(callback, delay); timer.unref(); return () => clearTimeout(timer); };
 const scopeKey = (scope: Scope) => `${scope.organizationId}:${scope.connectionId}`;
@@ -20,7 +20,7 @@ export class Sessions {
     private readonly factory: TransportFactory, readonly connectEnabled: boolean,
     private readonly schedule: Scheduler = defaultSchedule,
     private readonly now = Date.now,
-    private readonly log: (code: string) => void = () => undefined,
+    private readonly log: (code: string, fields?: { source: string; stage: string; count: number }) => void = () => undefined,
     private readonly syncOptions: { enabled: boolean; historyEnabled: boolean; approvedScope?: string } = { enabled: false, historyEnabled: false },
   ) {}
   private historyEnabled(scope: Scope) { return this.syncOptions.historyEnabled && this.syncOptions.approvedScope === scopeKey(scope); }
@@ -34,10 +34,11 @@ export class Sessions {
     const record = this.vault.get(scope);
     if (!record) throw new ServiceError("SESSION_NOT_FOUND", 404);
     const sync = record.sync;
+    const actor = this.actors.get(scopeKey(scope));
     const queued = (sync?.pending.length ?? 0) + record.events.reduce((sum, entry) => sum + (entry.event.type === "sync.batch" ? entry.event.data.items.length : 0), 0);
-    return { state: record.state, revision: record.revision, qrRevision: record.qrRevision, attempts: record.attempts, errorCode: record.errorCode, connectEnabled: this.connectEnabled,
+    return { state: actor?.failureCode ? "FAILED" as const : record.state, revision: record.revision, qrRevision: record.qrRevision, attempts: record.attempts, errorCode: actor?.failureCode ?? record.errorCode, connectEnabled: this.connectEnabled,
       ...(record.pairingPhase ? { pairingPhase: record.pairingPhase } : {}),
-      ...(sync ? { sync: { historyEnabled: this.historyEnabled(scope), phase: record.events.some((entry) => entry.dead) || sync.failures || sync.limited ? "PARTIAL" : sync.complete && queued === 0 ? "PROCESSED" : sync.phase, queued, contacts: sync.contacts, conversations: sync.conversations, messages: sync.messages, failures: sync.failures + record.events.filter((entry) => entry.dead).length, limited: sync.limited, durationMs: sync.durationMs } } : {}) };
+      ...(sync ? { sync: { activeTransport: Boolean(actor?.socket), ...(record.processingFailure ? { processingFailure: record.processingFailure } : {}), historyEnabled: this.historyEnabled(scope), phase: record.events.some((entry) => entry.dead) || sync.failures || sync.limited || sync.diagnostics?.rejected ? "PARTIAL" : sync.complete && queued === 0 ? "PROCESSED" : sync.phase, queued, contacts: sync.contacts, conversations: sync.conversations, messages: sync.messages, failures: sync.failures + record.events.filter((entry) => entry.dead).length, limited: sync.limited, durationMs: sync.durationMs, ...(sync.diagnostics ? { diagnostics: sync.diagnostics } : {}) } } : {}) };
   }
   qr(scope: Scope) {
     this.view(scope);
@@ -102,13 +103,30 @@ export class Sessions {
   private enqueue(scope: Scope, actor: Actor, generation: number, operation: () => Promise<void>) {
     return actor.serial.run(async () => {
       if (actor.generation !== generation || this.stopping) return;
-      await operation();
-    }).catch((error: unknown) => {
+      try { await operation(); }
+      catch (error) { await this.processingFailure(scope, actor, generation, error); }
+    }).catch((error: unknown) => this.processingFailure(scope, actor, generation, error));
+  }
+  private async processingFailure(scope: Scope, actor: Actor, generation: number, error: unknown) {
+
+      if (actor.generation !== generation || this.stopping) return;
       if (error instanceof ProviderContractError) { this.log("INVALID_PROVIDER_EVENT"); return; }
-      this.failedStorage = true;
-      this.close(actor); // fail closed rather than receive events that cannot persist
-      this.log("SESSION_PROCESSING_FAILED");
-    });
+      const capacity = error instanceof ServiceError && ["SYNC_BACKPRESSURE", "EVENT_QUEUE_FULL", "VAULT_LIMIT"].includes(error.code);
+      const io = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      const code = capacity ? (error as ServiceError).code : error instanceof ServiceError && error.code === "AUTH_PERSISTENCE_FAILED" ? error.code : io === "ENOSPC" ? "STORAGE_FULL" : ["EIO", "EACCES", "EROFS"].includes(io) ? "STORAGE_IO_FAILED" : "SESSION_PROCESSING_FAILED";
+      this.failedStorage ||= !capacity;
+      actor.failureCode = code;
+      this.close(actor);
+      const closedGeneration = actor.generation; // stop receiving when durability cannot be guaranteed
+      this.log(code, { source: "SESSION", stage: capacity ? "QUEUE" : "PERSISTENCE", count: 1 });
+      // A capacity failure must leave the API available to drain existing events.
+      // Persist only an allowlisted observation, never the exception or payload.
+      await this.vault.update(scope, (record) => {
+        if (actor.generation !== closedGeneration) return;
+        record.state = "FAILED"; record.errorCode = code; record.revision++;
+        record.pairingPhase = "IDLE";
+        record.processingFailure = { id: randomUUID(), code: code as NonNullable<typeof record.processingFailure>["code"], stage: capacity ? "QUEUE" : "PERSISTENCE", occurredAt: new Date(this.now()).toISOString() };
+      }).catch(() => { this.failedStorage = true; this.log("DIAGNOSTIC_PERSISTENCE_FAILED"); });
   }
   private async transition(scope: Scope, state: State, errorCode?: string, retryable = false) {
     const qr = this.actor(scope).qr;
@@ -149,9 +167,12 @@ export class Sessions {
         receipt: (id, status, chatId) => this.enqueue(scope, actor, generation, async () => {
           await this.journal.append(scope, { ...envelope(scope, "message.updated", id, status + (chatId ?? "")), data: { providerMessageId: id, status, ...(chatId ? { providerConversationId: chatId } : {}) } });
         }),
-        sync: (items, historical, completed, failures, limited) => {
+        sync: (items, historical, completed, failures, limited, observation) => {
           if (!this.syncOptions.enabled) return;
-          return this.enqueue(scope, actor, generation, () => this.journal.stage(scope, items, historical, this.historyEnabled(scope), completed, failures, limited));
+          return this.enqueue(scope, actor, generation, async () => {
+            await this.journal.stage(scope, items, historical, this.historyEnabled(scope), completed, failures, limited, observation);
+            if (observation) for (const [code, count] of Object.entries(observation.reasons)) this.log(`SYNC_${code}`, { source: observation.source, stage: "NORMALIZATION", count });
+          });
         },
       });
       actor.deadline = this.schedule(() => this.enqueue(scope, actor, generation, async () => {
@@ -177,6 +198,9 @@ export class Sessions {
     }
     if (update.state === "open") {
       actor.deadline?.(); actor.deadline = undefined; actor.qr = undefined;
+      await this.vault.update(scope, (record) => { if (record.processingFailure && !record.processingFailure.recoveredAt) record.processingFailure.recoveredAt = new Date(this.now()).toISOString(); });
+      actor.failureCode = undefined;
+      this.failedStorage = [...this.actors.values()].some((entry) => Boolean(entry.failureCode));
       await this.transition(scope, "CONNECTED");
     }
     if (update.state !== "close") return;
@@ -208,7 +232,7 @@ export class Sessions {
     }
   }
   async settle(scope: Scope) { await this.actor(scope).serial.run(async () => undefined); }
-  ready() { const metrics = this.journal.metrics(); return !this.stopping && !this.failedStorage && metrics.dead === metrics.syncDead && metrics.pending < 4096; }
+  ready() { return !this.stopping && !this.failedStorage; }
   metrics() { return { sessions: this.vault.metrics().sessions, active: [...this.actors.values()].filter((actor) => !!actor.socket).length, ...this.journal.metrics() }; }
   async shutdown() {
     this.stopping = true;

@@ -503,6 +503,9 @@ test("OpenAPI preserves every foundation and M1 route and adds M2.1 permissions 
     "/providers/whatsapp-web/connections",
     "/providers/whatsapp-web/connections/{id}/commands",
     "/providers/whatsapp-web/connections/{id}/qr",
+    "/providers/{provider}/diagnostics",
+    "/providers/{provider}/diagnostics/health",
+    "/providers/{provider}/diagnostics/{id}",
   ];
   assert.deepEqual(
     Object.keys(doc.paths).sort(),

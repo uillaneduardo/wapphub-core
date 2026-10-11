@@ -71,3 +71,7 @@ test("revocation stays effective after subsequent close and cannot revive queued
   auth.disable(true); auth.disable(); await f.vault.update(f.scope, (record) => { delete record.auth; record.keys = {}; }); await pending;
   assert.equal(f.vault.get(f.scope)?.auth, undefined);
 });
+test("processing evidence expires after 30 days without altering auth or domain events", async (t) => {
+ const f = await fixture(t); await f.vault.update(f.scope, (r) => { r.auth = "SYNTHETIC_AUTH"; r.processingFailure = { id: f.scope.connectionId, code: "SESSION_PROCESSING_FAILED", stage: "PERSISTENCE", occurredAt: new Date(Date.now() - 31 * 86400000).toISOString() }; });
+ await f.vault.update(f.scope, () => undefined); assert.equal(f.vault.get(f.scope)?.processingFailure, undefined); assert.equal(f.vault.get(f.scope)?.auth, "SYNTHETIC_AUTH"); assert.deepEqual(f.vault.get(f.scope)?.events, []);
+});

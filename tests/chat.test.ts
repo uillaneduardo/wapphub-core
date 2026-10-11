@@ -262,6 +262,7 @@ test("Demo provider is permission-gated, tenant-scoped, idempotent and uses shar
   assert.equal(initial.items[0].direction, "INBOUND");
   assert.equal(initial.items[0].senderUserId, null);
   assert.equal(initial.items[0].senderContactId, first.contactId);
+  assert.equal(initial.items[0].senderName, first.name);
   assert.equal(initial.items[0].body, "Olá! Gostaria de saber mais sobre os serviços de vocês.");
   assert.equal((await request(supervisor, "GET", `/conversations/${first.conversationId}`)).lastMessagePreview, initial.items[0].body);
   const secondContact = contacts.items[1];
@@ -285,6 +286,7 @@ test("Demo provider is permission-gated, tenant-scoped, idempotent and uses shar
   const outbound = await send(agent, first.conversationId, "Resposta do atendimento");
   assert.equal(outbound.direction, "OUTBOUND");
   assert.equal(outbound.senderUserId, agent.userId);
+  assert.equal(outbound.senderName, "Chat test");
   await request(supervisor, "POST", `/conversations/${first.conversationId}/messages/${inbound.id}/status`, { status: "READ" }, 409);
   await request(supervisor, "POST", `/conversations/${first.conversationId}/messages/${outbound.id}/status`, { status: "DELIVERED" }, 409);
   const sharedClientMessageId = randomUUID();
@@ -1361,4 +1363,52 @@ test("M1 contact search treats wildcard characters literally and validates bound
   assert.deepEqual(found.items.map((c: { id: string }) => c.id), [match.id]);
   await request(supervisor, "GET", `/contacts?q=${'x'.repeat(255)}`, undefined, 400);
   await request(supervisor, "GET", `/contacts?q=abc&organizationId=${orgB}`, undefined, 400);
+});
+
+test("message authorship resolves persisted identities across history and user rename, never the viewing user or content prefixes", async () => {
+ const writer = await auth(superRole, orgA), viewer = await auth(superRole, orgA);
+ await db.user.update({ where: { id: writer.userId }, data: { name: "Autora original" } });
+ await db.user.update({ where: { id: viewer.userId }, data: { name: "Pessoa visualizando" } });
+ const c = await conversation(writer), body = "*Maria:* conteúdo original";
+ const sent = await send(writer, c.id, body); assert.equal(sent.senderUserId, writer.userId); assert.equal(sent.senderName, "Autora original"); assert.equal(sent.body, body);
+ await db.message.update({ where: { id: sent.id }, data: { historical: true } });
+ const device = await db.message.create({ data: { organizationId: orgA, conversationId: c.id, direction: "OUTBOUND", historical: true, body, status: "DELIVERED" } });
+ const inbound = await db.message.create({ data: { organizationId: orgA, conversationId: c.id, direction: "INBOUND", senderContactId: c.contactId, body: "Texto recebido", status: "SENT" } });
+ let page = await request(viewer, "GET", `/conversations/${c.id}/messages`);
+ const original = page.items.find((m: { id: string }) => m.id === sent.id); assert.equal(original.senderName, "Autora original"); assert.equal(original.senderUserId, writer.userId);
+ const external = page.items.find((m: { id: string }) => m.id === device.id); assert.equal(external.senderName, null); assert.equal(external.senderUserId, null); assert.equal(external.body, body);
+ assert.equal(page.items.find((m: { id: string }) => m.id === inbound.id).senderName, "Contact");
+ assert.ok(!page.items.some((m: { senderName: string | null }) => m.senderName === "Pessoa visualizando"));
+ await db.user.update({ where: { id: writer.userId }, data: { name: "Autora renomeada" } });
+ page = await request(viewer, "GET", `/conversations/${c.id}/messages`); const renamed = page.items.find((m: { id: string }) => m.id === sent.id); assert.equal(renamed.senderName, "Autora renomeada"); assert.equal(renamed.senderUserId, writer.userId); assert.equal(renamed.body, body);
+ await db.contact.update({ where: { id: c.contactId }, data: { name: "Contato WhatsApp Web", providerName: null, primaryIdentifier: `web:${randomUUID()}:opaque@lid` } });
+ assert.equal((await request(viewer, "GET", `/contacts/${c.contactId}`)).name, `Contato ${c.contactId.slice(0, 8)}`);
+ assert.equal((await request(viewer, "GET", `/conversations/${c.id}`)).contactName, `Contato ${c.contactId.slice(0, 8)}`);
+ page = await request(viewer, "GET", `/conversations/${c.id}/messages`); assert.equal(page.items.find((m: { id: string }) => m.id === inbound.id).senderName, `Contato ${c.contactId.slice(0, 8)}`);
+ assert.equal((await db.contact.findUniqueOrThrow({ where: { id: c.contactId } })).name, "Contato WhatsApp Web");
+ const stored = await db.message.findUniqueOrThrow({ where: { id: sent.id } }); assert.equal(stored.senderUserId, writer.userId); assert.equal(stored.body, body); assert.equal(stored.historical, true);
+ await request(tenantB, "GET", `/conversations/${c.id}/messages`, undefined, 404);
+});
+
+test("contact presentation prioritizes internal/external names and verified aliases, hides opaque identities without expanding visibility", async () => {
+ const tenantA = await auth(superRole, orgA);
+ const c = await conversation(tenantA), web = await db.channel.upsert({ where: { organizationId_provider: { organizationId: orgA, provider: "WHATSAPP_WEB" } }, create: { organizationId: orgA, provider: "WHATSAPP_WEB", status: "CONNECTED" }, update: {} });
+ const raw = `web:${web.id}:80595094880359@lid`;
+ await db.contact.update({ where: { id: c.contactId }, data: { name: "Nome interno", providerName: "Nome externo", primaryIdentifier: raw } });
+ await db.contactIdentity.createMany({ data: ["80595094880359@lid", "5581999991234@s.whatsapp.net"].map((externalId) => ({ organizationId: orgA, channelId: web.id, contactId: c.contactId, externalId })) });
+ let contact = await request(tenantA, "GET", `/contacts/${c.contactId}`); assert.equal(contact.name, "Nome interno"); assert.equal(contact.primaryIdentifier, raw); assert.equal(contact.displayIdentifier, "+55 (81) 99999-1234");
+ await db.contact.update({ where: { id: c.contactId }, data: { name: "", providerName: "Nome externo" } });
+ assert.equal((await request(tenantA, "GET", `/contacts/${c.contactId}`)).name, "Nome externo");
+ await db.contact.update({ where: { id: c.contactId }, data: { name: "Contato", providerName: null } });
+ contact = await request(tenantA, "GET", `/contacts/${c.contactId}`); assert.equal(contact.name, "+55 (81) 99999-1234");
+ const noContactRole = await db.role.create({ data: { code: `present-${randomUUID().slice(0,12)}` } }); roles.push(noContactRole.id);
+ const metadataPermissions = await db.permission.findMany({ where: { code: { in: ["conversations.read", "conversations.supervise", "messages.read"] } } });
+ await db.rolePermission.createMany({ data: metadataPermissions.map((p) => ({ roleId: noContactRole.id, permissionId: p.id })) });
+ const noContactReader = await auth(noContactRole.id, orgA);
+ assert.equal((await request(noContactReader, "GET", `/conversations/${c.id}`)).contactName, `Contato ${c.contactId.slice(0, 8)}`);
+ await db.contactIdentity.create({ data: { organizationId: orgA, channelId: web.id, contactId: c.contactId, externalId: "5581888881234@s.whatsapp.net" } });
+ contact = await request(tenantA, "GET", `/contacts/${c.contactId}`); assert.equal(contact.name, `Contato ${c.contactId.slice(0, 8)}`); assert.equal(contact.displayIdentifier, contact.name);
+ await db.contact.update({ where: { id: c.contactId }, data: { name: "80595094880359@lid", providerName: "80595094880359@lid" } });
+ assert.equal((await request(tenantA, "GET", `/conversations/${c.id}`)).contactName, `Contato ${c.contactId.slice(0, 8)}`);
+ assert.equal(await db.contact.count({ where: { organizationId: orgA, primaryIdentifier: raw } }), 1);
 });

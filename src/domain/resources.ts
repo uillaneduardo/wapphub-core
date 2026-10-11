@@ -23,6 +23,7 @@ export const resourceCatalog: readonly Resource[] = [
   resource("calling.audio", "Comunicação", "Chamadas", [], "RESEARCH"),
   resource("team.permissions", "Gestão", "Equipe e permissões", ["team.read", "team.permissions.manage"], "AVAILABLE", true),
   resource("providers.management", "Gestão", "Canais e integrações", ["providers.manage"], "AVAILABLE", true),
+  resource("providers.diagnostics", "Gestão", "Diagnóstico de providers", ["providers.diagnostics.read"], "AVAILABLE", false, ["providers.management"]),
   resource("providers.demo", "Gestão", "Simulador Demo", ["providers.simulate"], "AVAILABLE", true, ["chat.text"]),
   resource("organization.usage", "Gestão", "Uso e custos", [], "PLANNED"),
   resource("organization.subscription", "Gestão", "Plano e assinatura", [], "PLANNED"),
@@ -33,7 +34,7 @@ const names: Record<string, string> = {
   "conversations.read": "Consultar conversas autorizadas", "conversations.create": "Criar conversas", "conversations.archive": "Arquivar e reabrir conversas",
   "conversations.assign": "Atribuir conversas", "conversations.transfer": "Transferir conversas", "conversations.supervise": "Supervisionar conversas",
   "messages.read": "Ler mensagens autorizadas", "messages.send": "Enviar mensagens", "notes.read": "Consultar notas internas", "notes.create": "Criar notas internas",
-  "tags.read": "Consultar etiquetas", "tags.manage": "Gerenciar etiquetas", "providers.manage": "Gerenciar providers", "providers.simulate": "Operar simulador Demo",
+  "tags.read": "Consultar etiquetas", "tags.manage": "Gerenciar etiquetas", "providers.manage": "Gerenciar providers", "providers.simulate": "Operar simulador Demo", "providers.diagnostics.read": "Consultar diagnóstico sanitizado de providers",
   "team.read": "Consultar equipe", "team.permissions.manage": "Gerenciar permissões da equipe",
 };
 export const permissionCatalog = resourceCatalog.flatMap((r) => r.permissions.map((code) => ({ code, name: names[code]!, module: r.module, resourceCode: r.code, editable: code !== "organization.read", sensitive: r.module === "Gestão" || code === "conversations.supervise" })));

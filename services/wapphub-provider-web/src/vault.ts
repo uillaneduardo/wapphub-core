@@ -16,6 +16,7 @@ export type Session = Scope & {
   attempts: number; errorCode?: string; auth?: string; keys: Record<string, string>;
   events: Delivery[]; dedup: string[]; commands: { id: string; digest: string }[];
   pairingPhase?: string;
+  processingFailure?: NonNullable<ProviderSync["processingFailure"]>;
   historyImports?: { downloads: number; decodedBytes: number; seen: string[] };
   sync?: ProviderSync & { pending: { item: SyncItem; historical: boolean }[]; complete: boolean; startedAt: number; historyContacts: number; historyConversations: number; historyMessages: number; historyIdentities?: string[][] };
 };
@@ -82,6 +83,7 @@ export class Vault {
         ...scope, version: 1, desired: false, state: "DISCONNECTED", revision: 0,
         qrRevision: 0, attempts: 0, keys: {}, events: [], dedup: [], commands: [],
       };
+      if (record.processingFailure && Date.parse(record.processingFailure.occurredAt) < Date.now() - 30 * 86400000) delete record.processingFailure;
       const result = mutate(record);
       const plaintext = Buffer.from(JSON.stringify(record));
       if (plaintext.length > MAX_RECORD_BYTES) throw new ServiceError("VAULT_LIMIT", 503);

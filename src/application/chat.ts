@@ -1,3 +1,4 @@
+import { externalContactPresentation, trustedContactName, type PresentationIdentity } from "../integrations/provider-contact-presentation.js";
 import { resolvePermissions } from "../domain/resources.js";
 import { chatEventTypes, type ChatEventType } from "../realtime/contract.js";
 import {
@@ -29,18 +30,29 @@ export type PageQuery = {
   contactId?: string;
   q?: string;
 };
+type ContactPresentation = { id?: string; name: string; providerName?: string | null; primaryIdentifier?: string; channelIdentities?: PresentationIdentity[] };
+const contactPresentationSelect = { id: true, name: true, providerName: true, primaryIdentifier: true, channelIdentities: { include: { channel: { select: { provider: true } } } } } as const;
+function contactPresentation(contact: ContactPresentation, includePhone = true) {
+ const external = externalContactPresentation(contact.primaryIdentifier ?? "", contact.channelIdentities);
+ const generated = external.external && contact.providerName == null && ["Contato", "Contato WhatsApp Web"].includes(contact.name);
+ const name = (!generated ? trustedContactName(contact.name) : null) || trustedContactName(contact.providerName) || (includePhone ? external.phone : null) || `Contato ${contact.id?.slice(0, 8) ?? "externo"}`;
+ return { name, identifier: external.identifier || `Contato ${contact.id?.slice(0, 8) ?? "externo"}` };
+}
+const contactDisplayName = (contact: ContactPresentation, includePhone = true) => contactPresentation(contact, includePhone).name;
 export const contactDTO = (r: {
   id: string;
   name: string;
   primaryIdentifier: string;
+  providerName?: string | null;
   createdAt: Date;
   updatedAt: Date;
-  channelIdentities?: { channel: { provider: string } }[];
+  channelIdentities?: PresentationIdentity[];
 }) => ({
   providers: [...new Set(r.channelIdentities?.map((identity) => identity.channel.provider) ?? [])],
   id: r.id,
-  name: r.name,
+  name: contactDisplayName(r),
   primaryIdentifier: r.primaryIdentifier,
+  displayIdentifier: contactPresentation(r).identifier,
   createdAt: r.createdAt.toISOString(),
   updatedAt: r.updatedAt.toISOString(),
 });
@@ -52,7 +64,7 @@ const messageReadFloor = (c: ChatContext, r: Pick<Conversation, "organizationId"
     : null;
 
 export const conversationDTO = (
-  r: Conversation & { tags?: { tagId: string }[]; channel?: { provider: string } | null; contact?: { name: string }; messages?: { body: string | null; sequence: bigint; historical?: boolean; importedAt?: Date }[] },
+  r: Conversation & { tags?: { tagId: string }[]; channel?: { provider: string } | null; contact?: ContactPresentation; messages?: { body: string | null; sequence: bigint; historical?: boolean; importedAt?: Date }[] },
   c: ChatContext,
 ) => {
   const floor = messageReadFloor(c, r);
@@ -70,16 +82,19 @@ export const conversationDTO = (
     visibility: r.visibility,
     tagIds: r.tags?.map((t) => t.tagId) ?? [],
     provider: r.channel?.provider ?? null,
-    contactName: r.contact?.name ?? null,
+    contactName: r.contact ? contactDisplayName(r.contact, c.permissions.includes("contacts.read")) : null,
     lastMessagePreview: floor !== null && latest && latest.sequence >= floor && (!latest.historical || r.visibility === "FULL" || c.permissions.includes("conversations.supervise") || r.historyBoundaryAt && latest.importedAt && latest.importedAt <= r.historyBoundaryAt)
       ? latest.body : null,
   };
 };
+const messageAuthors = { sender: { select: { name: true } }, senderContact: { select: contactPresentationSelect } } as const;
 export const messageDTO = (r: {
   id: string;
   conversationId: string;
   senderUserId: string | null;
   senderContactId: string | null;
+  sender?: { name: string } | null;
+  senderContact?: ContactPresentation | null;
   clientMessageId: string | null;
   direction: string;
   type: string;
@@ -89,11 +104,12 @@ export const messageDTO = (r: {
   updatedAt: Date;
   historical?: boolean;
   mediaMetadata?: Prisma.JsonValue | null;
-}) => ({
+}, includePhone = true) => ({
   id: r.id,
   conversationId: r.conversationId,
   senderUserId: r.senderUserId,
   senderContactId: r.senderContactId,
+  senderName: r.direction === "INBOUND" ? r.senderContact ? contactDisplayName(r.senderContact, includePhone) : null : r.senderUserId ? r.sender?.name ?? null : null,
   clientMessageId: r.clientMessageId,
   direction: r.direction,
   type: r.type,
@@ -240,7 +256,7 @@ export class Chat {
   async conversation(c: ChatContext, id: string, tx: DB = this.db, withPreview = false) {
     this.require(c, "conversations.read");
     const r = await tx.conversation.findFirst({
-      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: withPreview && c.permissions.includes("messages.read") ? { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { body: true, sequence: true, historical: true, importedAt: true } } : false },
+      include: { tags: true, channel: { select: { provider: true } }, contact: { select: contactPresentationSelect }, messages: withPreview && c.permissions.includes("messages.read") ? { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { body: true, sequence: true, historical: true, importedAt: true } } : false },
       where: { id, organizationId: c.organizationId },
     });
     if (
@@ -346,7 +362,7 @@ export class Chat {
         ...(id ? { id: { gt: id } } : {}),
         ...(search ? { OR: [{ name: { contains: search.replace(/[\\%_]/g, "\\$&") } }, { primaryIdentifier: { contains: search.replace(/[\\%_]/g, "\\$&") } }] } : {}),
       },
-      include: { channelIdentities: { select: { channel: { select: { provider: true } } } } },
+      include: { channelIdentities: { select: { externalId: true, channel: { select: { provider: true } } } } },
       orderBy: { id: "asc" },
       take: limit + 1,
     });
@@ -362,7 +378,7 @@ export class Chat {
     const c = await this.context(p, "contacts.read");
     const r = await this.db.contact.findFirst({
       where: { organizationId: c.organizationId, id },
-      include: { channelIdentities: { select: { channel: { select: { provider: true } } } } },
+      include: { channelIdentities: { select: { externalId: true, channel: { select: { provider: true } } } } },
     });
     if (!r) throw new AppError(404, "NOT_FOUND");
     return contactDTO(r);
@@ -386,7 +402,7 @@ export class Chat {
               organizationId_id: { organizationId: c.organizationId, id },
             },
             data,
-            include: { channelIdentities: { select: { channel: { select: { provider: true } } } } },
+            include: { channelIdentities: { select: { externalId: true, channel: { select: { provider: true } } } } },
           })
         : await tx.contact.create({
             data: {
@@ -450,7 +466,7 @@ export class Chat {
     }
     const limit = q.limit ?? 50;
     const rows = await this.db.conversation.findMany({
-      include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } }, messages: c.permissions.includes("messages.read") ? { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { body: true, sequence: true, historical: true, importedAt: true } } : false },
+      include: { tags: true, channel: { select: { provider: true } }, contact: { select: contactPresentationSelect }, messages: c.permissions.includes("messages.read") ? { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { body: true, sequence: true, historical: true, importedAt: true } } : false },
       where: {
         organizationId: c.organizationId,
         status: q.archived ? "ARCHIVED" : { not: "ARCHIVED" },
@@ -506,13 +522,13 @@ export class Chat {
           where: { organizationId: c.organizationId, contactId, channelId: null, status: { in: ["OPEN", "PENDING"] },
             ...(c.permissions.includes("conversations.supervise") ? {} : { OR: [{ assignedUserId: c.userId }, { assignedUserId: null }] }),
           },
-          include: { contact: { select: { name: true } }, tags: { select: { tagId: true } } },
+          include: { contact: { select: contactPresentationSelect }, tags: { select: { tagId: true } } },
           orderBy: [{ lastMessageAt: "desc" }, { id: "desc" }],
         });
         if (existing) { await this.audit(tx, c, "CONVERSATION_REUSED"); return { ...conversationDTO(existing, c), reused: true }; }
       }
       const r = await tx.conversation.create({
-        include: { contact: { select: { name: true } } },
+        include: { contact: { select: contactPresentationSelect } },
         data: { organizationId: c.organizationId, contactId },
       });
       await this.audit(tx, c, "CONVERSATION_CREATED");
@@ -524,7 +540,7 @@ export class Chat {
     return this.mutation(p, "conversations.archive", async (tx, c) => {
       await this.conversation(c, id, tx);
       const r = await tx.conversation.update({
-        include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } } },
+        include: { tags: true, channel: { select: { provider: true } }, contact: { select: contactPresentationSelect } },
         where: { organizationId_id: { organizationId: c.organizationId, id } },
         data: {
           status: archived ? "ARCHIVED" : "OPEN",
@@ -641,7 +657,7 @@ export class Chat {
           transfer ? (r.assignedUserId ?? undefined) : undefined,
         );
         const updated = await tx.conversation.update({
-          include: { tags: true, channel: { select: { provider: true } }, contact: { select: { name: true } } },
+          include: { tags: true, channel: { select: { provider: true } }, contact: { select: contactPresentationSelect } },
           where: {
             organizationId_id: { organizationId: c.organizationId, id },
           },
@@ -707,11 +723,12 @@ export class Chat {
       },
       orderBy: web ? [{ createdAt: "desc" }, { id: "desc" }] : { sequence: "desc" },
       take: limit + 1,
+      include: messageAuthors,
     });
     if (c.permissions.includes("conversations.supervise"))
       await this.audit(this.db, c, "MESSAGES_SUPERVISED");
     return {
-      items: rows.slice(0, limit).map(messageDTO),
+      items: rows.slice(0, limit).map((row) => messageDTO(row, c.permissions.includes("contacts.read"))),
       nextCursor:
         rows.length > limit
           ? cursorEncode(
@@ -730,6 +747,7 @@ export class Chat {
     return this.mutation(p, "messages.send", async (tx, c) => {
       const r = await this.conversation(c, id, tx);
       const existing = await tx.message.findUnique({
+        include: messageAuthors,
         where: {
           organizationId_conversationId_clientMessageId: {
             organizationId: c.organizationId,
@@ -768,6 +786,7 @@ export class Chat {
           })
         : null;
       const message = await tx.message.create({
+        include: messageAuthors,
         data: {
           organizationId: c.organizationId,
           conversationId: id,
@@ -812,6 +831,7 @@ export class Chat {
       const floor = messageReadFloor(c, r);
       if (floor === null) throw new AppError(403, "PERMISSION_DENIED");
       const m = await tx.message.findFirst({
+        include: messageAuthors,
         where: {
           id: messageId,
           organizationId: c.organizationId,
@@ -833,6 +853,7 @@ export class Chat {
         throw new AppError(409, "INVALID_MESSAGE_TRANSITION");
       if (m.status === status) return messageDTO(m);
       const updated = await tx.message.update({
+        include: messageAuthors,
         where: { id: m.id },
         data: { status },
       });
@@ -1097,7 +1118,7 @@ export class Chat {
       const conversation = await tx.conversation.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, contactId: identity.contactId } });
       if (!conversation) throw new AppError(404, "NOT_FOUND");
       const inbound = this.provider.parseInbound(data);
-      const existing = await tx.message.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, providerMessageId: inbound.providerMessageId } });
+      const existing = await tx.message.findFirst({ include: messageAuthors, where: { organizationId: c.organizationId, channelId: channel.id, providerMessageId: inbound.providerMessageId } });
       if (existing) {
         if (existing.conversationId !== conversation.id || existing.body !== inbound.body) throw new AppError(409, "IDEMPOTENCY_CONFLICT");
         return messageDTO(existing);

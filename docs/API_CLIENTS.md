@@ -142,3 +142,5 @@ Contrato REST, resolvedor, concorrência/auditoria e controle realtime 4003 desc
 em [M2_1_RESOURCES_RBAC.md](M2_1_RESOURCES_RBAC.md). Nenhum módulo comercial ou
 integração Meta implementado. Diagnóstico anterior ao schema em
 [M2_1_RBAC_DIAGNOSIS.md](M2_1_RBAC_DIAGNOSIS.md).
+
+Diagnóstico de providers: GET `/api/v1/providers/:provider/diagnostics`, `/health`, `/:id`, documentados no OpenAPI. `provider` usa código canônico WHATSAPP_WEB/DEMO/META. Diagnóstico exige permissão específica além de providers.manage. Janela de 30 dias, paginação limitada, filtros e contadores da janela; indisponibilidade de métricas é null. Nenhum endpoint de reprocessamento ou alteração de estado.

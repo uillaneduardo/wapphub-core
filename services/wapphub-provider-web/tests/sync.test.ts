@@ -9,7 +9,7 @@ import { Vault } from "../src/vault.js";
 import { EventJournal, envelope } from "../src/events.js";
 import { baileysFactory } from "../src/baileys.js";
 import { decodeBoundedHistory, HISTORY_DECODED_BYTES } from "../src/history.js";
-import { normalizeContact, normalizeSyncMessage, directIdentity } from "../src/sync-normalization.js";
+import { normalizeContact, normalizeSyncMessage, directIdentity, diagnoseMessage, diagnoseIdentity } from "../src/sync-normalization.js";
 import { parseProviderEvent, type SyncItem } from "../../../contracts/provider.js";
 import { Serial } from "../src/serial.js";
 
@@ -127,4 +127,25 @@ test("CP4 bounded inline protocol history checkpoints only after durable staging
   ev.emit("messages.upsert", { type: "notify", messages: [notification] });
   await new Promise((resolve) => setTimeout(resolve, 30)); assert.equal(f.vault.get(f.scope)?.historyImports?.downloads, 1);
   transport.close();
+});
+test("CP4 correction classifies normalization outcomes without treating protocol notices as failed messages", async (t) => {
+ const f = await fixture(t);
+ assert.deepEqual(diagnoseMessage(f.scope, { ...sample("notice"), message: undefined }), { type: "ignored", code: "SYSTEM_NOTICE" });
+ assert.deepEqual(diagnoseMessage(f.scope, { ...sample("protocol"), message: { protocolMessage: {} } }), { type: "ignored", code: "PROTOCOL_MESSAGE" });
+ assert.deepEqual(diagnoseMessage(f.scope, { ...sample("unsupported"), message: { reactionMessage: { text: "👍" } } }), { type: "ignored", code: "UNSUPPORTED_CONTENT" });
+ assert.deepEqual(diagnoseMessage(f.scope, { ...sample("invalid"), key: { remoteJid: "opaque@lid" } }), { type: "rejected", code: "INVALID_MESSAGE" });
+ assert.deepEqual(diagnoseIdentity({ id: "status@broadcast" }, () => normalizeContact({ id: "status@broadcast" })), { type: "ignored", code: "UNSUPPORTED_IDENTITY" });
+ const outcome = diagnoseMessage(f.scope, sample("device", true)); assert.ok("item" in outcome); if ("item" in outcome) { assert.ok(outcome.item.kind === "message"); assert.equal(outcome.item.message.sender.origin, "DEVICE"); }
+});
+test("CP4 correction persists separate received/ignored/rejected/published/acked counters across restart and preserves legacy unknown failures", async (t) => {
+ const f = await fixture(t); await f.sessions.create(f.scope);
+ await f.journal.stage(f.scope, [], false, false, false, 2);
+ // Legacy failures can only be captured at the first observation of an old checkpoint.
+ await f.vault.update(f.scope, (record) => { delete record.sync!.diagnostics; });
+ await f.journal.stage(f.scope, [normalizeSyncMessage(f.scope, sample("observed"))!], false, false, false, 0, false, { source: "MESSAGES_NOTIFY", received: 3, normalized: 1, ignored: 1, rejected: 1, failures: 0, reasons: { SYSTEM_NOTICE: 1, INVALID_MESSAGE: 1 } });
+ const diagnostic = f.vault.get(f.scope)!.sync!.diagnostics!; assert.equal(diagnostic.legacyFailures, 2); assert.equal(diagnostic.received, 3); assert.equal(diagnostic.normalized, 1); assert.equal(diagnostic.ignored, 1); assert.equal(diagnostic.rejected, 1); assert.equal(diagnostic.failures, 0);
+ const restored = new Vault(f.vault.directory, f.key); await restored.initialize(); const journal = new EventJournal(restored, f.now);
+ const [delivery] = await journal.pull(f.scope, 1); assert.ok(delivery); assert.equal(restored.get(f.scope)!.sync!.diagnostics!.publishedBatches, 1);
+ await journal.ack(f.scope, delivery.event.eventId, delivery.leaseId); assert.equal(restored.get(f.scope)!.sync!.diagnostics!.acknowledgedBatches, 1); assert.equal(restored.get(f.scope)!.sync!.diagnostics!.legacyFailures, 2);
+ assert.ok(!JSON.stringify(restored.get(f.scope)!.sync!.diagnostics).includes("opaque@lid"));
 });

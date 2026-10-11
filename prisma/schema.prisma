@@ -310,6 +310,7 @@ model ProviderCommand {
   updatedAt DateTime @updatedAt
   connection ProviderConnection @relation(fields: [organizationId, channelId], references: [organizationId, channelId], onDelete: Restrict)
   @@index([organizationId, channelId, status, nextAttemptAt])
+  @@index([organizationId, channelId, createdAt])
 }
 
 model ProviderInbox {
@@ -324,6 +325,7 @@ model ProviderInbox {
   connection ProviderConnection @relation(fields: [organizationId, channelId], references: [organizationId, channelId], onDelete: Restrict)
   @@id([organizationId, channelId, deduplicationId])
   @@index([organizationId, channelId, receivedAt])
+  @@index([organizationId, channelId, eventId])
 }
 
 model ContactIdentity {

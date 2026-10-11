@@ -21,6 +21,8 @@ import { DemoProvider } from "../integrations/demo-provider.js";
 import { MessageIngestionService } from "../application/message-ingestion.js";
 import { WebConnections } from "../application/web-connections.js";
 import { configuredWebProvider, type WebProviderPort } from "../integrations/web-provider-client.js";
+import { ProviderDiagnostics } from "../application/provider-diagnostics.js";
+import { providerDiagnosticsRoutes } from "./provider-diagnostics-routes.js";
 import { webProviderRoutes } from "./web-provider-routes.js";
 const object = (
   properties: Record<string, unknown>,
@@ -195,6 +197,7 @@ export async function buildApp(
   app.addHook("preClose", async () => gateway.close());
   await chatRoutes(app, foundation, chat, sessionCookie);
   await permissionRoutes(app, foundation, chat, new Permissions(db, chat, config), sessionCookie);
+  await providerDiagnosticsRoutes(app, foundation, new ProviderDiagnostics(db, chat), sessionCookie);
   await webProviderRoutes(app, foundation, new WebConnections(db, chat, webProvider ?? await configuredWebProvider(config)), chat, sessionCookie);
   await gateway.routes(app, config, sessionCookie);
   const authenticate = (req: { cookies: Record<string, string | undefined> }) =>
