@@ -1,3 +1,5 @@
+> Retomada 2026-10-11: Core/API/Worker PR15 e Chat PR13/14 publicados, migrations10 e serviços correspondentes saudáveis. Runtime Provider anterior permanece vivo/readiness503/socket0; auth preservada e recuperação específica aguardando autorização. Homologação manual/CP4 ainda pendentes. Correção adicional de isolamento de falhas do Provider validada com53 testes/lint/types/build, CI/ativação separados. Registros antigos abaixo são históricos.
+
 # WhatsApp Web — Checkpoint 4 publicado tecnicamente (2026-10-10)
 
 Core/API/Worker/Provider9423b0b e Chat0b6b2ee publicados; 115 testes Core,

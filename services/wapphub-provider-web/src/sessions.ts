@@ -6,7 +6,7 @@ import { Serial } from "./serial.js";
 import type { ConnectionUpdate, Transport, TransportFactory } from "./transport.js";
 import { Vault, type Scope, type State } from "./vault.js";
 
-type Actor = { serial: Serial; generation: number; socket?: Transport; cancel?: () => void; deadline?: () => void; failureCode?: string; qr?: { value: string; expiresAt: number; revision: number } };
+type Actor = { serial: Serial; generation: number; socket?: Transport; cancel?: () => void; deadline?: () => void; failureCode?: string; storageFailed?: boolean; qr?: { value: string; expiresAt: number; revision: number } };
 type Scheduler = (callback: () => void, delay: number) => () => void;
 const defaultSchedule: Scheduler = (callback, delay) => { const timer = setTimeout(callback, delay); timer.unref(); return () => clearTimeout(timer); };
 const scopeKey = (scope: Scope) => `${scope.organizationId}:${scope.connectionId}`;
@@ -114,7 +114,8 @@ export class Sessions {
       const capacity = error instanceof ServiceError && ["SYNC_BACKPRESSURE", "EVENT_QUEUE_FULL", "VAULT_LIMIT"].includes(error.code);
       const io = error && typeof error === "object" && "code" in error ? String(error.code) : "";
       const code = capacity ? (error as ServiceError).code : error instanceof ServiceError && error.code === "AUTH_PERSISTENCE_FAILED" ? error.code : io === "ENOSPC" ? "STORAGE_FULL" : ["EIO", "EACCES", "EROFS"].includes(io) ? "STORAGE_IO_FAILED" : "SESSION_PROCESSING_FAILED";
-      this.failedStorage ||= !capacity;
+      actor.storageFailed = !capacity;
+      this.failedStorage = [...this.actors.values()].some((entry) => Boolean(entry.storageFailed));
       actor.failureCode = code;
       this.close(actor);
       const closedGeneration = actor.generation; // stop receiving when durability cannot be guaranteed
@@ -126,7 +127,7 @@ export class Sessions {
         record.state = "FAILED"; record.errorCode = code; record.revision++;
         record.pairingPhase = "IDLE";
         record.processingFailure = { id: randomUUID(), code: code as NonNullable<typeof record.processingFailure>["code"], stage: capacity ? "QUEUE" : "PERSISTENCE", occurredAt: new Date(this.now()).toISOString() };
-      }).catch(() => { this.failedStorage = true; this.log("DIAGNOSTIC_PERSISTENCE_FAILED"); });
+      }).catch(() => { actor.storageFailed = true; this.failedStorage = true; this.log("DIAGNOSTIC_PERSISTENCE_FAILED"); });
   }
   private async transition(scope: Scope, state: State, errorCode?: string, retryable = false) {
     const qr = this.actor(scope).qr;
@@ -199,8 +200,8 @@ export class Sessions {
     if (update.state === "open") {
       actor.deadline?.(); actor.deadline = undefined; actor.qr = undefined;
       await this.vault.update(scope, (record) => { if (record.processingFailure && !record.processingFailure.recoveredAt) record.processingFailure.recoveredAt = new Date(this.now()).toISOString(); });
-      actor.failureCode = undefined;
-      this.failedStorage = [...this.actors.values()].some((entry) => Boolean(entry.failureCode));
+      actor.failureCode = undefined; actor.storageFailed = false;
+      this.failedStorage = [...this.actors.values()].some((entry) => Boolean(entry.storageFailed));
       await this.transition(scope, "CONNECTED");
     }
     if (update.state !== "close") return;
