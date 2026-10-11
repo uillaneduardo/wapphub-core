@@ -46,14 +46,25 @@ export function boundHistoryObjects(bytes: Uint8Array, window?: { from: string; 
   return Buffer.concat(out);
 }
 export function selectHistory(scope: Scope, history: proto.IHistorySync, spec: HistorySpec): SyncItem[] {
-  const items: SyncItem[] = [];
-  const add = (item: SyncItem | undefined) => { if (item) items.push(item); };
-  for (const m of (history.phoneNumberToLidMappings ?? []).slice(0, 500)) add(normalizeContact({ id: m.pnJid ?? undefined, lid: m.lidJid ?? undefined }));
-  for (const c of (history.pushnames ?? []).slice(0, 500)) add(normalizeContact({ id: c.id ?? undefined, notify: c.pushname ?? undefined }));
-  for (const c of (history.conversations ?? []).slice(0, 500)) {
-    add(normalizeContact({ id: c.id ?? undefined, name: c.displayName ?? c.name ?? undefined, lid: c.lidJid ?? undefined, phoneNumber: c.pnJid ?? undefined }));
-    add(normalizeConversation({ id: c.id ?? undefined, conversationTimestamp: c.conversationTimestamp ?? c.lastMsgTimestamp, archived: c.archived ?? undefined, unreadCount: c.unreadCount ?? undefined, lidJid: c.lidJid ?? undefined, pnJid: c.pnJid ?? undefined }));
+  const contacts: Extract<SyncItem, { kind: "contact" }>[] = [], conversations: SyncItem[] = [];
+  const ids = new Set<string>();
+  const addContact = (item: SyncItem | undefined) => {
+    if (!item || item.kind !== "contact" || contacts.length >= spec.limits.contacts || [item.identity.externalId, ...(item.identity.aliases ?? [])].some((id) => ids.has(id))) return;
+    contacts.push(item); for (const id of [item.identity.externalId, ...(item.identity.aliases ?? [])]) ids.add(id);
+  };
+  const mappings = (history.phoneNumberToLidMappings ?? []).slice(0, 500);
+  const phones = new Map(mappings.flatMap((m) => m.lidJid && m.pnJid ? [[m.lidJid, m.pnJid] as const] : []));
+  const names = new Map((history.pushnames ?? []).slice(0, 500).flatMap((c) => c.id && c.pushname ? [[c.id, c.pushname] as const] : []));
+  // Conversation identities have priority. Auxiliary names/mappings must never
+  // consume a shared slice that would discard all metadata-only conversations.
+  for (const c of (history.conversations ?? []).slice(0, spec.limits.conversations)) {
+    const pn = c.pnJid ?? (c.id ? phones.get(c.id) : undefined), lid = c.lidJid ?? c.accountLid ?? undefined;
+    addContact(normalizeContact({ id: c.id ?? undefined, name: c.displayName ?? c.name ?? (c.id ? names.get(c.id) : undefined), lid, phoneNumber: pn }));
+    const item = normalizeConversation({ id: c.id ?? undefined, conversationTimestamp: c.conversationTimestamp ?? c.lastMsgTimestamp, archived: c.archived ?? undefined, unreadCount: c.unreadCount ?? undefined, lidJid: lid, pnJid: pn });
+    if (item) conversations.push(item);
   }
+  for (const m of mappings) addContact(normalizeContact({ id: m.pnJid ?? undefined, lid: m.lidJid ?? undefined }));
+  for (const c of (history.pushnames ?? []).slice(0, 500)) addContact(normalizeContact({ id: c.id ?? undefined, notify: c.pushname ?? undefined }));
   const messages: Extract<SyncItem, { kind: "message" }>[] = [];
   for (const c of (history.conversations ?? []).slice(0, 500)) for (const m of (c.messages ?? []).slice(0, 1000)) {
     if (!m.message?.key) continue;
@@ -61,5 +72,5 @@ export function selectHistory(scope: Scope, history: proto.IHistorySync, spec: H
     if (item?.kind === "message" && Date.parse(item.occurredAt) >= Date.parse(spec.from) && Date.parse(item.occurredAt) <= Date.parse(spec.to)) messages.push(item);
   }
   messages.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || a.message.providerMessageId.localeCompare(b.message.providerMessageId));
-  return [...items.slice(0, 1000), ...messages.slice(0, spec.limits.messages)];
+  return [...contacts, ...conversations, ...messages.slice(0, spec.limits.messages)];
 }

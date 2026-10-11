@@ -108,3 +108,11 @@ test("CP4.6 actual SDK notification dispatch uses known anchor, self-only bounde
  const deliveries = await f.journal.pull(f.scope, 20); assert.ok(deliveries.some((x) => x.event.type === "sync.batch" && x.event.data.historical && x.event.correlationId === s.id && x.event.data.items.some((i) => i.kind === "conversation")));
  assert.equal(requests, 1); assert.equal(f.vault.get(f.scope)?.historyOperation?.messages, 0);
 });
+
+test("CP4.6 auxiliary contact quotas never discard metadata-only conversations or verified PN/LID aliases", async (t) => {
+ const f = await fixture(t), s = spec();
+ const history = { syncType: proto.HistorySync.HistorySyncType.ON_DEMAND, phoneNumberToLidMappings: Array.from({ length: 500 }, (_, i) => ({ pnJid: `551000${i}@s.whatsapp.net`, lidJid: `quota${i}@lid` })), pushnames: Array.from({ length: 500 }, (_, i) => ({ id: `extra${i}@lid`, pushname: "Same name" })), conversations: Array.from({ length: 500 }, (_, i) => ({ id: `quota${i}@lid`, name: "Same name", conversationTimestamp: Math.floor(Date.now() / 1000) - 3600, messages: [] })) };
+ const selected = selectHistory(f.scope, history, s), contacts = selected.filter((x) => x.kind === "contact"), conversations = selected.filter((x) => x.kind === "conversation");
+ assert.equal(contacts.length, 500); assert.equal(conversations.length, 500); assert.equal(selected.filter((x) => x.kind === "message").length, 0);
+ assert.equal(conversations[0]?.identity.externalId, "5510000@s.whatsapp.net"); assert.deepEqual(conversations[0]?.identity.aliases, ["quota0@lid"]); assert.equal(new Set(contacts.map((x) => x.identity.externalId)).size, 500);
+});
