@@ -1,3 +1,4 @@
+import { externalContactPresentation, trustedContactName, type PresentationIdentity } from "../integrations/provider-contact-presentation.js";
 import { resolvePermissions } from "../domain/resources.js";
 import { chatEventTypes, type ChatEventType } from "../realtime/contract.js";
 import {
@@ -29,11 +30,15 @@ export type PageQuery = {
   contactId?: string;
   q?: string;
 };
-type ContactPresentation = { name: string; providerName?: string | null; primaryIdentifier?: string };
-const contactPresentationSelect = { name: true, providerName: true, primaryIdentifier: true } as const;
-// Compatibility for a legacy adapter-generated placeholder at the DTO boundary.
-// Explicit contact names and all persisted metadata remain unchanged.
-const contactDisplayName = (contact: ContactPresentation) => contact.name === "Contato WhatsApp Web" && contact.providerName === null && /^web:[a-f0-9-]{36}:/.test(contact.primaryIdentifier ?? "") ? "Contato" : contact.name;
+type ContactPresentation = { id?: string; name: string; providerName?: string | null; primaryIdentifier?: string; channelIdentities?: PresentationIdentity[] };
+const contactPresentationSelect = { id: true, name: true, providerName: true, primaryIdentifier: true, channelIdentities: { include: { channel: { select: { provider: true } } } } } as const;
+function contactPresentation(contact: ContactPresentation, includePhone = true) {
+ const external = externalContactPresentation(contact.primaryIdentifier ?? "", contact.channelIdentities);
+ const generated = external.external && contact.providerName == null && ["Contato", "Contato WhatsApp Web"].includes(contact.name);
+ const name = (!generated ? trustedContactName(contact.name) : null) || trustedContactName(contact.providerName) || (includePhone ? external.phone : null) || `Contato ${contact.id?.slice(0, 8) ?? "externo"}`;
+ return { name, identifier: external.identifier || `Contato ${contact.id?.slice(0, 8) ?? "externo"}` };
+}
+const contactDisplayName = (contact: ContactPresentation, includePhone = true) => contactPresentation(contact, includePhone).name;
 export const contactDTO = (r: {
   id: string;
   name: string;
@@ -41,12 +46,13 @@ export const contactDTO = (r: {
   providerName?: string | null;
   createdAt: Date;
   updatedAt: Date;
-  channelIdentities?: { channel: { provider: string } }[];
+  channelIdentities?: PresentationIdentity[];
 }) => ({
   providers: [...new Set(r.channelIdentities?.map((identity) => identity.channel.provider) ?? [])],
   id: r.id,
   name: contactDisplayName(r),
   primaryIdentifier: r.primaryIdentifier,
+  displayIdentifier: contactPresentation(r).identifier,
   createdAt: r.createdAt.toISOString(),
   updatedAt: r.updatedAt.toISOString(),
 });
@@ -76,7 +82,7 @@ export const conversationDTO = (
     visibility: r.visibility,
     tagIds: r.tags?.map((t) => t.tagId) ?? [],
     provider: r.channel?.provider ?? null,
-    contactName: r.contact ? contactDisplayName(r.contact) : null,
+    contactName: r.contact ? contactDisplayName(r.contact, c.permissions.includes("contacts.read")) : null,
     lastMessagePreview: floor !== null && latest && latest.sequence >= floor && (!latest.historical || r.visibility === "FULL" || c.permissions.includes("conversations.supervise") || r.historyBoundaryAt && latest.importedAt && latest.importedAt <= r.historyBoundaryAt)
       ? latest.body : null,
   };
@@ -98,12 +104,12 @@ export const messageDTO = (r: {
   updatedAt: Date;
   historical?: boolean;
   mediaMetadata?: Prisma.JsonValue | null;
-}) => ({
+}, includePhone = true) => ({
   id: r.id,
   conversationId: r.conversationId,
   senderUserId: r.senderUserId,
   senderContactId: r.senderContactId,
-  senderName: r.direction === "INBOUND" ? r.senderContact ? contactDisplayName(r.senderContact) : null : r.senderUserId ? r.sender?.name ?? null : null,
+  senderName: r.direction === "INBOUND" ? r.senderContact ? contactDisplayName(r.senderContact, includePhone) : null : r.senderUserId ? r.sender?.name ?? null : null,
   clientMessageId: r.clientMessageId,
   direction: r.direction,
   type: r.type,
@@ -356,7 +362,7 @@ export class Chat {
         ...(id ? { id: { gt: id } } : {}),
         ...(search ? { OR: [{ name: { contains: search.replace(/[\\%_]/g, "\\$&") } }, { primaryIdentifier: { contains: search.replace(/[\\%_]/g, "\\$&") } }] } : {}),
       },
-      include: { channelIdentities: { select: { channel: { select: { provider: true } } } } },
+      include: { channelIdentities: { select: { externalId: true, channel: { select: { provider: true } } } } },
       orderBy: { id: "asc" },
       take: limit + 1,
     });
@@ -372,7 +378,7 @@ export class Chat {
     const c = await this.context(p, "contacts.read");
     const r = await this.db.contact.findFirst({
       where: { organizationId: c.organizationId, id },
-      include: { channelIdentities: { select: { channel: { select: { provider: true } } } } },
+      include: { channelIdentities: { select: { externalId: true, channel: { select: { provider: true } } } } },
     });
     if (!r) throw new AppError(404, "NOT_FOUND");
     return contactDTO(r);
@@ -396,7 +402,7 @@ export class Chat {
               organizationId_id: { organizationId: c.organizationId, id },
             },
             data,
-            include: { channelIdentities: { select: { channel: { select: { provider: true } } } } },
+            include: { channelIdentities: { select: { externalId: true, channel: { select: { provider: true } } } } },
           })
         : await tx.contact.create({
             data: {
@@ -722,7 +728,7 @@ export class Chat {
     if (c.permissions.includes("conversations.supervise"))
       await this.audit(this.db, c, "MESSAGES_SUPERVISED");
     return {
-      items: rows.slice(0, limit).map(messageDTO),
+      items: rows.slice(0, limit).map((row) => messageDTO(row, c.permissions.includes("contacts.read"))),
       nextCursor:
         rows.length > limit
           ? cursorEncode(

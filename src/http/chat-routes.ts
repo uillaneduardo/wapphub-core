@@ -24,6 +24,7 @@ const contact = obj({
   id: uuid,
   name: str,
   primaryIdentifier: str,
+  displayIdentifier: str,
   createdAt: date,
   updatedAt: date,
 });
