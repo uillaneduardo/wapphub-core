@@ -252,8 +252,37 @@ test("CP4 metadata preserves manual names, assignment, archived state, tags and 
   await db.conversationTag.create({ data: { organizationId: orgA, conversationId: thread.id, tagId: tag.id } });
   await db.internalNote.create({ data: { organizationId: orgA, conversationId: thread.id, authorUserId: owner.userId, body: "Nota administrativa", eventSequence: 0n } });
   await leased((token) => ingestion.apply(scope(), syncBatch([{ kind: "conversation", identity: { externalId: id, name: "Novo nome externo" }, metadata: { archived: false, unreadCount: 10 } }], false), token));
+  await leased((token) => ingestion.apply(scope(), syncBatch([
+    { kind: "contact", identity: { externalId: id, name: "Nome antigo importado" } },
+    { kind: "conversation", identity: { externalId: id }, metadata: { archived: false, unreadCount: 99 } },
+    syncMessage(id, "cp4-administrative"),
+  ]), token));
   const after = await db.conversation.findUniqueOrThrow({ where: { id: thread.id }, include: { contact: true, tags: true, notes: true } });
   assert.equal(after.contact.name, "Nome manual"); assert.equal(after.assignedUserId, owner.userId); assert.equal(after.status, "ARCHIVED"); assert.equal(after.visibility, "NONE"); assert.equal(after.visibleFromMessage, 999999n); assert.equal(after.tags.length, 1); assert.equal(after.notes[0]?.body, "Nota administrativa");
+});
+
+test("historical preparation updates Inbox through aggregated real websocket events and persists ordered history", async () => {
+  const checkpoint = String((await db.realtimeEvent.findFirst({ orderBy: { id: "desc" } }))?.id ?? 0), frames: string[] = [];
+  const ws = new WebSocket(baseUrl.replace("http", "ws") + "/api/v1/realtime?lastEventId=" + checkpoint, { headers: { origin, cookie: owner.cookie } });
+  ws.on("message", (frame) => frames.push(String(frame)));
+  await new Promise<void>((resolve, reject) => { ws.once("open", resolve); ws.once("error", reject); });
+  try {
+    const older = new Date(Date.now() - 2 * 86400000).toISOString(), newer = new Date(Date.now() - 86400000).toISOString();
+    const batch = syncBatch([syncMessage("historical-inbox@lid", "history-inbox-older", older), syncMessage("historical-inbox@lid", "history-inbox-newer", newer, true)]);
+    await leased((token) => ingestion.apply(scope(), batch, token));
+    const thread = await db.conversation.findFirstOrThrow({ where: { channelId, providerConversationId: "historical-inbox@lid" } });
+    const deadline = Date.now() + 4000;
+    while (!frames.some((frame) => frame.includes(thread.id) && frame.includes("conversation.history.updated")) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.ok(frames.some((frame) => frame.includes(thread.id) && frame.includes("conversation.history.updated")));
+    assert.ok(!frames.some((frame) => frame.includes(thread.id) && frame.includes("message.created")));
+    assert.ok(!frames.join("").includes("conteúdo original"));
+    const page = (await request(owner, "GET", `/conversations/${thread.id}/messages`)).json();
+    assert.deepEqual(page.items.map((item: { createdAt: string }) => item.createdAt), [newer, older]);
+    assert.ok(page.items.every((item: { historical: boolean; senderUserId: string | null }) => item.historical && item.senderUserId === null));
+    assert.ok((await request(owner, "GET", "/conversations?scope=all")).json().items.some((item: { id: string }) => item.id === thread.id));
+    await leased((token) => ingestion.apply(scope(), batch, token));
+    assert.equal((await request(owner, "GET", `/conversations/${thread.id}/messages`)).json().items.length, 2);
+  } finally { ws.close(); }
 });
 test("CP4 known identity conflicts are isolated and remaining batch items persist", async () => {
   await leased(async (token) => {

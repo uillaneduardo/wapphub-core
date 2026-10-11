@@ -184,3 +184,9 @@ Chat.send registra senderUserId do principal autenticado e conserva autoria em r
 Recuperação controlada de conta existente: PROVIDER_LINKED_RECOVERY_ONLY=true exige auth registrada/me persistidos antes do socket, bloqueia QR/lifecycle destrutivo, conserva auth/chaves em revogação e recusa updates SDK que revoguem/troquem a identidade; até três starts por processo (mantém limite total anterior de cinco), timeout120s. Sem initCreds/novo pareamento, sem envio, sem histórico ou mídia. Modo padrão permanece compatível. Ao falhar, API segue disponível para consultar estado e o transporte para; restart automático de processo não deve ampliar o orçamento do operador.
 
 QR-linked recovery checks the persisted `creds.me.id`, as RC14 uses it to select login rather than registration. `registered` remains false after QR pairing in RC14 and is not evidence of a missing or revoked session. Identity replacement/removal, server revocation and unexpected QR still stop recovery without clearing auth.
+
+## Aceite contínuo e auditoria histórica (11/10/2026)
+
+Usuário homologou os seis cenários do CP4 contínuo, com latência observada de aproximadamente1 segundo. [Aceite](WHATSAPP_WEB_CP4_ACCEPTANCE.md). Histórico anterior à conexão excluído; os14 registros legados permanecem sem causas inventadas. Runtime atual conectado e diagnóstico ativo, conforme evidências da recuperação posterior às notas históricas acima.
+
+A auditoria read-only encontrou0 lotes locais recuperáveis/0 mensagens históricas, sem checkpoint de download. Eventos descartados com história desativada não podem ser reconstruídos. [Plano, limites reais e pré-requisitos da importação](WHATSAPP_WEB_HISTORY_PREPARATION.md). Nenhuma solicitação ON_DEMAND, importação, reconexão, envio pelo Chat ou download de mídias nesta preparação.
