@@ -34,6 +34,61 @@ test("CP4 real SDK event map normalizes initial history, contacts/chats and live
   assert.ok(!items.some((item) => item.kind === "message" && item.message.providerMessageId === "forged"));
   transport.close(); const before = batches.length; ev.emit("contacts.upsert", [{ id: "late@lid" }]); assert.equal(batches.length, before);
 });
+test("native first-QR bootstrap captures existing conversations through bounded encrypted journal", async (t) => {
+  const f = await fixture(t), ev = makeEventBuffer(pino({ level: "silent" }));
+  const batches: { items: SyncItem[]; historical: boolean }[] = [];
+  const factory = baileysFactory(f.vault, (options) => {
+    assert.equal(options.syncFullHistory, true);
+    assert.equal(options.shouldSyncHistoryMessage?.({}), false); // SDK cannot inflate unbounded history
+    return { ev, end: async () => undefined, logout: async () => undefined };
+  }, { enabled: true, historyEnabled: false, initialHistoryEnabled: true });
+  const transport = await factory(f.scope, {
+    connection: () => undefined, text: () => assert.fail("no legacy duplicate"),
+    receipt: () => undefined, failure: () => assert.fail("unexpected failure"),
+    sync: async (items, historical) => { batches.push({ items, historical }); },
+  });
+  const raw = proto.HistorySync.encode({
+    syncType: proto.HistorySync.HistorySyncType.RECENT, progress: 100,
+    conversations: [{ id: "opaque@lid", messages: [{ message: sample("qr-history", true) }] }],
+  }).finish();
+  const notification = {
+    key: { id: "bootstrap", remoteJid: "self@s.whatsapp.net", fromMe: true },
+    message: { protocolMessage: { historySyncNotification: {
+      syncType: proto.HistorySync.HistorySyncType.RECENT, progress: 100,
+      initialHistBootstrapInlinePayload: deflateSync(raw),
+    } } },
+  };
+  ev.emit("messages.upsert", { type: "notify", messages: [{ ...notification, key: { ...notification.key, fromMe: false } }] });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(f.vault.get(f.scope)?.historyImports?.downloads, 0);
+  ev.emit("messages.upsert", { type: "notify", messages: [notification, notification] });
+  const deadline = Date.now() + 3000;
+  while (!f.vault.get(f.scope)?.historyImports?.seen.length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+  const imported = batches.filter((b) => b.historical).flatMap((b) => b.items);
+  assert.ok(imported.some((item) => item.kind === "message" && item.message.providerMessageId === "qr-history"));
+  assert.ok(imported.some((item) => item.kind === "conversation"));
+  assert.equal(f.vault.get(f.scope)?.historyImports?.downloads, 1);
+  assert.equal(f.vault.get(f.scope)?.historyImports?.initialPending, false);
+  transport.close();
+});
+
+test("native history never initiates a new bootstrap for an already linked account", async (t) => {
+  const f = await fixture(t);
+  const { encryptedAuth } = await import("../src/baileys.js");
+  const initial = await encryptedAuth(f.vault, f.scope);
+  initial.state.creds.me = { id: "linked@lid" };
+  await initial.saveCreds(); initial.disable();
+  const ev = makeEventBuffer(pino({ level: "silent" }));
+  const transport = await baileysFactory(f.vault, (options) => {
+    assert.equal(options.syncFullHistory, false);
+    return { ev, end: async () => undefined, logout: async () => undefined };
+  }, { enabled: true, historyEnabled: false, initialHistoryEnabled: true })(f.scope, {
+    connection: () => undefined, text: () => undefined, receipt: () => undefined, failure: () => assert.fail(),
+  });
+  assert.equal(f.vault.get(f.scope)?.historyImports, undefined);
+  transport.close();
+});
+
 test("CP4 history defaults off and another scope cannot inherit import authorization; recent offline append remains continuous", async (t) => {
   const f = await fixture(t), ev = makeEventBuffer(pino({ level: "silent" })), batches: { items: SyncItem[]; historical: boolean }[] = [];
   const factory = baileysFactory(f.vault, () => ({ ev, end: async () => undefined, logout: async () => undefined }), { enabled: true, historyEnabled: true, approvedScope: `${f.other.organizationId}:${f.other.connectionId}` });
