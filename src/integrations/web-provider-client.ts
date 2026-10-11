@@ -1,3 +1,4 @@
+import type { HistoryControl } from "../../contracts/history.js";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { providerSessionSchema, providerQrSchema, providerDeliveriesSchema, signedHeaders, type ProviderSession, type ProviderQr } from "../../contracts/provider-internal.js";
@@ -6,6 +7,7 @@ export type ProviderScope = { organizationId: string; connectionId: string };
 export type InternalAction = "connect" | "refresh" | "logout";
 export type Delivery = z.infer<typeof providerDeliveriesSchema>["deliveries"][number];
 export interface WebProviderPort {
+  history?(scope: ProviderScope, control: HistoryControl): Promise<ProviderSession>;
   ready(): Promise<boolean>;
   create(scope: ProviderScope): Promise<ProviderSession>;
   session(scope: ProviderScope): Promise<ProviderSession>;
@@ -30,13 +32,14 @@ export class WebProviderClient implements WebProviderPort {
       const result: unknown = JSON.parse(Buffer.concat(chunks).toString());
       if (!response.ok) {
         const error = z.object({ error: z.object({ code: z.string() }) }).safeParse(result);
-        const code = error.success && ["QR_NOT_AVAILABLE", "SESSION_NOT_FOUND", "CONNECTIONS_DISABLED", "INVALID_SESSION_STATE", "IDEMPOTENCY_CONFLICT"].includes(error.data.error.code) ? error.data.error.code : "PROVIDER_UNAVAILABLE";
+        const code = error.success && ["HISTORY_EXECUTION_DISABLED", "HISTORY_TRANSPORT_UNAVAILABLE", "HISTORY_ANCHOR_REQUIRED", "HISTORY_OPERATION_PENDING", "HISTORY_OPERATION_MISMATCH", "INVALID_HISTORY_STATE", "IDEMPOTENCY_CONFLICT", "QR_NOT_AVAILABLE", "SESSION_NOT_FOUND", "CONNECTIONS_DISABLED", "INVALID_SESSION_STATE", "IDEMPOTENCY_CONFLICT"].includes(error.data.error.code) ? error.data.error.code : "PROVIDER_UNAVAILABLE";
         throw new WebProviderError(code, response.status);
       }
       return result;
     } catch (reason) { if (reason instanceof WebProviderError) throw reason; throw new WebProviderError("PROVIDER_UNAVAILABLE"); }
   }
   async ready() { try { const result = z.strictObject({ status: z.literal("ready"), connectionsEnabled: z.boolean() }).parse(await this.request("GET", "/health/ready")); return result.connectionsEnabled; } catch { return false; } }
+  async history(scope: ProviderScope, control: HistoryControl) { return providerSessionSchema.parse(await this.request("POST", `${prefix(scope)}/history`, control)); }
   async create(scope: ProviderScope) { return providerSessionSchema.parse(await this.request("PUT", prefix(scope))); }
   async session(scope: ProviderScope) { return providerSessionSchema.parse(await this.request("GET", prefix(scope))); }
   async command(scope: ProviderScope, action: InternalAction, commandId: string) { return providerSessionSchema.parse(await this.request("POST", `${prefix(scope)}/commands`, { action, commandId })); }

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Prisma, Contact, Conversation, Message } from "@prisma/client";
 import { parseProviderEvent, type SyncItem, type ProviderEvent } from "../../contracts/provider.js";
+import { historyRecord } from "./web-history.js";
 import { AppError } from "../domain/errors.js";
 import type { Chat } from "./chat.js";
 import { MessageIngestionService } from "./message-ingestion.js";
@@ -52,10 +53,15 @@ export class WebSync {
   async apply(scope: Scope, input: ProviderEvent, leaseToken: string) {
     const event = parseProviderEvent(input);
     if (event.type !== "sync.batch" || event.provider !== "WHATSAPP_WEB" || event.organizationId !== scope.organizationId || event.connectionId !== scope.connectionId) throw new AppError(403, "PROVIDER_EVENT_SCOPE_MISMATCH");
+    if (event.data.historical && !this.chat.historyExecutionEnabled) throw new AppError(403, "HISTORY_EXECUTION_DISABLED");
     const hash = createHash("sha256").update(JSON.stringify(event.data)).digest("hex");
     return this.chat.integrationMutation(scope.organizationId, async (tx) => {
       const connection = await tx.providerConnection.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, leaseToken, leaseUntil: { gt: new Date() }, channel: { provider: "WHATSAPP_WEB" } } });
       if (!connection) throw new AppError(409, "STALE_PROVIDER_LEASE");
+      const history = event.data.historical ? historyRecord(connection.historyOperation) : undefined;
+      const tracked = history?.id === event.correlationId ? history : undefined;
+      if (history && !tracked) throw new AppError(409, "HISTORY_OPERATION_MISMATCH");
+      const beforeProgress = syncProgress(connection.syncProgress);
       const inboxKey = { organizationId: scope.organizationId, channelId: scope.connectionId, deduplicationId: event.deduplicationId };
       const progress = syncProgress(connection.syncProgress), receipts = pendingReceipts(connection.pendingReceipts);
       progress.diagnosticsSince ??= new Date().toISOString();
@@ -66,7 +72,8 @@ export class WebSync {
       if (duplicate) {
         if (duplicate.dataHash !== hash) throw new AppError(409, "PROVIDER_IDEMPOTENCY_CONFLICT");
         progress.duplicateItems += event.data.items.length;
-        await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { syncProgress: progress, version: { increment: 1 } } });
+        if (tracked) tracked.duplicates += event.data.items.length;
+        await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { ...(tracked ? { historyOperation: tracked } : {}), syncProgress: progress, version: { increment: 1 } } });
         await this.chat.resourceEvent(tx, scope.organizationId, "provider.connection.updated", scope.connectionId);
         return false;
       }
@@ -95,8 +102,9 @@ export class WebSync {
         if (new Set(known.map((row) => row.id)).size > 1) throw new AppError(409, "IDENTITY_MAPPING_CONFLICT");
         let row = known[0], changed = false;
         if (!row) {
+          if (tracked && tracked.manifest.contacts.length >= tracked.limits.contacts) throw new AppError(409, "HISTORY_RETENTION_LIMIT");
           row = await tx.contact.upsert({ where: { organizationId_primaryIdentifier: { organizationId: scope.organizationId, primaryIdentifier: `web:${scope.connectionId}:${who.externalId}` } }, create: { organizationId: scope.organizationId, name: who.name ?? "Contato", providerName: who.name, primaryIdentifier: `web:${scope.connectionId}:${who.externalId}` }, update: {} });
-          changed = true;
+          changed = true; if (tracked && !tracked.manifest.contacts.includes(row.id)) tracked.manifest.contacts.push(row.id);
         } else if (who.name && who.name !== row.providerName && (!event.data.historical || ["Contato", "Contato WhatsApp Web"].includes(row.name))) {
           const name = row.name === row.providerName || ["Contato", "Contato WhatsApp Web"].includes(row.name) ? who.name : row.name;
           row = await tx.contact.update({ where: { organizationId_id: { organizationId: scope.organizationId, id: row.id } }, data: { providerName: who.name, name } }); changed = true;
@@ -115,8 +123,9 @@ export class WebSync {
         if (row && row.contactId !== person.id) throw new AppError(409, "IDENTITY_MAPPING_CONFLICT");
         const timestamp = item.kind === "message" ? new Date(item.occurredAt) : item.kind === "conversation" && item.lastMessageAt ? new Date(item.lastMessageAt) : new Date(0);
         if (!row) {
+          if (tracked && tracked.manifest.conversations.length >= tracked.limits.conversations) throw new AppError(409, "HISTORY_RETENTION_LIMIT");
           row = await tx.conversation.create({ data: { organizationId: scope.organizationId, channelId: scope.connectionId, contactId: person.id, providerConversationId: item.identity.externalId, lastMessageAt: timestamp } });
-          progress.conversations++; metadataChanged.add(row.id);
+          progress.conversations++; metadataChanged.add(row.id); if (tracked && !tracked.manifest.conversations.includes(row.id)) tracked.manifest.conversations.push(row.id);
         }
         if (item.kind === "conversation" && item.metadata && (!event.data.historical || row.providerMetadata === null)) {
           const metadata = { ...item.metadata, observedAt: event.occurredAt };
@@ -130,9 +139,11 @@ export class WebSync {
       };
       for (const item of event.data.items) {
         const before = { ...progress };
+        const beforeManifest = tracked ? structuredClone(tracked.manifest) : undefined;
         await tx.$executeRawUnsafe("SAVEPOINT sync_item");
         try {
           if (item.kind === "message") {
+            if (tracked && (Date.parse(item.occurredAt) < Date.parse(tracked.from) || Date.parse(item.occurredAt) > Date.parse(tracked.to))) throw new AppError(409, "HISTORY_RETENTION_LIMIT");
             if (![item.identity.externalId, ...(item.identity.aliases ?? [])].includes(item.message.providerConversationId) || item.message.sender.externalId && ![item.identity.externalId, ...(item.identity.aliases ?? [])].includes(item.message.sender.externalId)) throw new AppError(409, "PROVIDER_IDENTITY_CONFLICT");
             if (item.message.sender.origin === "WAPPHUB" || item.message.messageId || item.message.clientMessageId || item.message.sender.userId) throw new AppError(409, "UNSUPPORTED_PROVIDER_EVENT");
             if (Date.parse(item.occurredAt) > Date.now() + 86400000 || Date.parse(item.occurredAt) <= 0) throw new AppError(409, "INVALID_PROVIDER_TIMESTAMP");
@@ -151,11 +162,12 @@ export class WebSync {
               if (event.data.historical) historyChanged.add(thread.id); else await this.chat.resourceEvent(tx, scope.organizationId, "message.updated", old.id, thread.id, old.sequence);
             }
           } else {
+            if (tracked && tracked.manifest.messages.length >= tracked.limits.messages) throw new AppError(409, "HISTORY_RETENTION_LIMIT");
             const pending = receipts[receiptKey(data.providerMessageId)];
             if (pending?.chatId && ![item.identity.externalId, ...(item.identity.aliases ?? [])].includes(pending.chatId)) throw new AppError(409, "PROVIDER_IDENTITY_CONFLICT");
             const status = data.direction === "OUTBOUND" && pending ? higherStatus(data.status as PendingReceipt["status"], pending.status) : data.status as PendingReceipt["status"];
             const message = await this.ingestion.persistExternal(tx, { organizationId: scope.organizationId, channelId: scope.connectionId, conversationId: thread.id, contactId: person.id, providerMessageId: data.providerMessageId, direction: data.direction, body: data.content.originalBody ?? "", transmittedBody: data.content.transmittedBody, content: data.content, occurredAt: new Date(item.occurredAt), historical: event.data.historical, status });
-            messages.set(data.providerMessageId, message); progress.messages++;
+            messages.set(data.providerMessageId, message); progress.messages++; if (tracked && !tracked.manifest.messages.includes(message.id)) tracked.manifest.messages.push(message.id);
             delete receipts[receiptKey(data.providerMessageId)];
             if (event.data.historical) historyChanged.add(thread.id);
             else { await this.chat.resourceEvent(tx, scope.organizationId, "message.created", message.id, thread.id, message.sequence); metadataChanged.add(thread.id); }
@@ -164,17 +176,19 @@ export class WebSync {
         } catch (error) {
           if (!(error instanceof AppError) || error.status !== 409) throw error;
           await tx.$executeRawUnsafe("ROLLBACK TO SAVEPOINT sync_item"); await tx.$executeRawUnsafe("RELEASE SAVEPOINT sync_item");
+          if (tracked && beforeManifest) tracked.manifest = beforeManifest;
           Object.assign(progress, before); progress.failures++; progress.rejectedItems++; progress.lastErrorCode = safeDiagnosticCode(error.code);
           observe(progress, event, error.code, "VALIDATION", "REJECTED");
           await load();
         }
       }
+      if (tracked) { tracked.processed += progress.processedItems - beforeProgress.processedItems; tracked.duplicates += progress.duplicateItems - beforeProgress.duplicateItems; tracked.rejected += progress.rejectedItems - beforeProgress.rejectedItems; }
       progress.batches++; progress.failures += event.data.failures ?? 0; progress.lastProcessedAt = new Date().toISOString();
       progress.lastBatch = { id: event.eventId, correlationId: event.correlationId, committedAt: progress.lastProcessedAt, processedItems: progress.processedItems - initialProcessed, rejectedItems: progress.rejectedItems - initialRejected };
       if (contactsChanged) await this.chat.resourceEvent(tx, scope.organizationId, "contacts.updated", scope.connectionId);
       for (const id of historyChanged) await this.chat.resourceEvent(tx, scope.organizationId, "conversation.history.updated", id, id);
       for (const id of metadataChanged) await this.chat.resourceEvent(tx, scope.organizationId, "conversation.updated", id, id);
-      await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { syncProgress: progress, pendingReceipts: receipts, version: { increment: 1 } } });
+      await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { ...(tracked ? { historyOperation: tracked } : {}), syncProgress: progress, pendingReceipts: receipts, version: { increment: 1 } } });
       await this.chat.resourceEvent(tx, scope.organizationId, "provider.connection.updated", scope.connectionId);
       await tx.providerInbox.create({ data: { ...inboxKey, eventId: event.eventId, correlationId: event.correlationId, type: event.type, dataHash: hash } });
       return true;

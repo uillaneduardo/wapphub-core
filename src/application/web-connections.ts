@@ -6,6 +6,7 @@ import type { Chat } from "./chat.js";
 import type { WebProviderPort } from "../integrations/web-provider-client.js";
 import { WebProviderError } from "../integrations/web-provider-client.js";
 import { AppError } from "../domain/errors.js";
+import { historyRecord } from "./web-history.js";
 import { syncProgress } from "./web-sync.js";
 export type ConnectionAction = "connect" | "refresh" | "disconnect";
 export type CommandInput = { commandId: string; action: ConnectionAction; expectedVersion: number };
@@ -100,8 +101,11 @@ export class WebConnections {
       if (!record) throw new AppError(409, "STALE_PROVIDER_LEASE");
       if (view.revision < record.providerRevision) return false;
       const errorCode = unavailable ? "PROVIDER_UNAVAILABLE" : view.errorCode ?? null;
-      const changed = view.revision !== record.providerRevision || view.state !== record.state || record.errorCode !== errorCode || JSON.stringify(record.providerSync) !== JSON.stringify(view.sync ?? null) || record.pairingPhase !== (view.pairingPhase ?? null);
-      await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { state: view.state, qrRevision: view.qrRevision, providerRevision: view.revision, errorCode, lastCheckedAt: new Date(), pairingPhase: view.pairingPhase ?? null, ...(view.sync ? { providerSync: view.sync } : {}), ...(changed ? { version: { increment: 1 } } : {}) } });
+      const history = historyRecord(record.historyOperation);
+      const historyChanged = !!history && !!view.history && view.history.id === history.id && JSON.stringify(history.source) !== JSON.stringify(view.history);
+      if (historyChanged) { history!.source = view.history; history!.state = view.history!.state; }
+      const changed = historyChanged || view.revision !== record.providerRevision || view.state !== record.state || record.errorCode !== errorCode || JSON.stringify(record.providerSync) !== JSON.stringify(view.sync ?? null) || record.pairingPhase !== (view.pairingPhase ?? null);
+      await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { ...(historyChanged ? { historyOperation: history } : {}), state: view.state, qrRevision: view.qrRevision, providerRevision: view.revision, errorCode, lastCheckedAt: new Date(), pairingPhase: view.pairingPhase ?? null, ...(view.sync ? { providerSync: view.sync } : {}), ...(changed ? { version: { increment: 1 } } : {}) } });
       await tx.channel.update({ where: { organizationId_id: { organizationId: scope.organizationId, id: scope.connectionId } }, data: { status: view.state === "CONNECTED" ? "ENABLED" : "DISABLED" } });
       if (changed) await this.chat.resourceEvent(tx, scope.organizationId, "provider.connection.updated", scope.connectionId);
       return changed;

@@ -15,6 +15,7 @@ const schema = z.object({
     .regex(/^[a-zA-Z0-9_-]+$/)
     .default("1"),
   PROVIDER_WEB_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+  PROVIDER_HISTORY_EXECUTION_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   PROVIDER_WEB_URL: z.string().url().default("http://provider-web:3000"),
   PROVIDER_WEB_KEY_FILE: z.string().default("/run/secrets/provider_web_key"),
   SESSION_ABSOLUTE_SECONDS: z.coerce.number().int().min(60).default(43200),

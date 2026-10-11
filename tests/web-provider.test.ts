@@ -1,7 +1,7 @@
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { Redis } from "ioredis";
 import WebSocket from "ws";
 import { buildApp } from "../src/http/app.js";
@@ -10,6 +10,14 @@ import { digest, newToken, hashPassword } from "../src/infrastructure/crypto.js"
 import { Chat } from "../src/application/chat.js";
 import { DemoProvider } from "../src/integrations/demo-provider.js";
 import { MessageIngestionService } from "../src/application/message-ingestion.js";
+import { WebHistory } from "../src/application/web-history.js";
+import { HistoryImporter } from "../services/wapphub-provider-web/src/history-operation.js";
+import { Vault } from "../services/wapphub-provider-web/src/vault.js";
+import { EventJournal } from "../services/wapphub-provider-web/src/events.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomBytes } from "node:crypto";
 import { WebConnections } from "../src/application/web-connections.js";
 import { syncProgress, recordSyncFailure } from "../src/application/web-sync.js";
 import { WebIngestion } from "../src/application/web-ingestion.js";
@@ -19,7 +27,7 @@ import { providerDeduplicationId, parseProviderEvent, type ProviderEvent, type S
 import type { ProviderSession, ProviderQr } from "../contracts/provider-internal.js";
 import { chatPermissions } from "../src/domain/chat.js";
 if (process.env.NODE_ENV !== "test" || !new URL(process.env.DATABASE_URL!).pathname.endsWith("_test")) throw new Error("Web provider tests require isolated test infrastructure");
-const config = loadConfig({ ...process.env, NODE_ENV: "test", WEB_ORIGINS: "https://web-client.example.test", PROVIDER_WEB_ENABLED: "true" });
+const config = loadConfig({ ...process.env, NODE_ENV: "test", WEB_ORIGINS: "https://web-client.example.test", PROVIDER_WEB_ENABLED: "true", PROVIDER_HISTORY_EXECUTION_ENABLED: "true" });
 const db = new PrismaClient(), redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: 1 }); redis.on("error", () => {});
 const origin = config.origins[0]!;
 class FakeProvider implements WebProviderPort {
@@ -29,6 +37,12 @@ class FakeProvider implements WebProviderPort {
   async create(scope: ProviderScope) { this.calls.push("create"); if (!this.views.has(scope.connectionId)) this.views.set(scope.connectionId, { state: "DISCONNECTED", revision: 0, qrRevision: 0, attempts: 0, connectEnabled: true }); return this.session(scope); }
   async session(scope: ProviderScope) { if (this.fail) throw new WebProviderError("PROVIDER_UNAVAILABLE"); const view = this.views.get(scope.connectionId); if (!view) throw new WebProviderError("SESSION_NOT_FOUND", 404); return view; }
   async command(scope: ProviderScope, action: InternalAction) { this.calls.push(action); const old = await this.session(scope); const view: ProviderSession = { ...old, state: action === "logout" ? "LOGGED_OUT" : "CONNECTING", revision: old.revision + 1 }; this.views.set(scope.connectionId, view); return view; }
+  async history(scope: ProviderScope, control: import("../contracts/history.js").HistoryControl) {
+    this.calls.push(`history_${control.action}`); const view = await this.session(scope);
+    if (control.action === "prepare") { const spec = control.spec!; view.history = { id: spec.id, state: "PREPARED", from: spec.from, to: spec.to, limits: spec.limits, contacts: 0, conversations: 0, messages: 0, requests: 0, duplicates: 0, failures: 0, limited: false, queued: 0 }; }
+    else if (view.history) view.history.state = control.action === "cancel" ? "CANCELLED" : control.action === "pause" ? "PAUSED" : "RUNNING";
+    return view;
+  }
   async qr() { await this.qrHook?.(); if (this.fail) throw new WebProviderError("PROVIDER_UNAVAILABLE"); return this.qrValue; }
   async pull(scope: ProviderScope) { return this.events.filter((item) => item.event.connectionId === scope.connectionId); }
   async ack(_scope: ProviderScope, eventId: string) { this.acked.push(eventId); this.events = this.events.filter((item) => item.event.eventId !== eventId); }
@@ -461,4 +475,61 @@ test("unready provider metadata is refreshed without commands or reconnection; d
   const page = (await request(owner, "GET", "/providers/WHATSAPP_WEB/diagnostics?kind=ERRORS&component=PROVIDER&stage=QUEUE")).json(); assert.equal(page.items.length, 1); assert.equal(page.items[0].id, faultId); assert.equal(page.items[0].code, "SYNC_BACKPRESSURE"); assert.equal(page.items[0].attempts, 1);
   await request(other, "GET", `/providers/WHATSAPP_WEB/diagnostics/${faultId}`, undefined, 404);
  } finally { provider.unready = false; provider.views.set(channelId, previous); await worker.runConnection(scope()); }
+});
+
+test("CP4.6 administrative history API proves tenant/RBAC/CSRF, bounded prepare and no network dispatch", async () => {
+ const historyRoute = `${route}/${channelId}/history`;
+ await state("CONNECTED", 999, 2);
+ const tenant = await auth(orgB, [...chatPermissions, "providers.manage", "providers.diagnostics.read"]);
+ await request(tenant, "GET", historyRoute, undefined, 404); await request(manager, "GET", historyRoute, undefined, 403); await request(denied, "GET", historyRoute, undefined, 403);
+ const missingCsrf = await app.inject({ method: "POST", url: `/api/v1${historyRoute}/prepare`, headers: { origin, cookie: owner.cookie }, payload: { commandId: randomUUID(), expectedVersion: (await current()).version } }); assert.equal(missingCsrf.statusCode, 403);
+ await request(owner, "POST", `${historyRoute}/prepare`, { commandId: randomUUID(), expectedVersion: (await current()).version, messages: 1001 }, 400);
+ const id = randomUUID(), version = (await current()).version;
+ const first = (await request(owner, "POST", `${historyRoute}/prepare`, { commandId: id, expectedVersion: version, messages: 20 })).json(); assert.equal(first.operation.state, "PREPARED");
+ await request(owner, "POST", `${historyRoute}/prepare`, { commandId: id, expectedVersion: version, messages: 20 }); await request(owner, "POST", `${historyRoute}/prepare`, { commandId: id, expectedVersion: version, messages: 21 }, 409);
+ const command = await db.providerCommand.findUniqueOrThrow({ where: { id } }); assert.equal(command.action, "history_prepare");
+ const payload = command.payload as { spec: { anchors: { chatId: string }[] } }; assert.ok(payload.spec.anchors.length > 0 && payload.spec.anchors.length <= 16);
+ const response = await request(owner, "GET", historyRoute); assert.equal(response.headers["cache-control"], "no-store, private"); assert.ok(!response.body.includes("anchors") && !response.body.includes("@lid") && !response.body.includes("manifest") && !response.body.includes("sessionId"));
+ const calls = provider.calls.length; await worker.runConnection(scope()); assert.deepEqual(provider.calls.slice(calls), ["history_prepare"]); assert.equal((await current()).uiState, "CONNECTED");
+ const row = await db.session.findUniqueOrThrow({ where: { id: owner.sessionId }, include: { user: true } }), principal = { session: row, user: row.user };
+ const disabledChat = new Chat(db, loadConfig({ ...process.env, NODE_ENV: "test", PROVIDER_HISTORY_EXECUTION_ENABLED: "false" }), async () => {}, new DemoProvider(), new MessageIngestionService());
+ const disabled = new WebHistory(db, disabledChat, false);
+ await assert.rejects(disabled.control(principal, channelId, { commandId: randomUUID(), operationId: id, action: "start", expectedVersion: (await current()).version }), /HISTORY_EXECUTION_DISABLED/);
+ await leased((token) => assert.rejects(new WebIngestion(disabledChat).apply(scope(), { ...syncBatch([syncMessage("blocked@lid", "blocked")]), correlationId: id }, token), /HISTORY_EXECUTION_DISABLED/));
+ await request(owner, "POST", `${historyRoute}/commands`, { commandId: randomUUID(), operationId: id, action: "cancel", expectedVersion: (await current()).version }); await worker.runConnection(scope());
+ assert.equal((await request(owner, "GET", historyRoute)).json().operation.state, "CANCELLED");
+});
+
+test("CP4.6 synthetic producer to journal to SQL to websocket creates an old unassigned conversation without new messages", async () => {
+ const directory = await mkdtemp(join(tmpdir(), "cp46-chain-")), key = randomBytes(32), vault = new Vault(directory, key); await vault.initialize();
+ const s = { id: randomUUID(), from: new Date(Date.now() - 30 * 86400000).toISOString(), to: new Date().toISOString(), limits: { contacts: 500, conversations: 500, messages: 20 }, anchors: [{ chatId: "known@lid", messageId: "known", fromMe: false, timestamp: Date.now() }] };
+ let requests = 0; const importer = new HistoryImporter(vault, scope(), async () => { requests++; return "synthetic-request"; }, async () => [], true), journal = new EventJournal(vault);
+ const historyRoute = `${route}/${channelId}/history`, reader = await auth(orgA, ["conversations.read", "messages.read"]);
+ const checkpoint = String((await db.realtimeEvent.findFirst({ orderBy: { id: "desc" } }))?.id ?? 0), frames: string[] = [], ws = new WebSocket(baseUrl.replace("http", "ws") + "/api/v1/realtime?lastEventId=" + checkpoint, { headers: { origin, cookie: reader.cookie } }); ws.on("message", (data) => frames.push(String(data)));
+ await new Promise<void>((resolve, reject) => { ws.once("open", resolve); ws.once("error", reject); });
+ try {
+  await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { historyOperation: { ...s, actorUserId: owner.userId, sessionId: owner.sessionId, state: "RUNNING", manifest: { contacts: [], conversations: [], messages: [] }, processed: 0, duplicates: 0, rejected: 0, createdAt: s.to } } });
+  await importer.command({ commandId: s.id, operationId: s.id, action: "prepare", spec: s }); await importer.command({ commandId: randomUUID(), operationId: s.id, action: "start" });
+  while (!requests) await new Promise((resolve) => setTimeout(resolve, 10));
+  const old = new Date(Date.now() - 2 * 86400000).toISOString();
+  await importer.receive([{ kind: "contact", identity: { externalId: "metadata46@lid", name: "Synthetic old contact" } }, { kind: "conversation", identity: { externalId: "metadata46@lid" }, lastMessageAt: old, metadata: { archived: false, unreadCount: 1 } }]);
+  while (!vault.metrics().syncQueued) await new Promise((resolve) => setTimeout(resolve, 10));
+  const deliveries = await journal.pull(scope(), 20);
+  for (const d of deliveries) { await leased((token) => ingestion.apply(scope(), d.event, token)); await journal.ack(scope(), d.event.eventId, d.leaseId); }
+  const thread = await db.conversation.findFirstOrThrow({ where: { channelId, providerConversationId: "metadata46@lid" } }); assert.equal(thread.assignedUserId, null); assert.equal(thread.lastMessageAt.toISOString(), old); assert.equal(await db.message.count({ where: { conversationId: thread.id } }), 0);
+  const deadline = Date.now() + 4000; while (!frames.some((f) => f.includes(thread.id) && f.includes("conversation.updated")) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(frames.some((f) => f.includes(thread.id) && f.includes("conversation.updated"))); assert.ok(!frames.some((f) => f.includes(thread.id) && f.includes("message.created")));
+  assert.ok((await request(reader, "GET", "/conversations?scope=unassigned")).json().items.some((c: { id: string }) => c.id === thread.id));
+  const manifest = (await request(owner, "GET", historyRoute)).json().operation; assert.equal(manifest.persisted.contacts, 1); assert.equal(manifest.persisted.conversations, 1); assert.equal(manifest.persisted.messages, 0);
+  const item = syncMessage("metadata46@lid", "cp46-original-device", old, true), batch = { ...syncBatch([item]), correlationId: s.id };
+  await leased(async (token) => { await ingestion.apply(scope(), batch, token); await ingestion.apply(scope(), batch, token); });
+  class BrokenHistory extends MessageIngestionService { override async persistExternal(): Promise<never> { throw new Error("synthetic CP46 database outage"); } }
+  const failedBatch = { ...syncBatch([syncMessage("metadata46@lid", "cp46-retry", old)]), correlationId: s.id };
+  await leased((token) => assert.rejects(new WebIngestion(chat, new BrokenHistory()).apply(scope(), failedBatch, token), /database outage/));
+  assert.equal((await request(owner, "GET", historyRoute)).json().operation.persisted.messages, 1);
+  assert.equal(await db.providerInbox.count({ where: { channelId, deduplicationId: failedBatch.deduplicationId } }), 0);
+  await leased((token) => ingestion.apply(scope(), failedBatch, token));
+  const message = await db.message.findFirstOrThrow({ where: { channelId, providerMessageId: "cp46-original-device" } }); assert.equal(message.createdAt.toISOString(), old); assert.equal(message.senderUserId, null); assert.equal(message.body, "  *Maria:* conteúdo original\n😀  ");
+  const final = (await request(owner, "GET", historyRoute)).json().operation; assert.equal(final.persisted.messages, 2); assert.equal(final.duplicates, 1); assert.equal(requests, 1);
+ } finally { importer.close(); ws.close(); await rm(directory, { recursive: true, force: true }); await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { historyOperation: Prisma.JsonNull } }); delete provider.views.get(channelId)?.history; }
 });
