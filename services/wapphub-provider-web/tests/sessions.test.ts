@@ -134,3 +134,12 @@ test("bounded actor saturation records one scoped failure, preserves auth, and i
  await f.sessions.settle(f.scope); assert.equal(f.sessions.metrics().active, 0); assert.equal(f.sessions.ready(), true); assert.equal(f.sessions.view(f.scope).errorCode, "SYNC_BACKPRESSURE"); assert.equal(f.vault.get(f.scope)?.auth, "SYNTHETIC_AUTH"); assert.equal(f.stats().starts, 1);
  assert.equal(f.logs.filter((x) => x === "SYNC_BACKPRESSURE").length, 1); assert.equal(f.logs.includes("SYNTHETIC_PRIVATE_BODY"), false);
 });
+
+test("capacity failure in one tenant cannot become a global storage failure when another session opens", async (t) => {
+ const f = await fixture(t); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID());
+ await f.vault.update(f.scope, (r) => { r.events = Array.from({ length: 512 }, () => structuredClone(r.events[0]!)); });
+ await f.callbacks[0]!.connection({ state: "open" }); assert.equal(f.sessions.view(f.scope).state, "FAILED"); assert.equal(f.sessions.ready(), true);
+ await f.sessions.create(f.other); await f.sessions.command(f.other, "connect", randomUUID()); await f.callbacks[1]!.connection({ state: "open" });
+ assert.equal(f.sessions.view(f.other).state, "CONNECTED"); assert.equal(f.sessions.view(f.scope).errorCode, "EVENT_QUEUE_FULL"); assert.equal(f.sessions.ready(), true); assert.equal(f.sessions.metrics().active, 1);
+ assert.equal(f.vault.get(f.other)?.processingFailure, undefined); assert.equal(f.vault.get(f.scope)?.processingFailure?.code, "EVENT_QUEUE_FULL");
+});
