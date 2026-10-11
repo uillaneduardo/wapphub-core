@@ -37,6 +37,7 @@ pelo próprio SDK sem os limites por operação do WappHub.
   notificações. Referências armazenadas têm limites individuais e cumulativos.
   Dados acima desses limites são recusados com diagnóstico de sincronização
   parcial, não com alocação ilimitada.
+- Uma resposta ON_DEMAND já recebida, com referência criptografada retida e erro de tamanho, pode ser redecodificada dentro dos novos limites sem reenviar a solicitação ao WhatsApp. Sem referência persistida, a recuperação não pode ser presumida.
 - `PROVIDER_INITIAL_HISTORY_ENABLED` pode ser desabilitada operacionalmente
   sem desligar a sincronização contínua.
 
