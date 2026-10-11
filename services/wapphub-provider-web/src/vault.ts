@@ -3,6 +3,7 @@ import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promis
 import { join } from "node:path";
 import { z } from "zod";
 import { parseProviderEvent, type ProviderEvent, type SyncItem } from "../../../contracts/provider.js";
+import type { HistoryOperation } from "./history-operation.js";
 import type { ProviderSync } from "../../../contracts/provider-internal.js";
 import { ServiceError } from "./errors.js";
 import { Serial } from "./serial.js";
@@ -17,8 +18,9 @@ export type Session = Scope & {
   events: Delivery[]; dedup: string[]; commands: { id: string; digest: string }[];
   pairingPhase?: string;
   processingFailure?: NonNullable<ProviderSync["processingFailure"]>;
+  historyOperation?: HistoryOperation;
   historyImports?: { downloads: number; decodedBytes: number; seen: string[] };
-  sync?: ProviderSync & { pending: { item: SyncItem; historical: boolean }[]; complete: boolean; startedAt: number; historyContacts: number; historyConversations: number; historyMessages: number; historyIdentities?: string[][] };
+  sync?: ProviderSync & { pending: { item: SyncItem; historical: boolean; operationId?: string }[]; complete: boolean; startedAt: number; historyContacts: number; historyConversations: number; historyMessages: number; historyIdentities?: string[][] };
 };
 const filename = (scope: Scope) => createHash("sha256").update(JSON.stringify([scope.organizationId, scope.connectionId])).digest("hex");
 const MAX_RECORD_BYTES = 8 * 1024 * 1024;

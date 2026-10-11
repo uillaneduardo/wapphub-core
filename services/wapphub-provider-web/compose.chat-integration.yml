@@ -6,3 +6,4 @@ services:
       PROVIDER_SYNC_ENABLED: 'true'
       # Extensive real import requires a separately authorized bounded operation.
       PROVIDER_HISTORY_ENABLED: 'false'
+      PROVIDER_HISTORY_EXECUTION_ENABLED: 'false'

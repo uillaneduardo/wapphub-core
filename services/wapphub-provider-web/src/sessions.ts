@@ -4,6 +4,8 @@ import { appendRecordEvent, envelope, EventJournal } from "./events.js";
 import { ServiceError } from "./errors.js";
 import { Serial } from "./serial.js";
 import type { ConnectionUpdate, Transport, TransportFactory } from "./transport.js";
+import { historyView } from "./history-operation.js";
+import type { HistoryControl } from "../../../contracts/history.js";
 import { Vault, type Scope, type State } from "./vault.js";
 
 type Actor = { serial: Serial; generation: number; socket?: Transport; cancel?: () => void; deadline?: () => void; failureCode?: string; storageFailed?: boolean; recoveryStarts?: number; qr?: { value: string; expiresAt: number; revision: number } };
@@ -37,6 +39,7 @@ export class Sessions {
     const actor = this.actors.get(scopeKey(scope));
     const queued = (sync?.pending.length ?? 0) + record.events.reduce((sum, entry) => sum + (entry.event.type === "sync.batch" ? entry.event.data.items.length : 0), 0);
     return { state: actor?.failureCode ? "FAILED" as const : record.state, revision: record.revision, qrRevision: record.qrRevision, attempts: record.attempts, errorCode: actor?.failureCode ?? record.errorCode, connectEnabled: this.connectEnabled,
+      ...(record.historyOperation ? { history: historyView(record.historyOperation, (record.sync?.pending.filter((x) => x.operationId === record.historyOperation!.id).length ?? 0) + record.events.reduce((n, e) => n + (e.event.type === "sync.batch" && e.event.correlationId === record.historyOperation!.id ? e.event.data.items.length : 0), 0)) } : {}),
       ...(record.pairingPhase ? { pairingPhase: record.pairingPhase } : {}),
       ...(sync ? { sync: { activeTransport: Boolean(actor?.socket), ...(record.processingFailure ? { processingFailure: record.processingFailure } : {}), historyEnabled: this.historyEnabled(scope), phase: record.events.some((entry) => entry.dead) || sync.failures || sync.limited || sync.diagnostics?.rejected ? "PARTIAL" : sync.complete && queued === 0 ? "PROCESSED" : sync.phase, queued, contacts: sync.contacts, conversations: sync.conversations, messages: sync.messages, failures: sync.failures + record.events.filter((entry) => entry.dead).length, limited: sync.limited, durationMs: sync.durationMs, ...(sync.diagnostics ? { diagnostics: sync.diagnostics } : {}) } } : {}) };
   }
@@ -243,6 +246,11 @@ export class Sessions {
       if (record.desired && this.connectEnabled) await actor.serial.run(() => this.start(scope, actor));
       else if (!["DISCONNECTED", "LOGGED_OUT", "FAILED"].includes(record.state)) await this.transition(scope, "DISCONNECTED");
     }
+  }
+  async history(scope: Scope, control: HistoryControl) {
+    const actor = this.actor(scope);
+    if (!actor.socket?.history || this.view(scope).state !== "CONNECTED") throw new ServiceError("HISTORY_TRANSPORT_UNAVAILABLE", 409);
+    await actor.socket.history(control); return this.view(scope);
   }
   async settle(scope: Scope) { await this.actor(scope).serial.run(async () => undefined); }
   ready() { return !this.stopping && !this.failedStorage; }
