@@ -504,6 +504,7 @@ test("OpenAPI preserves every foundation and M1 route and adds M2.1 permissions 
     "/providers/whatsapp-web/connections/{id}/commands",
     "/providers/whatsapp-web/connections/{id}/history",
     "/providers/whatsapp-web/connections/{id}/history/prepare",
+    "/providers/whatsapp-web/connections/{id}/history/authorization",
     "/providers/whatsapp-web/connections/{id}/history/commands",
     "/providers/whatsapp-web/connections/{id}/qr",
     "/providers/{provider}/diagnostics",

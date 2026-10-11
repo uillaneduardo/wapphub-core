@@ -53,7 +53,7 @@ export async function encryptedAuth(vault: Vault, scope: Scope, failure: () => v
     return { state: { creds, keys }, saveCreds, disable: (revoke = false) => { closed = true; revoked ||= revoke; }, isDisabled: () => closed };
 }
 type SocketCreator = (options: Parameters<typeof makeWASocket>[0]) => Pick<ReturnType<typeof makeWASocket>, "ev" | "end" | "logout"> & Partial<Pick<ReturnType<typeof makeWASocket>, "fetchMessageHistory">>;
-export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; historyExecutionEnabled?: boolean } = { enabled: false, historyEnabled: false }): TransportFactory {
+export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; historyExecutionEnabled?: boolean; scopedHistoryAuthorization?: boolean } = { enabled: false, historyEnabled: false }): TransportFactory {
   return async (scope, callbacks) => {
     const historyEnabled = syncOptions.historyEnabled && syncOptions.approvedScope === `${scope.organizationId}:${scope.connectionId}`;
     if (syncOptions.linkedRecoveryOnly) {
@@ -78,10 +78,11 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       const notification = JSON.parse(reference, BufferJSON.reviver) as proto.Message.IHistorySyncNotification;
       const op = vault.get(scope)?.historyOperation; if (!op) throw new ServiceError("HISTORY_OPERATION_MISMATCH", 409);
       const { history, decodedBytes } = await readBoundedHistory(notification, downloads.signal, op);
+      if (history.syncType !== proto.HistorySync.HistorySyncType.ON_DEMAND) throw new ServiceError("HISTORY_RESPONSE_MISMATCH", 409);
       // The durable file receipt prevents replays from spending admission twice.
       await vault.update(scope, (record) => { const current = record.historyOperation; if (!current || current.id !== op.id || current.reference !== reference) throw new ServiceError("HISTORY_OPERATION_MISMATCH", 409); if (current.decodedReference !== createHash("sha256").update(reference).digest("hex")) { current.decodedBytes = (current.decodedBytes ?? 0) + decodedBytes; current.decodedReference = createHash("sha256").update(reference).digest("hex"); } if ((current.decodedBytes ?? 0) > 32 * 1024 * 1024) throw new ServiceError("HISTORY_BYTE_LIMIT", 413); });
       return selectHistory(scope, history, op);
-    }, syncOptions.historyExecutionEnabled === true && syncOptions.approvedScope === `${scope.organizationId}:${scope.connectionId}`);
+    }, syncOptions.historyExecutionEnabled === true && (syncOptions.scopedHistoryAuthorization === true || syncOptions.approvedScope === `${scope.organizationId}:${scope.connectionId}`), Date.now, syncOptions.scopedHistoryAuthorization === true);
     await importer.recover();
     socket.ev.on("creds.update", (update) => {
       if (auth.isDisabled()) return;
@@ -119,6 +120,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
     socket.ev.on("lid-mapping.update", ({ lid, pn }) => submit([{ id: pn, lid }], (value) => diagnoseIdentity(value, () => normalizeContact(value)), false, false, "IDENTITY_MAPPING"));
     const processHistory = async (data: BaileysEventMap["messaging-history.set"]) => {
       if (importer.accepting) {
+        if (importer.current?.authorization) return; // controlled operations use correlated self-only notifications
         const op = importer.current!;
         const items = [...data.contacts.slice(0, 500).map(normalizeContact), ...data.chats.slice(0, 500).map(normalizeConversation), ...data.messages.slice(0, 1000).map((m) => normalizeSyncMessage(scope, m))].filter((x): x is SyncItem => !!x);
         await importer.receive(items.filter((x) => x.kind !== "message" || Date.parse(x.occurredAt) >= Date.parse(op.from) && Date.parse(x.occurredAt) <= Date.parse(op.to))); return;
@@ -143,7 +145,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
         for (const message of update.messages.slice(0, 250)) {
           const notification = normalizeMessageContent(message.message)?.protocolMessage?.historySyncNotification;
           if (notification && message.key.fromMe && importer.accepting) {
-            if (notification.peerDataRequestSessionId && notification.peerDataRequestSessionId !== importer.current?.requestId) continue;
+            if (!notification.peerDataRequestSessionId || notification.peerDataRequestSessionId !== importer.current?.requestId) continue;
             // Persist only the bounded encrypted download reference, never a raw message.
             const minimal = { initialHistBootstrapInlinePayload: notification.initialHistBootstrapInlinePayload, fileLength: notification.fileLength, directPath: notification.directPath, mediaKey: notification.mediaKey, fileSha256: notification.fileSha256 };
             const reference = JSON.stringify(minimal, BufferJSON.replacer);

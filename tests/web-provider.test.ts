@@ -10,7 +10,7 @@ import { digest, newToken, hashPassword } from "../src/infrastructure/crypto.js"
 import { Chat } from "../src/application/chat.js";
 import { DemoProvider } from "../src/integrations/demo-provider.js";
 import { MessageIngestionService } from "../src/application/message-ingestion.js";
-import { WebHistory } from "../src/application/web-history.js";
+import { WebHistory, selectHistoryAnchors } from "../src/application/web-history.js";
 import { HistoryImporter } from "../services/wapphub-provider-web/src/history-operation.js";
 import { Vault } from "../services/wapphub-provider-web/src/vault.js";
 import { EventJournal } from "../services/wapphub-provider-web/src/events.js";
@@ -45,7 +45,7 @@ class FakeProvider implements WebProviderPort {
   }
   async qr() { await this.qrHook?.(); if (this.fail) throw new WebProviderError("PROVIDER_UNAVAILABLE"); return this.qrValue; }
   async pull(scope: ProviderScope) { return this.events.filter((item) => item.event.connectionId === scope.connectionId); }
-  async ack(_scope: ProviderScope, eventId: string) { this.acked.push(eventId); this.events = this.events.filter((item) => item.event.eventId !== eventId); }
+  async ack(_scope: ProviderScope, eventId: string, _lease?: string) { void _lease; this.acked.push(eventId); this.events = this.events.filter((item) => item.event.eventId !== eventId); }
   async nack(_scope: ProviderScope, eventId: string) { this.nacked.push(eventId); }
 }
 const provider = new FakeProvider(), app = await buildApp(config, db, redis, false, undefined, provider);
@@ -532,4 +532,64 @@ test("CP4.6 synthetic producer to journal to SQL to websocket creates an old una
   const message = await db.message.findFirstOrThrow({ where: { channelId, providerMessageId: "cp46-original-device" } }); assert.equal(message.createdAt.toISOString(), old); assert.equal(message.senderUserId, null); assert.equal(message.body, "  *Maria:* conteúdo original\n😀  ");
   const final = (await request(owner, "GET", historyRoute)).json().operation; assert.equal(final.persisted.messages, 2); assert.equal(final.duplicates, 1); assert.equal(requests, 1);
  } finally { importer.close(); ws.close(); await rm(directory, { recursive: true, force: true }); await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { historyOperation: Prisma.JsonNull } }); delete provider.views.get(channelId)?.history; }
+});
+
+test("CP4.7 anchor discovery selects oldest eligible in-window message rather than an older unusable anchor", async () => {
+ const organizationId = (await db.organization.create({ data: { name: "Synthetic isolated anchors" } })).id;
+ const localChannel = await db.channel.create({ data: { organizationId, provider: "WHATSAPP_WEB" } });
+ const person = await db.contact.create({ data: { organizationId, name: "Synthetic", primaryIdentifier: "anchor-isolated@lid" } });
+ const thread = await db.conversation.create({ data: { organizationId, channelId: localChannel.id, contactId: person.id, providerConversationId: "anchor-isolated@lid" } });
+ const recent = new Date(Date.now() - 86400000);
+ try {
+  await db.message.createMany({ data: [{ providerMessageId: "outside", createdAt: new Date(Date.now() - 31 * 86400000) }, { providerMessageId: "eligible", createdAt: recent }].map((m) => ({ ...m, organizationId, channelId: localChannel.id, conversationId: thread.id, direction: "INBOUND", body: "synthetic reference" })) });
+  const anchors = await db.$transaction((tx) => selectHistoryAnchors(tx, { organizationId, connectionId: localChannel.id }, new Date(Date.now() - 30 * 86400000).toISOString()));
+  assert.deepEqual(anchors, [{ chatId: "anchor-isolated@lid", messageId: "eligible", fromMe: false, timestamp: recent.getTime() }]);
+ } finally {
+  await db.message.deleteMany({ where: { organizationId } }); await db.conversation.deleteMany({ where: { organizationId } }); await db.contact.deleteMany({ where: { organizationId } }); await db.channel.deleteMany({ where: { organizationId } }); await db.organization.delete({ where: { id: organizationId } });
+ }
+});
+
+test("CP4.7 activation API drives durable Worker, real journal and SQL without an active browser session", async () => {
+ await state("CONNECTED", 2000, 2);
+ const historyRoute = `${route}/${channelId}/history`, admin = await auth(orgA, [...chatPermissions, "providers.manage", "providers.diagnostics.read"]);
+ const directory = await mkdtemp(join(tmpdir(), "cp47-chain-")), vault = new Vault(directory, randomBytes(32)); await vault.initialize();
+ let requests = 0;
+ const importer = new HistoryImporter(vault, scope(), async () => { requests++; return "synthetic-47"; }, async () => [], true, Date.now, true), journal = new EventJournal(vault);
+ const original = { history: provider.history, session: provider.session, pull: provider.pull, ack: provider.ack };
+ const view = provider.views.get(channelId)!;
+ const sourceView = () => { const op = importer.current; return { ...view, ...(op ? { history: { id: op.id, state: op.state, from: op.from, to: op.to, limits: op.limits, contacts: op.contacts, conversations: op.conversations, messages: op.messages, requests: op.requests, duplicates: op.duplicates, failures: op.failures, limited: op.limited, queued: vault.metrics().syncQueued + vault.metrics().pending, ...(op.errorCode ? { errorCode: op.errorCode } : {}) } } : {}) }; };
+ provider.history = async (_scope, control) => { await importer.command(control); return sourceView(); };
+ provider.session = async () => sourceView(); provider.pull = async () => journal.pull(scope(), 5); provider.ack = async (_scope, id, lease) => { await journal.ack(scope(), id, lease!); };
+ try {
+  await worker.runConnection(scope()); assert.equal(requests, 0); // deployment itself cannot activate
+  const payload = { commandId: randomUUID(), expectedVersion: (await current()).version, action: "enable", confirmed: true };
+  const foreign = await auth(orgB, [...chatPermissions, "providers.manage", "providers.diagnostics.read"]);
+  await request(foreign, "POST", `${historyRoute}/authorization`, payload, 404);
+  await request(manager, "POST", `${historyRoute}/authorization`, payload, 403); await request(other, "POST", `${historyRoute}/authorization`, payload, 403);
+  await request(owner, "POST", `${historyRoute}/authorization`, { ...payload, confirmed: false }, 400);
+  assert.equal((await app.inject({ method: "POST", url: `/api/v1${historyRoute}/authorization`, headers: { origin, cookie: owner.cookie }, payload })).statusCode, 403);
+  const result = (await request(owner, "POST", `${historyRoute}/authorization`, payload)).json(); assert.equal(result.operation.authorization.state, "ENABLED"); assert.equal(result.operation.limits.messages, 20); assert.equal(requests, 0);
+  await request(owner, "POST", `${historyRoute}/authorization`, payload); // replay is idempotent
+  await db.session.update({ where: { id: owner.sessionId }, data: { revokedAt: new Date(), currentOrganizationId: orgB } });
+  await worker.runConnection(scope()); await worker.runConnection(scope());
+  for (let i = 0; i < 200 && requests === 0; i++) await new Promise((resolve) => setTimeout(resolve, 10)); assert.equal(requests, 1);
+  const op = importer.current!;
+  await importer.receive([syncMessage("cp47-integration@lid", "cp47-device", new Date(Date.now() - 86400000).toISOString(), true)]);
+  for (let i = 0; i < 200 && !vault.metrics().syncQueued; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  await worker.runConnection(scope());
+  const stored = await db.message.findFirstOrThrow({ where: { organizationId: orgA, channelId, providerMessageId: "cp47-device" } }); assert.equal(stored.historical, true); assert.equal(stored.senderUserId, null);
+  assert.equal((await request(admin, "GET", historyRoute)).json().operation.persisted.messages, 1);
+  const configure = async (action: string) => request(admin, "POST", `${historyRoute}/authorization`, { commandId: randomUUID(), expectedVersion: (await request(admin, "GET", historyRoute)).json().version, action, confirmed: true });
+  await configure("pause"); await worker.runConnection(scope()); assert.equal(importer.current?.state, "PAUSED");
+  await configure("enable"); await worker.runConnection(scope()); assert.equal(importer.current?.state, "RUNNING");
+  await db.membership.updateMany({ where: { organizationId: orgA, userId: owner.userId }, data: { status: "SUSPENDED" } });
+  await worker.runConnection(scope()); assert.equal(importer.current?.state, "PAUSED");
+  assert.equal((await request(admin, "GET", historyRoute)).json().operation.authorization.state, "DISABLED");
+  await configure("disable"); await worker.runConnection(scope()); assert.equal((await request(admin, "GET", historyRoute)).json().operation.authorization.state, "DISABLED"); assert.equal(requests, 1); assert.equal(await db.message.count({ where: { id: stored.id } }), 1);
+  assert.equal(importer.current?.id, op.id);
+ } finally {
+  await db.membership.updateMany({ where: { organizationId: orgA, userId: owner.userId }, data: { status: "ACTIVE" } });
+  await importer.close(); Object.assign(provider, original); await rm(directory, { recursive: true, force: true }); await db.session.update({ where: { id: owner.sessionId }, data: { revokedAt: null, currentOrganizationId: orgA } });
+  await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { historyOperation: Prisma.JsonNull } });
+ }
 });

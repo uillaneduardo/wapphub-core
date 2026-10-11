@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { historyControlSchema } from "../../contracts/history.js";
-import { historyPermissions, historyRecord } from "./web-history.js";
-import type { PrismaClient, Prisma } from "@prisma/client";
+import { historyPermissions, historyRecord, historyGrantValid, selectHistoryAnchors } from "./web-history.js";
+import type { Prisma, PrismaClient } from "@prisma/client";
 import type { Chat } from "./chat.js";
 import { WebConnections } from "./web-connections.js";
 import { recordSyncFailure } from "./web-sync.js";
@@ -31,14 +31,22 @@ export class WebProviderWorker {
         await this.chat.integrationMutation(scope.organizationId, async (tx) => { await this.fence(tx, scope, token); await tx.providerCommand.update({ where: { id: command.id }, data: { status: "PROCESSING", attempts: { increment: 1 } } }); });
         try {
           const session = await this.db.session.findFirst({ where: { id: command.sessionId, userId: command.actorUserId, currentOrganizationId: scope.organizationId }, include: { user: true } });
-          if (!session) throw new AppError(403, "COMMAND_AUTHORIZATION_REVOKED");
-          await this.chat.context({ session, user: session.user }, "providers.manage");
+          const row = await this.db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } } });
+          const durable = command.action.startsWith("history_") && !!historyRecord(row.historyOperation)?.authorization;
+          if (durable) {
+            const op = historyRecord(row.historyOperation);
+            const stopping = ["history_pause", "history_cancel"].includes(command.action);
+            if (!stopping && !await historyGrantValid(this.db, scope, op)) throw new AppError(403, "COMMAND_AUTHORIZATION_REVOKED");
+          } else {
+            if (!session) throw new AppError(403, "COMMAND_AUTHORIZATION_REVOKED");
+            await this.chat.context({ session, user: session.user }, "providers.manage");
+          }
           // Only explicitly requested create/connect produces a session/socket.
           let view;
           if (command.action.startsWith("history_")) {
-            for (const permission of historyPermissions) await this.chat.context({ session, user: session.user }, permission);
+            if (!durable && session) for (const permission of historyPermissions) await this.chat.context({ session, user: session.user }, permission);
             const control = historyControlSchema.parse(command.payload);
-            if (["start", "resume"].includes(control.action) && !this.chat.historyExecutionEnabled) throw new AppError(403, "HISTORY_EXECUTION_DISABLED");
+            if (["start", "resume", "reconcile"].includes(control.action) && !this.chat.historyExecutionEnabled) throw new AppError(403, "HISTORY_EXECUTION_DISABLED");
             if (!this.client.history) throw new WebProviderError("HISTORY_TRANSPORT_UNAVAILABLE", 409);
             view = await this.client.history(scope, control);
           } else {
@@ -60,9 +68,21 @@ export class WebProviderWorker {
           await this.chat.integrationMutation(scope.organizationId, async (tx) => {
             await this.fence(tx, scope, token);
             await tx.providerCommand.update({ where: { id: command.id }, data: { status: permanent || attempts >= 5 ? "FAILED" : "PENDING", errorCode: code, nextAttemptAt: new Date(Date.now() + Math.min(30_000, 1000 * 2 ** attempts)) } });
-            await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { ...(command.action.startsWith("history_") ? {} : { errorCode: code }), version: { increment: 1 } } });
+            const row = await tx.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } } });
+            const op = historyRecord(row.historyOperation);
+            if (command.action.startsWith("history_") && op?.authorization && (permanent || attempts >= 5)) {
+              op.authorization.state = code === "COMMAND_AUTHORIZATION_REVOKED" ? "DISABLED" : "PAUSED";
+              op.errorCode = code;
+            }
+            await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { ...(command.action.startsWith("history_") ? op ? { historyOperation: op } : {} : { errorCode: code }), version: { increment: 1 } } });
             await this.chat.resourceEvent(tx, scope.organizationId, "provider.connection.updated", scope.connectionId);
           });
+          // Revoke the producer immediately even when an outbox command failed
+          // before the normal active-operation check. Do not wait for its lease.
+          if (command.action.startsWith("history_") && (permanent || attempts >= 5) && this.client.history) {
+            const control = historyControlSchema.safeParse(command.payload);
+            if (control.success) await this.client.history(scope, { action: "pause", operationId: control.data.operationId, commandId: randomUUID() }).catch(() => this.onError("HISTORY_PAUSE_FAILED"));
+          }
           return;
         }
       }
@@ -70,8 +90,9 @@ export class WebProviderWorker {
       if (view.history && ["RUNNING", "WAITING", "BACKPRESSURE"].includes(view.history.state)) {
         const row = await this.db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } } });
         const op = historyRecord(row.historyOperation);
-        let authorized = this.chat.historyExecutionEnabled && op?.id === view.history.id;
-        if (authorized && op) {
+        let authorized = available && view.state === "CONNECTED" && this.chat.historyExecutionEnabled && op?.id === view.history.id;
+        if (authorized && op?.authorization) authorized = await historyGrantValid(this.db, scope, op);
+        else if (authorized && op) {
           try { const session = await this.db.session.findUniqueOrThrow({ where: { id: op.sessionId }, include: { user: true } }); for (const permission of historyPermissions) await this.chat.context({ session, user: session.user }, permission); authorized = session.currentOrganizationId === scope.organizationId; } catch { authorized = false; }
         }
         if (!authorized && this.client.history) await this.client.history(scope, { action: "pause", operationId: view.history.id, commandId: randomUUID() }).catch(() => this.onError("HISTORY_PAUSE_FAILED"));
@@ -97,6 +118,7 @@ export class WebProviderWorker {
           }
         }
       }
+      if (available) await this.coordinate(scope, token);
     } catch (error) {
       if (error instanceof AppError && error.code === "STALE_PROVIDER_LEASE") throw error;
       this.onError(error instanceof WebProviderError ? error.code : "PROVIDER_SYNC_FAILED");
@@ -112,6 +134,45 @@ export class WebProviderWorker {
     } finally {
       await this.db.providerConnection.updateMany({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, leaseToken: token }, data: { leaseToken: null, leaseUntil: null } });
     }
+  }
+  private async coordinate(scope: Scope, token: string) {
+    if (!this.chat.historyExecutionEnabled || !this.client.history) return;
+    await this.chat.integrationMutation(scope.organizationId, async (tx) => {
+      await this.fence(tx, scope, token);
+      const row = await tx.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } } });
+      const op = historyRecord(row.historyOperation), grant = op?.authorization;
+      if (!op || !grant || grant.state !== "ENABLED" || Date.parse(grant.nextCheckAt) > Date.now()) return false;
+      if (!await historyGrantValid(tx, scope, op)) {
+        grant.state = "DISABLED";
+        await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { historyOperation: op, version: { increment: 1 } } });
+        await tx.auditEvent.create({ data: { organizationId: scope.organizationId, actorUserId: op.actorUserId, action: "HISTORY_AUTHORIZATION_REVOKED", details: { connectionId: scope.connectionId, operationId: op.id } } });
+        await this.chat.resourceEvent(tx, scope.organizationId, "provider.connection.updated", scope.connectionId); return true;
+      }
+      if (row.state !== "CONNECTED" || row.errorCode || !row.lastCheckedAt || Date.now() - row.lastCheckedAt.getTime() > 15000) return false;
+      if (await tx.providerCommand.count({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, status: { in: ["PENDING", "PROCESSING"] } } })) return false;
+      const source = op.source;
+      // A grant never creates a second operation or silently replenishes quota.
+      const exhausted = !!source && (source.messages >= op.limits.messages || source.requests >= 16);
+      const uncertain = !!source?.errorCode && ["HISTORY_RESPONSE_TIMEOUT", "HISTORY_REQUEST_UNCERTAIN", "HISTORY_RESTART_UNCERTAIN"].includes(source.errorCode);
+      if (exhausted || uncertain || ["FAILED", "PARTIAL", "CANCELLED"].includes(source?.state ?? op.state)) return false;
+      const anchorCheckDue = !grant.lastAnchorCheckAt || Date.now() - Date.parse(grant.lastAnchorCheckAt) >= 300000;
+      if (source && ["COMPLETED", "NO_DATA"].includes(source.state) && !anchorCheckDue) {
+        grant.nextCheckAt = new Date(Date.parse(grant.lastAnchorCheckAt!) + 300000).toISOString();
+        await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { historyOperation: op } }); return false;
+      }
+      const authorization = { organizationId: scope.organizationId, connectionId: scope.connectionId, actorUserId: grant.actorUserId, authorizedAt: grant.authorizedAt };
+      const control = { commandId: randomUUID(), operationId: op.id, action: source?.state === "PREPARED" ? "start" : "reconcile", authorization } as import("../../contracts/history.js").HistoryControl;
+      // Discover new anchors at most every five minutes. Same bounded operation,
+      // only previously unseen conversations are admitted by the producer.
+      if (anchorCheckDue) {
+        control.spec = { id: op.id, from: op.from, to: op.to, limits: op.limits, anchors: await selectHistoryAnchors(tx, scope, op.from) };
+        grant.lastAnchorCheckAt = new Date().toISOString();
+      }
+      grant.nextCheckAt = new Date(Date.now() + 15000).toISOString();
+      await tx.providerCommand.create({ data: { id: control.commandId, organizationId: scope.organizationId, channelId: scope.connectionId, actorUserId: op.actorUserId, sessionId: op.sessionId, action: `history_${control.action}`, payload: historyControlSchema.parse(control) } });
+      await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { historyOperation: op } });
+      return false;
+    }, (changed) => changed);
   }
   async tick() {
     const connections = await this.db.providerConnection.findMany({ where: { channel: { provider: "WHATSAPP_WEB", organization: { status: "ACTIVE" } } }, take: 2, orderBy: [{ organizationId: "asc" }, { channelId: "asc" }], ...(this.cursor ? { cursor: { organizationId_channelId: this.cursor }, skip: 1 } : {}) });
