@@ -6,7 +6,7 @@ import { Serial } from "./serial.js";
 import type { ConnectionUpdate, Transport, TransportFactory } from "./transport.js";
 import { Vault, type Scope, type State } from "./vault.js";
 
-type Actor = { serial: Serial; generation: number; socket?: Transport; cancel?: () => void; deadline?: () => void; failureCode?: string; storageFailed?: boolean; qr?: { value: string; expiresAt: number; revision: number } };
+type Actor = { serial: Serial; generation: number; socket?: Transport; cancel?: () => void; deadline?: () => void; failureCode?: string; storageFailed?: boolean; recoveryStarts?: number; qr?: { value: string; expiresAt: number; revision: number } };
 type Scheduler = (callback: () => void, delay: number) => () => void;
 const defaultSchedule: Scheduler = (callback, delay) => { const timer = setTimeout(callback, delay); timer.unref(); return () => clearTimeout(timer); };
 const scopeKey = (scope: Scope) => `${scope.organizationId}:${scope.connectionId}`;
@@ -21,7 +21,7 @@ export class Sessions {
     private readonly schedule: Scheduler = defaultSchedule,
     private readonly now = Date.now,
     private readonly log: (code: string, fields?: { source: string; stage: string; count: number }) => void = () => undefined,
-    private readonly syncOptions: { enabled: boolean; historyEnabled: boolean; approvedScope?: string } = { enabled: false, historyEnabled: false },
+    private readonly syncOptions: { enabled: boolean; historyEnabled: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean } = { enabled: false, historyEnabled: false },
   ) {}
   private historyEnabled(scope: Scope) { return this.syncOptions.historyEnabled && this.syncOptions.approvedScope === scopeKey(scope); }
   private actor(scope: Scope) {
@@ -52,6 +52,7 @@ export class Sessions {
     const actor = this.actor(scope);
     return actor.serial.run(async () => {
       if (this.stopping) throw new ServiceError("SERVICE_STOPPING", 503);
+      if (this.syncOptions.linkedRecoveryOnly && action !== "connect") throw new ServiceError("LINKED_RECOVERY_ONLY", 403);
       if (["connect", "refresh"].includes(action) && !this.connectEnabled) throw new ServiceError("CONNECTIONS_DISABLED", 403);
       const digest = createHash("sha256").update(action).digest("hex");
       const record = this.vault.get(scope);
@@ -145,9 +146,17 @@ export class Sessions {
   private async start(scope: Scope, actor: Actor) {
     if (this.stopping || !this.connectEnabled || !this.vault.get(scope)?.desired) return;
     this.close(actor);
+    if (this.syncOptions.linkedRecoveryOnly) {
+      const record = this.vault.get(scope); let linked = false;
+      try { const auth = JSON.parse(record?.auth ?? "null"); linked = Boolean(auth?.me?.id && auth.registered === true); } catch { /* never log credentials */ }
+      if (!linked) { await this.transition(scope, "FAILED", "EXISTING_AUTH_REQUIRED"); return; }
+      if ((actor.recoveryStarts ?? 0) >= 3) { await this.transition(scope, "FAILED", "RECONNECT_LIMIT"); return; }
+      actor.recoveryStarts = (actor.recoveryStarts ?? 0) + 1;
+    }
     const generation = actor.generation;
     const attempts = await this.vault.update(scope, (record) => { record.attempts++; return record.attempts; });
     if (attempts > 5) {
+      if (this.syncOptions.linkedRecoveryOnly) { await this.transition(scope, "FAILED", "RECONNECT_LIMIT"); return; }
       await this.vault.update(scope, (record) => { record.desired = false; });
       await this.transition(scope, "FAILED", "RECONNECT_LIMIT"); return;
     }
@@ -178,7 +187,7 @@ export class Sessions {
       });
       actor.deadline = this.schedule(() => this.enqueue(scope, actor, generation, async () => {
         this.close(actor);
-        await this.vault.update(scope, (record) => { record.desired = false; });
+        if (!this.syncOptions.linkedRecoveryOnly) await this.vault.update(scope, (record) => { record.desired = false; });
         await this.transition(scope, "FAILED", "PAIRING_TIMEOUT");
       }), 120_000);
     } catch { await this.connection(scope, actor, { state: "close", code: 503 }); }
@@ -192,6 +201,7 @@ export class Sessions {
       });
     }
     if (update.qr) {
+      if (this.syncOptions.linkedRecoveryOnly) { this.close(actor); await this.transition(scope, "FAILED", "EXISTING_AUTH_REQUIRED"); return; }
       if (Buffer.byteLength(update.qr) > 8192) throw new ServiceError("INVALID_QR");
       const revision = await this.vault.update(scope, (record) => { record.qrRevision++; return record.qrRevision; });
       actor.qr = { value: update.qr, expiresAt: this.now() + 20_000, revision };
@@ -209,12 +219,14 @@ export class Sessions {
     const record = this.vault.get(scope);
     if (!record?.desired) return;
     if ([401, 403, 411, 440, 500].includes(update.code ?? 0)) {
+      if (this.syncOptions.linkedRecoveryOnly) { await this.transition(scope, "FAILED", update.code === 440 ? "SESSION_REPLACED" : "SESSION_REVOKED"); return; }
       await this.vault.update(scope, (current) => {
         current.desired = false;
         if (update.code === 401 || update.code === 500) { delete current.auth; current.keys = {}; }
       });
       await this.transition(scope, update.code === 401 ? "LOGGED_OUT" : "FAILED", update.code === 440 ? "SESSION_REPLACED" : "SESSION_REVOKED");
-    } else if (record.attempts >= 5) {
+    } else if (record.attempts >= 5 || this.syncOptions.linkedRecoveryOnly && (actor.recoveryStarts ?? 0) >= 3) {
+      if (this.syncOptions.linkedRecoveryOnly) { await this.transition(scope, "FAILED", "RECONNECT_LIMIT"); return; }
       await this.vault.update(scope, (current) => { current.desired = false; });
       await this.transition(scope, "FAILED", "RECONNECT_LIMIT");
     } else {
