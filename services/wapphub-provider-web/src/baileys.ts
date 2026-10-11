@@ -56,7 +56,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
     const historyEnabled = syncOptions.historyEnabled && syncOptions.approvedScope === `${scope.organizationId}:${scope.connectionId}`;
     if (syncOptions.linkedRecoveryOnly) {
       let linked = false;
-      try { const existing = JSON.parse(vault.get(scope)?.auth ?? "null"); linked = Boolean(existing?.me?.id && existing.registered === true); } catch { /* no credential logging */ }
+      try { const existing = JSON.parse(vault.get(scope)?.auth ?? "null"); linked = typeof existing?.me?.id === "string" && existing.me.id.length > 0; } catch { /* no credential logging */ }
       if (!linked) throw new ServiceError("EXISTING_AUTH_REQUIRED", 403);
     }
     const auth = await encryptedAuth(vault, scope, callbacks.failure);
@@ -71,7 +71,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
     });
     socket.ev.on("creds.update", (update) => {
       if (auth.isDisabled()) return;
-      if (syncOptions.linkedRecoveryOnly && (update.registered === false || Object.hasOwn(update, "me") && update.me?.id !== auth.state.creds.me?.id)) {
+      if (syncOptions.linkedRecoveryOnly && (Object.hasOwn(update, "me") && update.me?.id !== auth.state.creds.me?.id)) {
         auth.disable(); callbacks.connection({ state: "close", code: 401 }); return;
       }
       Object.assign(auth.state.creds, update);

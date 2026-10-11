@@ -168,3 +168,11 @@ test("linked recovery allows at most three transport attempts per process and pr
  for (let i = 0; i < 3; i++) { await f.callbacks[i]!.connection({ state: "close", code: 503 }); if (i < 2) { timers.shift()!(); await sessions.settle(f.scope); } }
  assert.equal(f.stats().starts, 3); assert.equal(sessions.view(f.scope).errorCode, "RECONNECT_LIMIT"); assert.equal(timers.length, 0); assert.equal(f.vault.get(f.scope)?.auth, auth); assert.equal(f.vault.get(f.scope)?.desired, true);
 });
+
+test("linked session recovery uses the persisted QR identity despite registered false", async (t) => {
+ const f = await fixture(t); const auth = JSON.stringify({ registered: false, me: { id: "synthetic@lid" } });
+ await f.vault.update(f.scope, (r) => { r.auth = auth; r.desired = true; });
+ const sessions = new Sessions(f.vault, f.journal, f.factory, true, undefined, undefined, undefined, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true }); t.after(() => sessions.shutdown());
+ await sessions.recover(); assert.equal(f.stats().starts, 1); await f.callbacks[0]!.connection({ state: "open" }); await sessions.settle(f.scope);
+ assert.equal(sessions.view(f.scope).state, "CONNECTED"); assert.equal(sessions.view(f.scope).qrRevision, 0); assert.equal(f.vault.get(f.scope)?.auth, auth); assert.equal(f.stats().logouts, 0);
+});
