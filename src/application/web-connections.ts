@@ -25,16 +25,19 @@ export function connectionDTO(record: ProviderConnection, command?: ProviderComm
     pairingPhase: record.pairingPhase ?? null,
     sync: { ...progress, pendingFailures: Object.keys(failedBatches).length, provider },
     operation: command ? { id: command.id, action: command.action, status: command.status, errorCode: command.errorCode } : null,
-    sendingEnabled: false, mediaEnabled: false,
+    sendingEnabled: record.outboundEnabled, mediaEnabled: record.mediaEnabled,
   };
 }
 export class WebConnections {
   constructor(private readonly db: PrismaClient, private readonly chat: Chat, readonly client?: WebProviderPort) {}
+  private dto(record: ProviderConnection, command?: ProviderCommand | null) {
+    return { ...connectionDTO(record, command), sendingEnabled: this.chat.outboundExecutionEnabled && record.outboundEnabled, mediaEnabled: this.chat.mediaExecutionEnabled && record.mediaEnabled };
+  }
   private enabled() { if (!this.client) throw new AppError(503, "PROVIDER_NOT_ENABLED"); }
   async read(p: Principal) {
     const c = await this.chat.context(p, "providers.manage"); this.enabled();
-    const record = await this.db.providerConnection.findFirst({ where: { organizationId: c.organizationId, channel: { provider: "WHATSAPP_WEB" } }, include: { commands: { orderBy: { createdAt: "desc" }, take: 1 } } });
-    return { connection: record ? connectionDTO(record, record.commands[0]) : null };
+    const record = await this.db.providerConnection.findFirst({ where: { organizationId: c.organizationId, channel: { provider: "WHATSAPP_WEB" } }, include: { commands: { where: { action: { not: "send" } }, orderBy: { createdAt: "desc" }, take: 1 } } });
+    return { connection: record ? this.dto(record, record.commands[0]) : null };
   }
   async create(p: Principal, commandId: string) {
     await this.chat.context(p, "providers.manage"); this.enabled();
@@ -42,14 +45,14 @@ export class WebConnections {
       const channel = await tx.channel.upsert({ where: { organizationId_provider: { organizationId: c.organizationId, provider: "WHATSAPP_WEB" } }, create: { organizationId: c.organizationId, provider: "WHATSAPP_WEB", status: "DISABLED" }, update: {} });
       let record = await tx.providerConnection.findUnique({ where: { organizationId_channelId: { organizationId: c.organizationId, channelId: channel.id } } });
       if (record) {
-        const last = await tx.providerCommand.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id }, orderBy: { createdAt: "desc" } });
-        return connectionDTO(record, last);
+        const last = await tx.providerCommand.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, action: { not: "send" } }, orderBy: { createdAt: "desc" } });
+        return this.dto(record, last);
       }
       record = await tx.providerConnection.create({ data: { organizationId: c.organizationId, channelId: channel.id } });
       const command = await tx.providerCommand.create({ data: { id: commandId, organizationId: c.organizationId, channelId: channel.id, actorUserId: c.userId, sessionId: p.session.id, action: "create" } });
       await tx.auditEvent.create({ data: { organizationId: c.organizationId, actorUserId: c.userId, action: "WHATSAPP_WEB_CONNECTION_CREATED", details: { channelId: channel.id, commandId } } });
       await this.chat.resourceEvent(tx, c.organizationId, "provider.connection.updated", channel.id);
-      return connectionDTO(record, command);
+      return this.dto(record, command);
     });
   }
   async command(p: Principal, id: string, input: CommandInput) {
@@ -60,7 +63,7 @@ export class WebConnections {
       const existing = await tx.providerCommand.findFirst({ where: { id: input.commandId, organizationId: c.organizationId, channelId: id } });
       if (existing) {
         if (existing.action !== input.action || existing.actorUserId !== c.userId) throw new AppError(409, "IDEMPOTENCY_CONFLICT");
-        return connectionDTO(record, existing);
+        return this.dto(record, existing);
       }
       if (record.version !== input.expectedVersion) throw new AppError(409, "CONNECTION_VERSION_CONFLICT");
       if (await tx.providerCommand.count({ where: { organizationId: c.organizationId, channelId: id, status: pending } })) throw new AppError(409, "CONNECTION_OPERATION_PENDING");
@@ -70,7 +73,7 @@ export class WebConnections {
       const updated = await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: c.organizationId, channelId: id } }, data: { version: { increment: 1 } } });
       await tx.auditEvent.create({ data: { organizationId: c.organizationId, actorUserId: c.userId, action: `WHATSAPP_WEB_${input.action.toUpperCase()}_REQUESTED`, details: { channelId: id, commandId: input.commandId } } });
       await this.chat.resourceEvent(tx, c.organizationId, "provider.connection.updated", id);
-      return connectionDTO(updated, command);
+      return this.dto(updated, command);
     });
   }
   async qr(p: Principal, id: string) {

@@ -1,0 +1,12 @@
+import { z } from "zod";
+import { mediaReferenceSchema } from "./provider.js";
+import { createHash } from "node:crypto";
+export const directJidSchema = z.string().regex(/^[1-9][0-9]{4,19}@(s\.whatsapp\.net|lid)$/);
+export const internationalPhoneSchema = z.string().regex(/^\+[1-9][0-9]{7,14}$/);
+export const resolveRecipientSchema = z.strictObject({ phone: internationalPhoneSchema });
+export const recipientResultSchema = z.strictObject({ state: z.enum(["VALID", "NOT_FOUND", "UNKNOWN"]), jid: directJidSchema.optional() }).refine(x => (x.state === "VALID") === !!x.jid);
+export const sendIntentSchema = z.strictObject({ commandId: z.uuid(), messageId: z.uuid(), providerMessageId: z.string().regex(/^[A-F0-9]{32}$/), destination: directJidSchema, body: z.string().max(8000), media: mediaReferenceSchema.optional(), expiresAt: z.iso.datetime({ offset: true }) }).refine(x => !!x.body || !!x.media);
+export type SendIntent = z.infer<typeof sendIntentSchema>;
+export const sendResultSchema = z.strictObject({ outcome: z.enum(["DISPATCHED", "UNKNOWN", "NOT_SENT"]), providerMessageId: z.string().regex(/^[A-F0-9]{32}$/), errorCode: z.string().regex(/^[A-Z][A-Z0-9_]{0,79}$/).optional() });
+export type SendResult = z.infer<typeof sendResultSchema>;
+export const intentDigest = (intent: SendIntent) => createHash("sha256").update(JSON.stringify(intent)).digest("hex");

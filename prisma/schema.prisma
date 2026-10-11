@@ -237,6 +237,7 @@ model Message {
   direction       String        @default("INTERNAL") @db.VarChar(20)
   type            String        @default("TEXT") @db.VarChar(20)
   body            String?       @db.Text
+  deliveryOutcome String?       @db.VarChar(20)
   transmittedBody String?       @db.Text
   providerOccurredAt DateTime?
   historical      Boolean       @default(false)
@@ -267,6 +268,7 @@ model Channel {
   conversations         Conversation[]
   messages              Message[]
   contactIdentities     ContactIdentity[]
+  media                 Media[]
   webConnection         ProviderConnection?
 
   @@unique([organizationId, id])
@@ -285,6 +287,8 @@ model ProviderConnection {
   pairingPhase String? @db.VarChar(24)
   providerSync Json?
   syncProgress Json?
+  outboundEnabled Boolean @default(false)
+  mediaEnabled Boolean @default(false)
   historyOperation Json?
   pendingReceipts Json?
   leaseToken String? @db.Char(36)
@@ -414,4 +418,22 @@ model RealtimeEvent {
   organization    Organization @relation(fields: [organizationId], references: [id])
 
   @@index([organizationId, id])
+}
+
+model Media {
+  id String @id @db.Char(36)
+  organizationId String @db.Char(36)
+  channelId String @db.Char(36)
+  conversationId String @db.Char(36)
+  actorUserId String @db.Char(36)
+  messageId String? @unique @db.Char(36)
+  type String @db.VarChar(20)
+  mimeType String @db.VarChar(120)
+  fileName String @db.VarChar(200)
+  size Int
+  sha256 String @db.Char(64)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  channel Channel @relation(fields: [organizationId, channelId], references: [organizationId, id], onDelete: Restrict)
+  @@index([organizationId, conversationId, expiresAt])
 }

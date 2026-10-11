@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { parseProviderEvent, providerDeduplicationId, syncItemSchema, type ProviderEvent, type SyncItem } from "../../../contracts/provider.js";
 import { ServiceError } from "./errors.js";
 import { Vault, type Scope, type Session } from "./vault.js";
-import { syncObservationSchema, type SyncObservation, type ProviderSync } from "../../../contracts/provider-internal.js";
+import { bootstrapCorrelationId, syncObservationSchema, type SyncObservation, type ProviderSync } from "../../../contracts/provider-internal.js";
 
 export const webCapabilities = Object.freeze({ contentTypes: ["TEXT"], receipts: "PROVIDER", messageDeletion: false, groups: false, unofficial: true } as const);
 export const webSyncCapabilities = Object.freeze({ ...webCapabilities, contentTypes: ["TEXT", "IMAGE", "AUDIO", "VOICE", "VIDEO", "DOCUMENT"] as const });
@@ -34,7 +34,7 @@ export class EventJournal {
     if (event.organizationId !== scope.organizationId || event.connectionId !== scope.connectionId) throw new ServiceError("EVENT_SCOPE_MISMATCH", 403);
     return this.vault.update(scope, (record) => appendRecordEvent(record, event));
   }
-  async stage(scope: Scope, items: SyncItem[], historical: boolean, historyEnabled: boolean, completed = false, failures = 0, limited = false, observation?: SyncObservation, operationId?: string, cursor?: number) {
+  async stage(scope: Scope, items: SyncItem[], historical: boolean, historyEnabled: boolean, completed = false, failures = 0, limited = false, observation?: SyncObservation, operationId?: string, cursor?: number, bootstrap?: { digest: string; next: number }) {
     if (historical && !historyEnabled) return;
     return this.vault.update(scope, (record) => {
       const op = operationId ? record.historyOperation : undefined;
@@ -57,15 +57,16 @@ export class EventJournal {
         const budget = op ? op.limits[item.kind === "contact" ? "contacts" : item.kind === "conversation" ? "conversations" : "messages"] : kind === "Messages" ? 1000 : 500;
         const key = createHash("sha256").update(JSON.stringify([item.kind, item.kind === "message" ? item.message.providerMessageId : item.identity.externalId])).digest("hex");
         if (op?.keys.includes(key)) { op.duplicates++; next++; continue; }
-        if (historical && ((op ? op[item.kind === "contact" ? "contacts" : item.kind === "conversation" ? "conversations" : "messages"] : sync[`history${kind}`]) >= budget || item.kind === "message" && (Date.parse(item.occurredAt) < (op ? Date.parse(op.from) : this.now() - 30 * 86400000) || op && Date.parse(item.occurredAt) > Date.parse(op.to)))) { sync.limited = true; if (op) op.limited = true; next++; continue; }
+        if (historical && !bootstrap && ((op ? op[item.kind === "contact" ? "contacts" : item.kind === "conversation" ? "conversations" : "messages"] : sync[`history${kind}`]) >= budget || item.kind === "message" && (Date.parse(item.occurredAt) < (op ? Date.parse(op.from) : this.now() - 30 * 86400000) || op && Date.parse(item.occurredAt) > Date.parse(op.to)))) { sync.limited = true; if (op) op.limited = true; next++; continue; }
         const identity = [item.identity.externalId, ...(item.identity.aliases ?? [])].map((id) => createHash("sha256").update(id).digest("hex"));
         const admitted = op ? op.identities ??= [] : sync.historyIdentities ??= [];
         const known = admitted.find((ids) => ids.some((id) => identity.includes(id)));
-        if (historical && !known && admitted.length >= 500) { sync.limited = true; if (op) op.limited = true; next++; continue; }
-        const entry = { item, historical, ...(operationId ? { operationId } : {}) }, size = Buffer.byteLength(JSON.stringify(entry));
+        if (historical && !bootstrap && !known && admitted.length >= 500) { sync.limited = true; if (op) op.limited = true; next++; continue; }
+        const entry = { item, historical, ...(bootstrap ? { bootstrap: true } : {}), ...(operationId ? { operationId } : {}) }, size = Buffer.byteLength(JSON.stringify(entry));
         const maxItems = historical ? 1500 : 2000, maxBytes = (historical ? 1.5 : 2) * 1024 * 1024;
         if (sync.pending.length >= maxItems || bytes + size > maxBytes) {
           if (!historical) throw new ServiceError("SYNC_BACKPRESSURE", 503);
+          if (bootstrap) { blocked = true; break; }
           if (op) { op.state = "BACKPRESSURE"; blocked = true; break; }
           sync.limited = true; sync.failures++; continue;
         }
@@ -73,9 +74,15 @@ export class EventJournal {
         if (op) { op.keys.push(key); op[item.kind === "contact" ? "contacts" : item.kind === "conversation" ? "conversations" : "messages"]++; op.lastProcessedAt = new Date(this.now()).toISOString(); }
         if (historical) {
           sync[`history${kind}`]++;
-          if (!known) admitted.push(identity); else for (const id of identity) if (!known.includes(id) && known.length < 3) known.push(id);
+          if (!known && admitted.length < 500) admitted.push(identity); else if (known) for (const id of identity) if (!known.includes(id) && known.length < 3) known.push(id);
         }
         if (item.kind === "contact") sync.contacts++; else if (item.kind === "conversation") sync.conversations++; else sync.messages++;
+      }
+      if (bootstrap && blocked) throw new ServiceError("SYNC_BACKPRESSURE", 429);
+      if (bootstrap && !blocked) {
+        const entry = record.historyImports?.pending?.find(x => x.digest === bootstrap.digest);
+        if (!entry) throw new ServiceError("HISTORY_OPERATION_MISMATCH", 409);
+        entry.cursor = bootstrap.next;
       }
       if (historical) { sync.complete ||= completed; sync.phase = sync.pending.some((entry) => entry.item.kind === "contact") ? "CONTACTS" : "MESSAGES"; }
       else if (sync.pending.length) sync.phase = sync.pending.some((entry) => entry.item.kind === "contact") ? "CONTACTS" : "MESSAGES";
@@ -92,15 +99,15 @@ export class EventJournal {
       // Live items precede historical work, with at most two batches per pull.
       sync.pending.sort((a, b) => Number(a.historical) - Number(b.historical));
       for (let batch = 0; batch < 2 && sync.pending.length; batch++) {
-        const historical = sync.pending[0]!.historical, operationId = sync.pending[0]!.operationId;
+        const historical = sync.pending[0]!.historical, operationId = sync.pending[0]!.operationId, bootstrap = sync.pending[0]!.bootstrap;
         const items: SyncItem[] = []; let bytes = 0;
         for (const entry of sync.pending) {
           const size = Buffer.byteLength(JSON.stringify(entry.item));
-          if (entry.historical !== historical || entry.operationId !== operationId || items.length === 20 || bytes + size > 48000) break;
+          if (entry.historical !== historical || entry.operationId !== operationId || entry.bootstrap !== bootstrap || items.length === 20 || bytes + size > 48000) break;
           items.push(entry.item); bytes += size;
         }
         if (!items.length) break;
-        const event = { ...envelope(scope, "sync.batch", randomUUID()), ...(operationId ? { correlationId: operationId } : {}), data: { historical, items } };
+        const event = { ...envelope(scope, "sync.batch", randomUUID()), ...(bootstrap ? { correlationId: bootstrapCorrelationId(scope) } : operationId ? { correlationId: operationId } : {}), data: { historical, items } };
         appendRecordEvent(record, event); if (sync.diagnostics) sync.diagnostics.publishedBatches++; sync.pending.splice(0, items.length);
       }
     });

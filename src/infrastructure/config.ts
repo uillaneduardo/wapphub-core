@@ -14,6 +14,8 @@ const schema = z.object({
     .string()
     .regex(/^[a-zA-Z0-9_-]+$/)
     .default("1"),
+  PROVIDER_OUTBOUND_ENABLED: z.enum(["true", "false"]).default("false").transform(value => value === "true"),
+  PROVIDER_MEDIA_ENABLED: z.enum(["true", "false"]).default("false").transform(value => value === "true"),
   PROVIDER_WEB_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   PROVIDER_HISTORY_EXECUTION_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   PROVIDER_WEB_URL: z.string().url().default("http://provider-web:3000"),

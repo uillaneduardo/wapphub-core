@@ -1,6 +1,6 @@
 # WappHub — acompanhamento canônico de consolidação
 
-**Criado:** 2026-10-11. **Estado global:** `EXECUCAO_B1_B4`. **Próxima ação:** B1 P0, seguido de B2/B3/B4 integrados. Aprovação técnica do PR25 recebida; B5/B6 não autorizadas.
+**Criado:** 2026-10-11. **Estado global:** `EXECUCAO_B1_B4`. **Próxima ação:** concluir revisão/CI dos PRs integrados B2–B4; plano B5 sem execução. Aprovação técnica do PR25 recebida; B5/B6 não autorizadas.
 
 Diagnóstico A0/A1: [WHATSAPP_WEB_CONSOLIDATION_AUDIT.md](WHATSAPP_WEB_CONSOLIDATION_AUDIT.md). Auditoria concluída não significa código integralmente aprovado: Provider remoto apresenta duas falhas locais em78testes e CI main falho; defeitos e riscos estão documentados para correção após aprovação.
 
@@ -23,11 +23,11 @@ A cada execução, reler este documento, comparar SHA local/remoto/produção e 
 | --- | --- | --- | --- |
 | A0 — Contexto e baseline | VALIDADO_TECNICAMENTE | git-inventory.json, baseline-services/domain.json, session-state.json; local/remoto/publicado distintos | Baseline preservado; conferir novamente ao retomar |
 | A1 — Auditoria Core/Provider/Baileys/Chat | VALIDADO_TECNICAMENTE (auditoria, com falhas encontradas) | AUDIT; inventário SDK/código e probes; Core127/127, Provider76/78, Chat287/287; CI verificado | Corrigir lacunas somente após aprovação |
-| A2 — Plano arquitetural/produto | VALIDADO_TECNICAMENTE (proposta documental; aprovação pendente) | PROPOSAL; matriz existente/lacuna/teste/risco, diagrama, capabilities, limites, contratos, ADRs e rollback | Aguardar aprovação única do usuário |
-| B1 — Provider e captura/reconexão | VALIDADO_TECNICAMENTE (local; CI pendente) | testes sintéticos SDK e contratos, sessão preservada | Após gate A2 |
-| B2 — Core/Worker e persistência | PENDENTE | tenant/RBAC/ingestão/dedup/paginação/outbox | Após gate A2 |
-| B3 — Envio/recebimento, nova conversa, mídia e Chat | PENDENTE | texto e mídia, contato existente e número não cadastrado, status/autoria, UI | Após gate A2 |
-| B4 — Regressão/performance/segurança | PENDENTE | testes Core/Provider/Chat, CI, recursos, segurança | Após B1–B3 |
+| A2 — Plano arquitetural/produto | APROVADO_TECNICAMENTE (PR25/revisão do usuário) | PROPOSAL; matriz existente/lacuna/teste/risco, diagrama, capabilities, limites, contratos, ADRs e rollback | B1–B4 autorizadas; B5 exige autorização específica |
+| B1 — Provider e captura/reconexão | VALIDADO_TECNICAMENTE (local e CI verde) | testes sintéticos SDK e contratos, sessão preservada | Revisão dos PRs, sem merge/deploy |
+| B2 — Core/Worker e persistência | EM_ANDAMENTO | tenant/RBAC/ingestão/dedup/paginação/outbox | Revisão dos PRs, sem merge/deploy |
+| B3 — Envio/recebimento, nova conversa, mídia e Chat | EM_ANDAMENTO | texto e mídia, contato existente e número não cadastrado, status/autoria, UI | Revisão dos PRs, sem merge/deploy |
+| B4 — Regressão/performance/segurança | EM_ANDAMENTO | testes Core/Provider/Chat, CI, recursos, segurança | Após B1–B3 |
 | B5 — Publicação controlada | BLOQUEADO_POR_APROVACAO | backups/restauração/rollback, imagens, smokes, sessão | Exigir autorização de deploy |
 | B6 — Homologação final | BLOQUEADO_POR_APROVACAO | roteiro e feedback do usuário no navegador | Aguardar homologação humana |
 
@@ -134,3 +134,31 @@ Estado: VALIDADO_TECNICAMENTE localmente; CI pendente. Captura dinâmica preserv
 Provider82/82, lint/typecheck/build aprovados; Core128/128, lint/typecheck/build/Prisma/OpenAPI/drift e11 migrations isoladas aprovados. Logs provider-*-b1*.log/core-*-b1.log em 20261011-consolidation-b1-b4. Nenhuma operação produtiva. Commit/PR P0 serão registrados antes de B2.
 
 Risco B5: CP47 antigo não interpreta recoveryFailures e attempts5 já impede seu restart; rollback deve usar imagem compatível com P0, sem editar/restaurar Signal. Próxima ação: PR B1/CI e B2 integrado, sem merge/deploy.
+
+### 2026-10-11T20:56:13.365935+00:00 — B2 — início da consolidação Core/Worker
+
+Estado: EM_ANDAMENTO. B1 commit eb5e667c277ba9d26b105c7b686933cbc3dacdf7, PR https://github.com/uillaneduardo/wapphub-core/pull/26, base documental PR25 sem merge. Branch feat/consolidation-b2-b4 deriva de B1. Reutilizar ProviderCommand, Inbox, journal, sync.batch e vault; flags novas fechadas por padrão e autorização por conexão. Nenhuma publicação ou operação real. Próxima ação: intents duráveis, identidade, captura progressiva e contratos aditivos.
+
+### 2026-10-11T21:08:57.568850+00:00 — B3 — início integrado com B2
+
+Estado: EM_ANDAMENTO. B1 CI Core/Provider success: actions/runs/38174170784 e38174170771, PR26 sem merge. B2 em implementação/testes: migração aditiva em schema isolado (12 migrations), flags false, outbox send, UNKNOWN, identidade compartilhada, paginação bootstrap, mídia privada. ADR_WHATSAPP_WEB_CONSOLIDATION.md registra vídeo aprovado. B3 começa conexão da API com componentes existentes do Chat; B2 não é declarado concluído por typecheck ou mocks. Sem navegador, produção, envio ou solicitação histórica real.
+
+### 2026-10-11T21:40:24.889493+00:00 — B4 — início das regressões integradas e revisão de segurança
+
+Estado: EM_ANDAMENTO. B2/B3 código conectado em branches isoladas; encerramento técnico depende das suites finais. Provider87/87 e Chat290/290 em passes preliminares; novos testes elevam cobertura. Runtime Docker isolado --network none: imagem/áudio/voz/vídeo, conversãoWebM→Opus, streamingHMAC, criptografia e SDK prepareWAMessageMedia com uploader sintético;5 envios sintéticos/0reais. Logs media-runtime.log/provider-test-b23.log/chat-test-b3-final.log.
+
+Correções durante regressão sem enfraquecer testes: OpenAPI aditivo; fixture de Provider novo usa revision própria, não revision antiga de outro produtor; texto de conflito interno mantido; serial da sessão não fica presa à rede; Worker drena journal durante envio. Bootstrap com correlação scoped independente do grant evita gastar piloto20. Nenhum serviço produtivo alterado; homologação gráfica não executada. Próxima ação: suites finais/CI, revisão de diffs e PRs B2–B4/Chat, documentação B5.
+
+### 2026-10-11T21:54:40.849093+00:00 — B2 — implementação integrada e validação local
+
+Estado: VALIDADO_TECNICAMENTE localmente; CI consolidada exigida em B4. Core131/131, lint/typecheck/build/OpenAPI/Prisma/drift e12 migrations isoladas aprovados (core-checks-b4.json). Provider87/87 mais6/6 de concorrência em passes anteriores; suite final incorpora MIME parametrizado e vínculo de mídia ao echo. OutboxSQL existente, intenção antes da rede, autoriaSQL/PENDING, idempotência/UNKNOWN sem retry cego, consumo do journal duranteenvio, identidade compartilhada e metadata esparsa preservada.
+
+Bootstrap:100registros de wire/até300SyncItems por página, cursor/staging atômicos, arquivo entregue em cacheAES-GCM, janela persistida/backpressure;620conversas/1240mensagens sintéticas sem nova solicitação. Correlação scoped independente do grantON_DEMAND20. Migrations aditivas deliveryOutcome/flagsfalse/Media metadata. Nenhum código, migration, comando ou imagem aplicado à produção. Commit/PR consolidados serão registrados em B4.
+
+### 2026-10-11T22:16:33.316180+00:00 — B3 — atendimento integrado e validação local
+
+Estado: VALIDADO_TECNICAMENTE localmente; CI consolidada pendente em B4. Texto/intenção SQL, contato existente ou númeroE.164 novo, onWhatsApp explícito, idempotência/autor/recibos, UNKNOWN sem retransmitir, imagem/áudio/voz/vídeo e players sob demanda conectados do Chat ao Core/Provider. Flags técnicasfalse e booleans por conexãofalse; autorização auditada viaUI não envia. Reutilização componentes/design tokens, Demo, realtime e posição de leitura; sem browser.
+
+Provider90/90 (provider-test-b4-final.log); imagem Docker somente local de teste, ID8b7ce4d29ec2816468dd8dc738d481208f64c181a08567afd1ee7209923c5211. media-runtime-final.log: IMAGE/AUDIO/VOICE/VIDEO, conversãoWebM, preparaçãoSDK/upload/downloadHMAC sintéticos,5sends/0reais,--network none. Compose smoke isolado saudável/connectionsEnabledfalse. Chat294/294 em chat-test-b4-final.log, lint/typecheck/build verdes; repetição sobCPU reproduziu flake de preview/logout no AppShell, teste isolado verde sem alteração de expectativa/timeout; CI e confirmação da suite completa exigidas. Sem novas dependênciasnpm/lockfiles;FFmpeg sónaimagem.
+
+Core integração amplia prova para retry explícito de autorização revogada antes daRPC, reusandoMsg/comando; âncoras rejeitamPENDING/UNKNOWN/enviointernosemprotocoltimestamp. SQLtrigger apenasbancoteste e callbackRedisfalho provam recuperação sem novoSDKcall. Implantação produtiva e homologação funcional/visual permanecem não executadas. Próxima ação: commits/PRs, aguardar todasasCI, finalizarB4 e planoB5.

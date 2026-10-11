@@ -1,3 +1,4 @@
+import { intentDigest, sendIntentSchema, type SendIntent, type SendResult } from "../../../contracts/provider-outbound.js";
 import { createHash, randomUUID } from "node:crypto";
 import { normalizeText, ProviderContractError } from "../../../contracts/provider.js";
 import { appendRecordEvent, envelope, EventJournal } from "./events.js";
@@ -23,7 +24,7 @@ export class Sessions {
     private readonly schedule: Scheduler = defaultSchedule,
     private readonly now = Date.now,
     private readonly log: (code: string, fields?: { source: string; stage: string; count: number }) => void = () => undefined,
-    private readonly syncOptions: { enabled: boolean; historyEnabled: boolean; initialHistoryEnabled?: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean } = { enabled: false, historyEnabled: false },
+    private readonly syncOptions: { enabled: boolean; historyEnabled: boolean; initialHistoryEnabled?: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; outboundEnabled?: boolean } = { enabled: false, historyEnabled: false },
   ) {}
   private historyEnabled(scope: Scope) {
     const bootstrap = this.vault.get(scope)?.historyImports;
@@ -53,6 +54,47 @@ export class Sessions {
     if (!qr || qr.expiresAt <= this.now()) throw new ServiceError("QR_NOT_AVAILABLE", 404);
     return { qr: qr.value, revision: qr.revision, expiresAt: new Date(qr.expiresAt).toISOString() };
   }
+  async resolveRecipient(scope: Scope, phone: string) {
+    if (!this.syncOptions.outboundEnabled) throw new ServiceError("OUTBOUND_DISABLED", 403);
+    const actor = this.actor(scope);
+    if (this.view(scope).state !== "CONNECTED" || !actor.socket?.resolveRecipient) throw new ServiceError("OUTBOUND_UNAVAILABLE", 409);
+    const generation = actor.generation, result = await actor.socket.resolveRecipient(phone);
+    return actor.generation === generation && this.view(scope).state === "CONNECTED" ? result : { state: "UNKNOWN" as const };
+  }
+  async send(scope: Scope, input: SendIntent): Promise<SendResult> {
+    const intent = sendIntentSchema.parse(input), digest = intentDigest(intent), actor = this.actor(scope);
+    const reservation = await actor.serial.run(async () => {
+      const previous = this.vault.get(scope)?.sends?.find(x => x.id === intent.commandId);
+      if (previous) {
+        if (previous.digest !== digest) throw new ServiceError("IDEMPOTENCY_CONFLICT", 409);
+        return { outcome: previous.outcome, providerMessageId: previous.providerMessageId, ...(previous.errorCode ? { errorCode: previous.errorCode } : {}) };
+      }
+      if (!this.syncOptions.outboundEnabled) throw new ServiceError("OUTBOUND_DISABLED", 403);
+      if (Date.parse(intent.expiresAt) <= this.now() || Date.parse(intent.expiresAt) > this.now() + 7 * 86400000) throw new ServiceError("INTENT_EXPIRED", 409);
+      if (this.view(scope).state !== "CONNECTED" || !actor.socket?.send) throw new ServiceError("OUTBOUND_UNAVAILABLE", 409);
+      await this.vault.update(scope, record => {
+        record.sends ??= [];
+        // Expired callers are rejected above: eviction cannot cause retransmission.
+        record.sends = record.sends.filter(x => Date.parse(x.expiresAt) > this.now());
+        if (record.sends.length >= 1024) throw new ServiceError("SEND_RETENTION_LIMIT", 429);
+        record.sends.push({ id: intent.commandId, digest, providerMessageId: intent.providerMessageId, ...(intent.media ? { mediaId: intent.media.mediaId } : {}), outcome: "UNKNOWN", expiresAt: intent.expiresAt });
+      }); // uncertainty is durable BEFORE calling the external transport
+      return { socket: actor.socket, generation: actor.generation };
+    });
+    if ("outcome" in reservation) return reservation;
+    let outcome: SendResult["outcome"] = "UNKNOWN";
+    if (actor.generation === reservation.generation && !this.stopping) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([reservation.socket.send!(intent), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new ServiceError("SEND_RESULT_UNKNOWN", 503)), 15000); timer.unref(); })]);
+        outcome = "DISPATCHED";
+      } catch { this.log("SEND_RESULT_UNKNOWN"); }
+      finally { clearTimeout(timer); }
+    }
+    await this.vault.update(scope, record => { const receipt = record.sends!.find(x => x.id === intent.commandId)!; receipt.outcome = outcome; });
+    return { outcome, providerMessageId: intent.providerMessageId };
+  }
+
   async create(scope: Scope) { await this.vault.update(scope, () => undefined); return this.view(scope); }
   async command(scope: Scope, action: "connect" | "refresh" | "disconnect" | "logout", commandId: string) {
     this.view(scope);
@@ -194,6 +236,10 @@ export class Sessions {
         receipt: (id, status, chatId) => this.enqueue(scope, actor, generation, async () => {
           await this.journal.append(scope, { ...envelope(scope, "message.updated", id, status + (chatId ?? "")), data: { providerMessageId: id, status, ...(chatId ? { providerConversationId: chatId } : {}) } });
         }),
+        bootstrapPage: async (items, digest, next) => {
+          if (actor.generation !== generation || this.stopping) throw new ServiceError("HISTORY_TRANSPORT_UNAVAILABLE", 409);
+          await actor.serial.run(async () => { await this.journal.stage(scope, items, true, true, false, 0, false, undefined, undefined, undefined, { digest, next }); });
+        },
         sync: (items, historical, completed, failures, limited, observation) => {
           if (!this.syncOptions.enabled) return;
           return this.enqueue(scope, actor, generation, async () => {

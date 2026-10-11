@@ -1,6 +1,6 @@
 # Consolidação WappHub — proposta A2 para aprovação única
 
-Estado: proposta, sem implementação. Base Core/Provider `766ff09`, Chat funcional `f13752f`. Diagnóstico e evidências: [AUDIT](WHATSAPP_WEB_CONSOLIDATION_AUDIT.md). Andamento exclusivo: [PROGRESS](WHATSAPP_WEB_CONSOLIDATION_PROGRESS.md).
+Estado: proposta aprovada tecnicamente para B1–B4 na revisão do PR25; implementação e evidências no progresso canônico. Base Core/Provider `766ff09`, Chat funcional `f13752f`. Diagnóstico e evidências: [AUDIT](WHATSAPP_WEB_CONSOLIDATION_AUDIT.md). Andamento exclusivo: [PROGRESS](WHATSAPP_WEB_CONSOLIDATION_PROGRESS.md).
 
 ## 1. Decisão recomendada
 

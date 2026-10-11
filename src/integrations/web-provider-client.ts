@@ -1,3 +1,7 @@
+import { Readable } from "node:stream";
+import { mediaReferenceSchema } from "../../contracts/provider.js";
+import type { MediaUpload } from "../../contracts/provider-media.js";
+import { recipientResultSchema, sendResultSchema, type SendIntent, type SendResult } from "../../contracts/provider-outbound.js";
 import type { HistoryControl } from "../../contracts/history.js";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
@@ -7,6 +11,10 @@ export type ProviderScope = { organizationId: string; connectionId: string };
 export type InternalAction = "connect" | "refresh" | "logout";
 export type Delivery = z.infer<typeof providerDeliveriesSchema>["deliveries"][number];
 export interface WebProviderPort {
+  uploadMedia?(scope: ProviderScope, meta: MediaUpload, stream: AsyncIterable<Uint8Array>): Promise<import("zod").infer<typeof mediaReferenceSchema>>;
+  readMedia?(scope: ProviderScope, id: string): Promise<{ stream: Readable; mimeType: string; size: number; sha256: string }>;
+  resolveRecipient?(scope: ProviderScope, phone: string): Promise<{ state: "VALID" | "NOT_FOUND" | "UNKNOWN"; jid?: string }>;
+  send?(scope: ProviderScope, intent: SendIntent): Promise<SendResult>;
   history?(scope: ProviderScope, control: HistoryControl): Promise<ProviderSession>;
   ready(): Promise<boolean>;
   create(scope: ProviderScope): Promise<ProviderSession>;
@@ -38,6 +46,25 @@ export class WebProviderClient implements WebProviderPort {
       return result;
     } catch (reason) { if (reason instanceof WebProviderError) throw reason; throw new WebProviderError("PROVIDER_UNAVAILABLE"); }
   }
+  async uploadMedia(scope: ProviderScope, meta: MediaUpload, stream: AsyncIterable<Uint8Array>) {
+    const path = `${prefix(scope)}/media`;
+    try {
+      const response = await fetch(this.url + path, { method: "POST", redirect: "error", signal: AbortSignal.timeout(60000), headers: { ...signedHeaders(this.key, "POST", path, meta), "content-type": "application/octet-stream", "x-media-manifest": Buffer.from(JSON.stringify(meta)).toString("base64url") }, body: Readable.toWeb(Readable.from(stream)) as unknown as BodyInit, duplex: "half" } as RequestInit & { duplex: "half" });
+      const text = await response.text(); if (text.length > 4096 || !response.ok) throw new Error();
+      return mediaReferenceSchema.parse(JSON.parse(text));
+    } catch { throw new WebProviderError("MEDIA_UPLOAD_FAILED"); }
+  }
+  async readMedia(scope: ProviderScope, id: string) {
+    const path = `${prefix(scope)}/media/${id}`;
+    try {
+      const response = await fetch(this.url + path, { redirect: "error", signal: AbortSignal.timeout(60000), headers: signedHeaders(this.key, "GET", path) });
+      const size = Number(response.headers.get("content-length")), mimeType = response.headers.get("content-type") ?? "", sha256 = response.headers.get("x-media-sha256") ?? "";
+      if (!response.ok || !response.body || !Number.isSafeInteger(size) || size < 1 || size > 25 * 1024 * 1024 || !/^[a-f0-9]{64}$/.test(sha256)) throw new Error();
+      return { stream: Readable.from((async function* () { const reader = response.body!.getReader(); let bytes = 0; try { for (;;) { const value = await reader.read(); if (value.done) break; bytes += value.value.length; if (bytes > size) throw new WebProviderError("MEDIA_INTEGRITY_FAILED"); yield value.value; } if (bytes !== size) throw new WebProviderError("MEDIA_INTEGRITY_FAILED"); } finally { await reader.cancel(); } })()), size, mimeType, sha256 };
+    } catch { throw new WebProviderError("MEDIA_UNAVAILABLE"); }
+  }
+  async resolveRecipient(scope: ProviderScope, phone: string) { return recipientResultSchema.parse(await this.request("POST", `${prefix(scope)}/recipients/resolve`, { phone })); }
+  async send(scope: ProviderScope, intent: SendIntent) { return sendResultSchema.parse(await this.request("POST", `${prefix(scope)}/messages`, intent)); }
   async ready() { try { const result = z.strictObject({ status: z.literal("ready"), connectionsEnabled: z.boolean() }).parse(await this.request("GET", "/health/ready")); return result.connectionsEnabled; } catch { return false; } }
   async history(scope: ProviderScope, control: HistoryControl) { return providerSessionSchema.parse(await this.request("POST", `${prefix(scope)}/history`, control)); }
   async create(scope: ProviderScope) { return providerSessionSchema.parse(await this.request("PUT", prefix(scope))); }

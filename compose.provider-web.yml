@@ -3,6 +3,8 @@ services:
   wapphub-core-api:
     image: ${CORE_IMAGE:?Set validated commit image}
     environment:
+      PROVIDER_OUTBOUND_ENABLED: ${PROVIDER_OUTBOUND_ENABLED:-false}
+      PROVIDER_MEDIA_ENABLED: ${PROVIDER_MEDIA_ENABLED:-false}
       PROVIDER_WEB_ENABLED: 'true'
       PROVIDER_HISTORY_EXECUTION_ENABLED: ${PROVIDER_HISTORY_EXECUTION_ENABLED:-false}
       PROVIDER_WEB_URL: http://provider-web:3000
@@ -11,6 +13,8 @@ services:
   wapphub-core-worker:
     image: ${CORE_IMAGE:?Set validated commit image}
     environment:
+      PROVIDER_OUTBOUND_ENABLED: ${PROVIDER_OUTBOUND_ENABLED:-false}
+      PROVIDER_MEDIA_ENABLED: ${PROVIDER_MEDIA_ENABLED:-false}
       PROVIDER_WEB_ENABLED: 'true'
       PROVIDER_HISTORY_EXECUTION_ENABLED: ${PROVIDER_HISTORY_EXECUTION_ENABLED:-false}
       PROVIDER_WEB_URL: http://provider-web:3000

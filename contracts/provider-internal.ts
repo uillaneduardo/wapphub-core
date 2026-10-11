@@ -26,3 +26,10 @@ export function signedHeaders(key: Buffer, method: string, path: string, body?: 
   const timestamp = String(now), nonce = randomUUID();
   return { "x-wapphub-client": "core", "x-wapphub-timestamp": timestamp, "x-wapphub-nonce": nonce, "x-wapphub-signature": signature(key, method, path, body, timestamp, nonce) };
 }
+
+/** Namespaced correlation for protocol-delivered bootstrap, not a grant/request.
+ * Scope is already authenticated/fenced; this ID cannot authorize fetch history. */
+export function bootstrapCorrelationId(scope: { organizationId: string; connectionId: string }) {
+  const hex = createHash("sha256").update(JSON.stringify(["wapphub-bootstrap:v1", scope.organizationId, scope.connectionId])).digest("hex");
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-5${hex.slice(13,16)}-a${hex.slice(17,20)}-${hex.slice(20,32)}`;
+}

@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 import makeWASocket, { Browsers, BufferJSON, initAuthCreds, proto, processHistoryMessage, normalizeMessageContent, type AuthenticationState, type SignalDataTypeMap, type BaileysEventMap } from "baileys";
 import pino from "pino";
 import type { TransportFactory } from "./transport.js";
+import { ProviderMedia } from "./media.js";
 import { ServiceError } from "./errors.js";
 import { Vault, type Scope } from "./vault.js";
 import { normalizeContact, normalizeConversation, directIdentity, diagnoseIdentity, diagnoseMessage, normalizeSyncMessage, type NormalizationOutcome } from "./sync-normalization.js";
 import { HistoryImporter } from "./history-operation.js";
-import { selectHistory } from "./history-selection.js";
+import { selectHistory, type HistoryPage } from "./history-selection.js";
 import { readBoundedHistory } from "./history.js";
 import type { SyncObservation } from "../../../contracts/provider-internal.js";
 import type { SyncItem } from "../../../contracts/provider.js";
@@ -52,9 +53,10 @@ export async function encryptedAuth(vault: Vault, scope: Scope, failure: () => v
     };
     return { state: { creds, keys }, saveCreds, disable: (revoke = false) => { closed = true; revoked ||= revoke; }, isDisabled: () => closed };
 }
-type SocketCreator = (options: Parameters<typeof makeWASocket>[0]) => Pick<ReturnType<typeof makeWASocket>, "ev" | "end" | "logout"> & Partial<Pick<ReturnType<typeof makeWASocket>, "fetchMessageHistory">>;
-export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; initialHistoryEnabled?: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; historyExecutionEnabled?: boolean; scopedHistoryAuthorization?: boolean } = { enabled: false, historyEnabled: false }): TransportFactory {
+type SocketCreator = (options: Parameters<typeof makeWASocket>[0]) => Pick<ReturnType<typeof makeWASocket>, "ev" | "end" | "logout"> & Partial<Pick<ReturnType<typeof makeWASocket>, "fetchMessageHistory" | "onWhatsApp" | "sendMessage">>;
+export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; initialHistoryEnabled?: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; historyExecutionEnabled?: boolean; scopedHistoryAuthorization?: boolean; mediaEnabled?: boolean } = { enabled: false, historyEnabled: false }): TransportFactory {
   return async (scope, callbacks) => {
+    const media = new ProviderMedia(vault, syncOptions.mediaEnabled === true);
     const historyEnabled = syncOptions.historyEnabled && syncOptions.approvedScope === `${scope.organizationId}:${scope.connectionId}`;
     if (syncOptions.linkedRecoveryOnly) {
       let linked = false;
@@ -112,7 +114,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       const reason = update.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined;
       callbacks.connection({ state: update.connection === "open" || update.connection === "close" ? update.connection : undefined, qr: update.qr, code: reason?.output?.statusCode, ...(update.isNewLogin ? { authenticating: true } : {}) });
     });
-    const submit = <T>(values: T[], normalize: (value: T) => NormalizationOutcome, historical: boolean, completed = false, source: SyncObservation["source"] = "MESSAGES_NOTIFY") => {
+    const submit = async <T>(values: T[], normalize: (value: T) => NormalizationOutcome | Promise<NormalizationOutcome>, historical: boolean, completed = false, source: SyncObservation["source"] = "MESSAGES_NOTIFY") => {
       if (auth.isDisabled() || !syncOptions.enabled || historical && !historyEnabled && !capturingBootstrap()) return;
       const limit = historical ? 1000 : 250;
       const writes: (void | Promise<void>)[] = [];
@@ -120,7 +122,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       let items: SyncItem[] = [];
       for (const value of values.slice(0, limit)) {
         let outcome: NormalizationOutcome;
-        try { outcome = normalize(value); } catch { outcome = { type: "failures", code: "NORMALIZATION_FAILED" }; }
+        try { const normalized = normalize(value); outcome = normalized instanceof Promise ? await normalized : normalized; } catch { outcome = { type: "failures", code: "NORMALIZATION_FAILED" }; }
         if (outcome.type === "normalized") { items.push(outcome.item); observation.normalized++; }
         else { observation[outcome.type]++; observation.reasons[outcome.code] = (observation.reasons[outcome.code] ?? 0) + 1; }
         if (items.length === 50) { writes.push(callbacks.sync?.(items, historical)); items = []; }
@@ -134,6 +136,11 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
     socket.ev.on("chats.upsert", (values) => submit(values, (value) => diagnoseIdentity(value, () => normalizeConversation(value)), false, false, "CHATS_UPSERT"));
     socket.ev.on("chats.update", (values) => submit(values, (value) => diagnoseIdentity(value, () => normalizeConversation(value)), false, false, "CHATS_UPDATE"));
     socket.ev.on("lid-mapping.update", ({ lid, pn }) => submit([{ id: pn, lid }], (value) => diagnoseIdentity(value, () => normalizeContact(value)), false, false, "IDENTITY_MAPPING"));
+    const diagnoseAndRetain = (value: Parameters<typeof diagnoseMessage>[1]) => {
+      const outcome = diagnoseMessage(scope, value);
+      if (outcome.type === "normalized" && outcome.item.kind === "message" && outcome.item.message.content.type !== "TEXT") return media.retain(scope, value).then(() => outcome);
+      return outcome;
+    };
     const processHistory = async (data: BaileysEventMap["messaging-history.set"]) => {
       if (importer.accepting) {
         if (importer.current?.authorization) return; // controlled operations use correlated self-only notifications
@@ -146,7 +153,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       await submit(data.lidPnMappings ?? [], (value) => diagnoseIdentity({ id: value.pn, lid: value.lid }, () => normalizeContact({ id: value.pn, lid: value.lid })), true, false, "IDENTITY_MAPPING");
       await submit(data.contacts, (value) => diagnoseIdentity(value, () => normalizeContact(value)), true, false, "HISTORY_CONTACTS");
       await submit(data.chats, (value) => diagnoseIdentity(value, () => normalizeConversation(value)), true, false, "HISTORY_CHATS");
-      await submit(data.messages, (value) => diagnoseMessage(scope, value), true, data.progress === 100, "HISTORY_MESSAGES");
+      await submit(data.messages, diagnoseAndRetain, true, data.progress === 100, "HISTORY_MESSAGES");
     };
     socket.ev.on("messaging-history.set", (data) => { void processHistory(data).catch(() => importer.current ? importer.fail("HISTORY_PROCESSING_FAILED") : callbacks.failure()); });
     socket.ev.on("messaging-history.status", (value) => {
@@ -154,31 +161,42 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
     });
     // Bootstrap references are persisted in the existing encrypted vault before
     // download. This prevents dropping later chunks while one is in flight.
+    let bootstrapTimer: ReturnType<typeof setTimeout> | undefined;
     const drainBootstrap = async () => {
       if (downloading || auth.isDisabled()) return;
       downloading = true;
       try {
         while (!auth.isDisabled()) {
           const entry = vault.get(scope)?.historyImports?.pending?.[0];
-          if (!entry) break;
+          if (!entry || (entry.nextAttemptAt ?? 0) > Date.now() || process.memoryUsage().rss >= 384 * 1024 * 1024) break;
           try {
             const notification = JSON.parse(entry.reference, BufferJSON.reviver) as proto.Message.IHistorySyncNotification;
+            const page: HistoryPage = { cursor: entry.cursor ?? 0 };
+            const epoch = Date.now(), window = { from: entry.from ?? new Date(epoch - 30 * 86400000).toISOString(), to: entry.to ?? new Date(epoch).toISOString() };
+            if (!entry.from) await vault.update(scope, record => { const pending = record.historyImports!.pending![0]!; pending.from = window.from; pending.to = window.to; });
             const { history, decodedBytes } = await readBoundedHistory(notification, downloads.signal, {
-              from: new Date(Date.now() - 30 * 86400000).toISOString(),
-              to: new Date().toISOString(),
-            });
+              from: window.from,
+              to: window.to,
+            }, page, { files: vault.privateFiles(), scope, id: entry.digest });
             if (notification.syncType != null && history.syncType !== notification.syncType) throw new ServiceError("HISTORY_RESPONSE_MISMATCH", 409);
-            if ((vault.get(scope)?.historyImports?.decodedBytes ?? 0) + decodedBytes > 32 * 1024 * 1024) throw new ServiceError("HISTORY_BYTE_LIMIT", 413);
-            await processHistory({ ...processHistoryMessage(history), isLatest: false });
+            if (!entry.decoded && (vault.get(scope)?.historyImports?.decodedBytes ?? 0) + decodedBytes > 32 * 1024 * 1024) throw new ServiceError("HISTORY_BYTE_LIMIT", 413);
+            const items = selectHistory(scope, history, { id: entry.digest, ...window, limits: { contacts: 500, conversations: 500, messages: 1000 }, anchors: [] });
+            for (const conversation of history.conversations ?? []) for (const entry of conversation.messages ?? []) if (entry.message?.key) await media.retain(scope, { ...entry.message, key: entry.message.key });
+            if (callbacks.bootstrapPage) await callbacks.bootstrapPage(items, entry.digest, page.next ?? page.cursor);
+            else await processHistory({ ...processHistoryMessage(history), isLatest: false });
             await vault.update(scope, (record) => {
               const imports = record.historyImports!;
               if (imports.pending?.[0]?.digest !== entry.digest) throw new ServiceError("HISTORY_OPERATION_MISMATCH", 409);
+              imports.pending[0]!.cursor = page.next ?? page.cursor;
+              if (!entry.decoded) { imports.decodedBytes += decodedBytes; imports.pending[0]!.decoded = true; }
+              if (!page.done) return;
               imports.pending.shift();
-              imports.decodedBytes += decodedBytes;
               imports.seen.push(entry.digest);
               if (imports.seen.length > 16) imports.seen.shift();
-              if (notification.syncType === proto.HistorySync.HistorySyncType.RECENT && notification.progress === 100) imports.initialPending = false;
+              if (notification.syncType === proto.HistorySync.HistorySyncType.RECENT && notification.progress === 100) { imports.initialPending = false; if (record.sync) record.sync.complete = true; }
             });
+            // One local page per interval gives live ingestion/Worker time to drain.
+            if (!page.done) break;
           } catch (error) {
             if (auth.isDisabled()) break;
             // Permanent invalid history is marked partial and does not block later chunks.
@@ -186,11 +204,20 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
             if (error instanceof ServiceError && ["HISTORY_BYTE_LIMIT", "HISTORY_OBJECT_LIMIT", "HISTORY_RESPONSE_MISMATCH"].includes(error.code)) {
               await vault.update(scope, (record) => { record.historyImports?.pending?.shift(); });
             }
+            await vault.update(scope, record => { const pending = record.historyImports?.pending?.[0]; if (pending?.digest === entry.digest) { pending.failures = (pending.failures ?? 0) + 1; pending.nextAttemptAt = Date.now() + Math.min(300000, 30000 * 2 ** pending.failures); } });
             await callbacks.sync?.([], true, false, 1, true);
             break;
           }
         }
-      } finally { downloading = false; }
+      } finally {
+        downloading = false;
+        if (!auth.isDisabled() && vault.get(scope)?.historyImports?.pending?.length) {
+          const entry = vault.get(scope)!.historyImports!.pending![0]!;
+          if ((entry.failures ?? 0) < 5) {
+            bootstrapTimer = setTimeout(() => { void drainBootstrap(); }, Math.max(30000, (entry.nextAttemptAt ?? 0) - Date.now())); bootstrapTimer.unref();
+          }
+        }
+      }
     };
     if (nativeBootstrap && vault.get(scope)?.historyImports?.pending?.length) void drainBootstrap();
     socket.ev.on("messages.upsert", (update) => {
@@ -209,7 +236,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
             if (Buffer.byteLength(reference) > 2 * 1024 * 1024) { void importer.fail("HISTORY_BYTE_LIMIT"); continue; }
             void importer.receive([], reference).catch(() => importer.fail("HISTORY_BACKPRESSURE")); continue;
           }
-          if (!notification || !message.key.fromMe || !historyEnabled && !capturingBootstrap()) continue;
+          if (!notification || !message.key.fromMe || !historyEnabled && !nativeBootstrap) continue;
           // ON_DEMAND must be correlated to an authorized operation above.
           if (nativeBootstrap && !historyEnabled && ![
             proto.HistorySync.HistorySyncType.INITIAL_BOOTSTRAP,
@@ -240,12 +267,12 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
           });
         }
         const messages = update.messages.slice(0, update.type === "notify" ? 250 : 1000);
-        if (update.type === "notify" || historyEnabled || capturingBootstrap()) submit(messages, (message) => diagnoseMessage(scope, message), update.type !== "notify", false, update.type === "notify" ? "MESSAGES_NOTIFY" : "MESSAGES_APPEND");
+        if (update.type === "notify" || historyEnabled || capturingBootstrap()) submit(messages, diagnoseAndRetain, update.type !== "notify", false, update.type === "notify" ? "MESSAGES_NOTIFY" : "MESSAGES_APPEND");
         else {
           // Small recent offline catch-up is continuous ingestion, not a full
           // historical import. Older append data awaits explicit authorization.
           const recent = messages.filter((message) => Number(message.messageTimestamp) * 1000 >= Date.now() - 5 * 60000);
-          submit(recent, (message) => diagnoseMessage(scope, message), false, false, "MESSAGES_APPEND");
+          submit(recent, diagnoseAndRetain, false, false, "MESSAGES_APPEND");
           if (recent.length < messages.length || update.messages.length > 1000) callbacks.sync?.([], false, false, 0, true);
         }
         return;
@@ -271,6 +298,24 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
         if (status === proto.WebMessageInfo.Status.READ || status === proto.WebMessageInfo.Status.PLAYED) callbacks.receipt(key.id, "READ", chatId);
       }
     });
-    return { history: (control) => importer.command(control), close: () => { importer.close(); downloads.abort(); auth.disable(); void socket.end(new Error("CONTROLLED_SHUTDOWN")).catch(() => callbacks.failure()); }, logout: () => { downloads.abort(); auth.disable(true); return socket.logout(); } };
+    return { resolveRecipient: async (phone) => {
+      if (!socket.onWhatsApp) throw new ServiceError("OUTBOUND_UNAVAILABLE", 409);
+      try {
+        const result = await socket.onWhatsApp(phone);
+        const found = result?.find(x => x.exists && directIdentity(x.jid));
+        if (found) return { state: "VALID" as const, jid: found.jid };
+        return { state: result?.some(x => x.exists === false) ? "NOT_FOUND" as const : "UNKNOWN" as const };
+      } catch { return { state: "UNKNOWN" as const }; }
+    }, send: async (intent) => {
+      if (auth.isDisabled()) throw new ServiceError("OUTBOUND_UNAVAILABLE", 409);
+      if (!socket.sendMessage) throw new ServiceError("OUTBOUND_UNAVAILABLE", 409);
+      if (!intent.media) await socket.sendMessage(intent.destination, { text: intent.body }, { messageId: intent.providerMessageId });
+      else {
+        const { record, stream } = await media.read(scope, intent.media.mediaId);
+        if (record.sha256 !== intent.media.sha256 || record.size !== intent.media.size || record.type !== intent.media.type) { stream.destroy(); throw new ServiceError("MEDIA_INTENT_MISMATCH", 409); }
+        const content = record.type === "IMAGE" ? { image: { stream }, mimetype: record.mimeType, caption: intent.body, jpegThumbnail: "" } : record.type === "VIDEO" ? { video: { stream }, mimetype: record.mimeType, caption: intent.body, jpegThumbnail: "" } : { audio: { stream }, mimetype: record.mimeType, ptt: record.type === "VOICE", seconds: record.seconds ?? 0, waveform: Buffer.alloc(0) };
+        try { await socket.sendMessage(intent.destination, content, { messageId: intent.providerMessageId }); } finally { stream.destroy(); }
+      }
+    }, history: (control) => importer.command(control), close: () => { clearTimeout(bootstrapTimer); importer.close(); downloads.abort(); auth.disable(); void socket.end(new Error("CONTROLLED_SHUTDOWN")).catch(() => callbacks.failure()); }, logout: () => { downloads.abort(); auth.disable(true); return socket.logout(); } };
   };
 }

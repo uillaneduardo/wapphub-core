@@ -1,3 +1,7 @@
+import { Readable as NodeReadable } from "node:stream";
+import type { Readable } from "node:stream";
+import { mediaUploadSchema, type MediaUpload } from "../../contracts/provider-media.js";
+import { z } from "zod";
 import { chatEventTypes } from "../realtime/contract.js";
 import type { FastifyInstance, FastifyRequest, FastifySchema } from "fastify";
 import type { HistoryVisibility } from "@prisma/client";
@@ -29,6 +33,7 @@ const contact = obj({
   updatedAt: date,
 });
 const conversation = obj({
+  mediaEnabled: { type: "boolean" },
   tagIds: { type: "array", items: uuid },
   provider: { anyOf: [{ type: "string", enum: ["DEMO", "META", "WHATSAPP_WEB"] }, { type: "null" }] },
   outboundEnabled: { type: "boolean" },
@@ -45,6 +50,7 @@ const conversation = obj({
   visibility: { type: "string", enum: ["FULL", "LIMITED", "NONE"] },
 });
 const message = obj({
+  deliveryOutcome: { type: ["string", "null"], enum: [null, "UNKNOWN", "NOT_SENT"] },
   id: uuid,
   conversationId: uuid,
   senderUserId: nullableId,
@@ -124,6 +130,7 @@ export async function chatRoutes(
   chat: Chat,
   cookieName: string,
 ) {
+  app.addContentTypeParser("application/octet-stream", (_request, payload, done) => done(null, payload));
   const principal = async (req: FastifyRequest) => {
     const p = await foundation.authenticate(req.cookies[cookieName]);
     if (!["GET", "HEAD"].includes(req.method))
@@ -219,6 +226,8 @@ export async function chatRoutes(
     },
     async (r) => chat.conversations(await principal(r), r.query),
   );
+  app.get("/api/v1/channels", { schema: schema(obj({ items: { type: "array", items: obj({ id: uuid, name: str, outboundEnabled: { type: "boolean" }, mediaEnabled: { type: "boolean" } }) } })) }, async r => chat.webChannels(await principal(r)));
+  app.post<{ Body: { channelId: string; contactId?: string; phone?: string } }>("/api/v1/conversations/external", { schema: schema({ ...conversation, properties: { ...conversation.properties, reused: { type: "boolean" } } }, true, { body: obj({ channelId: uuid, contactId: uuid, phone: { type: "string", pattern: "^\\+[1-9][0-9]{7,14}$" } }, ["channelId"]) }) }, async r => chat.createWebConversation(await principal(r), r.body));
   app.post<{ Body: { contactId: string; reuseExisting?: boolean } }>(
     "/api/v1/conversations",
     { schema: schema({ ...conversation, properties: { ...conversation.properties, reused: { type: "boolean" } } }, true, { body: obj({ contactId: uuid, reuseExisting: { type: "boolean", default: false } }, ["contactId"]) }) },
@@ -248,15 +257,29 @@ export async function chatRoutes(
     },
     async (r) => chat.messages(await principal(r), r.params.id, r.query),
   );
+  app.post<{ Params: { id: string }; Querystring: MediaUpload }>("/api/v1/conversations/:id/media", { bodyLimit: 25 * 1024 * 1024, schema: schema(message.properties.media, true, { params: ids, querystring: z.toJSONSchema(mediaUploadSchema, { target: "draft-7" }), consumes: ["application/octet-stream"] }) }, async r => chat.uploadMedia(await principal(r), r.params.id, r.query, r.body as Readable));
+  app.get<{ Params: { id: string; messageId: string } }>("/api/v1/conversations/:id/messages/:messageId/media", { schema: { tags: ["M1 Internal Chat"], security: [{ webSession: [] }], params: obj({ id: uuid, messageId: uuid }), response: { ...errors, 416: error, 206: { type: "string", format: "binary" }, 200: { type: "string", format: "binary" } }, produces: ["image/jpeg", "image/png", "image/webp", "audio/ogg", "audio/mpeg", "audio/mp4", "video/mp4"] } }, async (r, reply) => {
+    const result = await chat.messageMedia(await principal(r), r.params.id, r.params.messageId);
+    reply.header("cache-control", "no-store, private").header("content-type", result.mimeType).header("content-length", result.size).header("x-content-type-options", "nosniff").header("content-disposition", "inline");
+    const range = r.headers.range;
+    if (!range) return reply.header("accept-ranges", "bytes").send(result.stream);
+    const parsed = /^bytes=(\d*)-(\d*)$/.exec(range);
+    const start = parsed?.[1] ? Number(parsed[1]) : parsed?.[2] ? Math.max(0, result.size - Number(parsed[2])) : -1;
+    let end = parsed?.[1] && parsed?.[2] ? Number(parsed[2]) : result.size - 1;
+    end = Math.min(end, result.size - 1);
+    if (!parsed || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start > end || start >= result.size) { result.stream.destroy(); throw new AppError(416, "INVALID_MEDIA_RANGE"); }
+    reply.code(206).header("accept-ranges", "bytes").header("content-range", `bytes ${start}-${end}/${result.size}`).header("content-length", end - start + 1);
+    return reply.send(NodeReadable.from((async function* () { let offset = 0; try { for await (const chunk of result.stream) { const next = offset + chunk.length; if (next > start && offset <= end) yield chunk.subarray(Math.max(0, start - offset), Math.min(chunk.length, end - offset + 1)); offset = next; } } finally { result.stream.destroy(); } })()));
+  });
   app.post<{
     Params: { id: string };
-    Body: { body: string; clientMessageId: string };
+    Body: { body: string; clientMessageId: string; mediaId?: string };
   }>(
     "/api/v1/conversations/:id/messages",
     {
       schema: schema(message, true, {
         params: ids,
-        body: obj({ body: text(8000), clientMessageId: text(100) }),
+        body: { ...obj({ body: { type: "string", maxLength: 8000 }, clientMessageId: text(100), mediaId: uuid }, ["body", "clientMessageId"]), anyOf: [{ properties: { body: text(8000) } }, { required: ["mediaId"] }] },
       }),
     },
     async (r) => loggedOperation(r, "message.send", async () => chat.send(await principal(r), r.params.id, r.body)),
