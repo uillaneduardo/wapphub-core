@@ -70,3 +70,18 @@ Exemplos:
 - `feat(realtime): add tenant scoped message events`
 - `fix(tenancy): enforce organization scope`
 - `docs(status): mark session security complete`
+
+## Fluxo obrigatório de execução — Codex no homelab (2026-10-11)
+
+Este repositório é **coordenador** das mudanças inter-repositório do WappHub. Antes de qualquer trabalho de consolidação WhatsApp/Provider, ler:
+- `docs/WHATSAPP_WEB_CONSOLIDATION_EXECUTION.md` — papéis, gates, fluxo técnico e critérios de homologação.
+- `docs/WHATSAPP_WEB_CONSOLIDATION_PROGRESS.md` — estado atual, evidências e retomada.
+- `services/wapphub-provider-web/AGENTS.md` — responsabilidades específicas do adapter Baileys.
+
+**A execução acontece no Codex do homelab**, que inspeciona Git, Docker, Compose, versões, banco/filas, recursos e relatórios locais; ChatGPT revisa decisões e PRs; o **usuário aprova a arquitetura e homologa no navegador**. Não atribuir a repositório público o estado de produção sem prova local.
+
+**Gate inicial obrigatório:** A0/A1 auditoria detalhada → A2 proposta arquitetural revisável → **uma aprovação do usuário** antes de implementar/refatorar funcionalidades. Depois, etapas B1–B5 podem seguir internamente com testes, checkpoints e commits pequenos sem microaprovações; deploy exige autorização pertinente, preservação da sessão, backups/rollback. Nunca iniciar pareamento/solicitações históricas reais/envio real automaticamente. Homologação visual é exclusiva do usuário e nunca presumida.
+
+**Exigências funcionais incluídas no plano:** enviar e receber mensagens pelo Provider; iniciar nova conversa **por contato existente ou número ainda não cadastrado**, com validação de canal/destinatário/DDD/DDI, tenancy, RBAC, autoria, outbox/idempotência e status; texto, imagem, áudio e vídeo conforme capacidades reais do Baileys. Chamadas fora de escopo. Sincronização live é obrigação do canal ativo; histórico inicial é progressivo dentro do que o WhatsApp fornece. Preservar Demo.
+
+**Retomada:** atualizar o arquivo de progresso **ao iniciar e terminar cada fase**, com ambiente, SHAs, mudanças, comandos/testes, evidências, riscos e próximo passo. Ao reabrir uma sessão, ler progresso e conferir estado real antes de agir. Não afirmar sucesso por testes sintéticos apenas.
