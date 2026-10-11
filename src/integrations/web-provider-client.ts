@@ -32,7 +32,7 @@ export class WebProviderClient implements WebProviderPort {
       const result: unknown = JSON.parse(Buffer.concat(chunks).toString());
       if (!response.ok) {
         const error = z.object({ error: z.object({ code: z.string() }) }).safeParse(result);
-        const code = error.success && ["HISTORY_EXECUTION_DISABLED", "HISTORY_TRANSPORT_UNAVAILABLE", "HISTORY_ANCHOR_REQUIRED", "HISTORY_OPERATION_PENDING", "HISTORY_OPERATION_MISMATCH", "INVALID_HISTORY_STATE", "IDEMPOTENCY_CONFLICT", "QR_NOT_AVAILABLE", "SESSION_NOT_FOUND", "CONNECTIONS_DISABLED", "INVALID_SESSION_STATE", "IDEMPOTENCY_CONFLICT"].includes(error.data.error.code) ? error.data.error.code : "PROVIDER_UNAVAILABLE";
+        const code = error.success && ["HISTORY_SCOPE_DENIED", "HISTORY_REQUEST_UNCERTAIN", "HISTORY_EXECUTION_DISABLED", "HISTORY_TRANSPORT_UNAVAILABLE", "HISTORY_ANCHOR_REQUIRED", "HISTORY_OPERATION_PENDING", "HISTORY_OPERATION_MISMATCH", "INVALID_HISTORY_STATE", "IDEMPOTENCY_CONFLICT", "QR_NOT_AVAILABLE", "SESSION_NOT_FOUND", "CONNECTIONS_DISABLED", "INVALID_SESSION_STATE", "IDEMPOTENCY_CONFLICT"].includes(error.data.error.code) ? error.data.error.code : "PROVIDER_UNAVAILABLE";
         throw new WebProviderError(code, response.status);
       }
       return result;

@@ -4,7 +4,7 @@ services:
     image: ${CORE_IMAGE:?Set validated commit image}
     environment:
       PROVIDER_WEB_ENABLED: 'true'
-      PROVIDER_HISTORY_EXECUTION_ENABLED: 'false'
+      PROVIDER_HISTORY_EXECUTION_ENABLED: ${PROVIDER_HISTORY_EXECUTION_ENABLED:-false}
       PROVIDER_WEB_URL: http://provider-web:3000
       PROVIDER_WEB_KEY_FILE: /run/secrets/provider_web_key
     secrets: [provider_web_key]
@@ -12,7 +12,7 @@ services:
     image: ${CORE_IMAGE:?Set validated commit image}
     environment:
       PROVIDER_WEB_ENABLED: 'true'
-      PROVIDER_HISTORY_EXECUTION_ENABLED: 'false'
+      PROVIDER_HISTORY_EXECUTION_ENABLED: ${PROVIDER_HISTORY_EXECUTION_ENABLED:-false}
       PROVIDER_WEB_URL: http://provider-web:3000
       PROVIDER_WEB_KEY_FILE: /run/secrets/provider_web_key
     secrets: [provider_web_key]

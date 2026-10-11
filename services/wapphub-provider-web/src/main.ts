@@ -23,7 +23,7 @@ async function start() {
   const auth = new InternalAuth(await secret(process.env.INTERNAL_KEY_FILE ?? "/run/secrets/internal_key"), join(directory, "nonces"));
   await auth.initialize();
   const journal = new EventJournal(vault);
-  const syncOptions = { historyExecutionEnabled: process.env.PROVIDER_HISTORY_EXECUTION_ENABLED === "true", enabled: process.env.PROVIDER_SYNC_ENABLED !== "false", historyEnabled: process.env.PROVIDER_HISTORY_ENABLED === "true", approvedScope: process.env.PROVIDER_HISTORY_APPROVED_SCOPE, linkedRecoveryOnly: process.env.PROVIDER_LINKED_RECOVERY_ONLY === "true" };
+  const syncOptions = { scopedHistoryAuthorization: process.env.PROVIDER_HISTORY_SCOPED_AUTHORIZATION === "true", historyExecutionEnabled: process.env.PROVIDER_HISTORY_EXECUTION_ENABLED === "true", enabled: process.env.PROVIDER_SYNC_ENABLED !== "false", historyEnabled: process.env.PROVIDER_HISTORY_ENABLED === "true", approvedScope: process.env.PROVIDER_HISTORY_APPROVED_SCOPE, linkedRecoveryOnly: process.env.PROVIDER_LINKED_RECOVERY_ONLY === "true" };
   const sessions = new Sessions(vault, journal, baileysFactory(vault, undefined, syncOptions), process.env.ALLOW_SESSION_CONNECT === "true", undefined, undefined, log, syncOptions);
   await sessions.recover();
   const app = createHttp(sessions, journal, auth, log);
