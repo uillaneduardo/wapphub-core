@@ -164,6 +164,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
               to: new Date().toISOString(),
             });
             if (notification.syncType != null && history.syncType !== notification.syncType) throw new ServiceError("HISTORY_RESPONSE_MISMATCH", 409);
+            if ((vault.get(scope)?.historyImports?.decodedBytes ?? 0) + decodedBytes > 32 * 1024 * 1024) throw new ServiceError("HISTORY_BYTE_LIMIT", 413);
             await processHistory({ ...processHistoryMessage(history), isLatest: false });
             await vault.update(scope, (record) => {
               const imports = record.historyImports!;
