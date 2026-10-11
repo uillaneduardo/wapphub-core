@@ -33,7 +33,7 @@ test("negative acknowledgments back off into dead letter and allow explicit reco
     const [item] = await f.journal.pull(f.scope, 1); assert.equal(item!.attempt, attempt); eventId = item!.event.eventId;
     await f.journal.nack(f.scope, eventId, item!.leaseId); assert.deepEqual(await f.journal.pull(f.scope, 1), []); f.advance(60_001);
   }
-  assert.equal(f.journal.metrics().dead, 1); assert.equal(f.sessions.ready(), false);
+  assert.equal(f.journal.metrics().dead, 1); assert.equal(f.sessions.ready(), true); // dead letters must not block draining other events
   await f.journal.retryDead(f.scope, eventId); assert.equal(f.journal.metrics().dead, 0);
   assert.equal((await f.journal.pull(f.scope, 1))[0]!.attempt, 1);
 });

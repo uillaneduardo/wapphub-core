@@ -88,12 +88,15 @@ test("text, device authorship and receipts normalize and deduplicate without dom
   const sent = events.find((event) => event.type === "message.sent"); assert.equal(sent?.data.sender.origin, "DEVICE");
   assert.equal(events.filter((event) => event.type === "message.updated").length, 2);
 });
-test("event queue exhaustion fails closed and readiness becomes unavailable", async (t) => {
+test("event queue exhaustion stops the socket while leaving durable backlog drainable", async (t) => {
   const f = await fixture(t); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID());
   await f.vault.update(f.scope, (record) => { record.events = Array.from({ length: 512 }, () => structuredClone(record.events[0]!)); });
-  f.callbacks[0]!.connection({ state: "open" }); await f.sessions.settle(f.scope);
+  await f.callbacks[0]!.connection({ state: "open" }); await f.sessions.settle(f.scope);
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(f.sessions.ready(), false); assert.equal(f.sessions.metrics().active, 0);
+  assert.equal(f.sessions.ready(), true); assert.equal(f.sessions.metrics().active, 0);
+  assert.equal(f.sessions.view(f.scope).state, "FAILED"); assert.equal(f.sessions.view(f.scope).errorCode, "EVENT_QUEUE_FULL");
+  assert.equal(f.vault.get(f.scope)?.processingFailure?.code, "EVENT_QUEUE_FULL");
+  assert.equal((await f.journal.pull(f.scope, 1)).length, 1);
 });
 test("explicit refresh rotates an expired QR without replaying old sockets or disconnecting linked sessions", async (t) => {
   const f = await fixture(t); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID());
@@ -113,4 +116,21 @@ test("CP4 authentication clears QR and cannot be interrupted by a refresh comman
   assert.equal(f.sessions.view(f.scope).pairingPhase, "AUTHENTICATING"); assert.throws(() => f.sessions.qr(f.scope), /QR_NOT_AVAILABLE/);
   await assert.rejects(f.sessions.command(f.scope, "refresh", randomUUID()), /INVALID_SESSION_STATE/);
   f.callbacks[0]!.connection({ state: "open" }); await f.sessions.settle(f.scope); assert.equal(f.sessions.view(f.scope).state, "CONNECTED");
+});
+
+test("processing faults retain sanitized evidence and credentials, stale failures cannot close a replacement socket", async (t) => {
+ const f = await fixture(t); await f.sessions.create(f.scope); await f.vault.update(f.scope, (r) => { r.auth = "SYNTHETIC_AUTH"; r.keys = { "synthetic": "SECRET" }; });
+ await f.sessions.command(f.scope, "connect", randomUUID());
+ await f.callbacks[0]!.failure(); await f.sessions.settle(f.scope);
+ assert.equal(f.sessions.ready(), false); assert.equal(f.sessions.view(f.scope).state, "FAILED"); assert.equal(f.sessions.view(f.scope).errorCode, "AUTH_PERSISTENCE_FAILED");
+ const record = f.vault.get(f.scope)!; assert.equal(record.auth, "SYNTHETIC_AUTH"); assert.equal(record.keys.synthetic, "SECRET"); assert.ok(record.processingFailure?.id); assert.equal(record.desired, true);
+ await f.sessions.command(f.scope, "connect", randomUUID()); await f.callbacks[1]!.connection({ state: "open" });
+ await f.callbacks[0]!.failure(); await f.sessions.settle(f.scope); assert.equal(f.sessions.metrics().active, 1); assert.equal(f.sessions.view(f.scope).state, "CONNECTED"); assert.ok(f.vault.get(f.scope)?.processingFailure?.recoveredAt);
+ assert.equal(f.logs.includes("SYNTHETIC_AUTH"), false);
+});
+test("bounded actor saturation records one scoped failure, preserves auth, and ignores stale queued callbacks", async (t) => {
+ const f = await fixture(t); await f.sessions.create(f.scope); await f.vault.update(f.scope, (r) => { r.auth = "SYNTHETIC_AUTH"; }); await f.sessions.command(f.scope, "connect", randomUUID());
+ await Promise.all(Array.from({ length: 140 }, (_, i) => f.callbacks[0]!.text({ id: `synthetic-${i}`, chatId: "opaque@lid", body: "SYNTHETIC_PRIVATE_BODY", fromMe: false, timestamp: f.now() })));
+ await f.sessions.settle(f.scope); assert.equal(f.sessions.metrics().active, 0); assert.equal(f.sessions.ready(), true); assert.equal(f.sessions.view(f.scope).errorCode, "SYNC_BACKPRESSURE"); assert.equal(f.vault.get(f.scope)?.auth, "SYNTHETIC_AUTH"); assert.equal(f.stats().starts, 1);
+ assert.equal(f.logs.filter((x) => x === "SYNC_BACKPRESSURE").length, 1); assert.equal(f.logs.includes("SYNTHETIC_PRIVATE_BODY"), false);
 });
