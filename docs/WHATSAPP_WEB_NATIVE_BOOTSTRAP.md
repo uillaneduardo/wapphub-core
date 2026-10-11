@@ -27,8 +27,10 @@ pelo próprio SDK sem os limites por operação do WappHub.
 - As referências de download entram na estrutura `historyImports.pending` do
   Vault já criptografado; o processamento é sequencial e alimenta o journal
   `sync.batch`, sem novo banco, fila ou contrato.
-- Deduplicação, limites de contatos/conversas/mensagens, timeout e prioridade
-  das mensagens novas permanecem no pipeline existente.
+- Deduplicação, limites de arquivo/staging/spool, timeout e prioridade live
+  permanecem. Na consolidação B2, 100 registros de wire/até300SyncItems por
+  página têm cursor durável e staging atômico; 500/500/1000 continuam limites
+  ON_DEMAND, sem teto permanente de contatos/conversas/mensagens do bootstrap.
 - A captura inicial permanece pendente apenas enquanto sua sessão de bootstrap
   está ativa; reconectar uma conta já vinculada NÃO ativa `syncFullHistory`
   nem novo QR.
@@ -55,3 +57,15 @@ credenciais e volumes; nunca executar logout ou novo pareamento automático.
 A homologação visual/funcional e eventual pareamento com uma conta de teste
 ficam com o usuário após deploy. Não registrar conteúdo de mensagens, chaves
 ou referências criptográficas nos logs.
+
+
+## Consolidação B1–B4 — validação técnica, sem publicação
+
+RECENT100 não congela a captura: append recente volta ao live; arquivo entregue
+continua por páginas/cursor/cache AES-GCM, sem download repetido por página.
+Janela persistida, intervalo30s, backoff30–300s e cincofalhas. Orçamento de32MiB/16
+referências delimita o ciclo inicial e não é reposto silenciosamente. Arquivos
+acima dos limites permanecem parciais; páginas não transformam bytes recusados
+em histórico recuperado. Correlação bootstrap scoped não consome grantON_DEMAND.
+620conversas/1240mensagens sintéticas processadas através de restart; isso não
+prova recuperação remota. Evidências/CI no progresso canônico e planoB5.

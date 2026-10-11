@@ -1,8 +1,8 @@
 # WappHub — acompanhamento canônico de consolidação
 
-**Criado:** 2026-10-11. **Estado global:** `EXECUCAO_B1_B4`. **Próxima ação:** concluir revisão/CI dos PRs integrados B2–B4; plano B5 sem execução. Aprovação técnica do PR25 recebida; B5/B6 não autorizadas.
+**Criado:** 2026-10-11. **Estado global:** `B1_B4_VALIDADOS_TECNICAMENTE`. **Próxima ação:** revisão dos PRs e autorização específica de B5; nenhuma publicação nesta execução. Aprovação técnica do PR25 recebida; B5/B6 não autorizadas.
 
-Diagnóstico A0/A1: [WHATSAPP_WEB_CONSOLIDATION_AUDIT.md](WHATSAPP_WEB_CONSOLIDATION_AUDIT.md). Auditoria concluída não significa código integralmente aprovado: Provider remoto apresenta duas falhas locais em78testes e CI main falho; defeitos e riscos estão documentados para correção após aprovação.
+Diagnóstico A0/A1: [WHATSAPP_WEB_CONSOLIDATION_AUDIT.md](WHATSAPP_WEB_CONSOLIDATION_AUDIT.md). A auditoria registrou falhas no remoto main então inspecionado; os P0 foram corrigidos e a CI das branches B está verde. Main e produção permanecem distintos das branches de revisão.
 
 ## Referências mandatórias
 - Fluxo e gates: [WHATSAPP_WEB_CONSOLIDATION_EXECUTION.md](WHATSAPP_WEB_CONSOLIDATION_EXECUTION.md)
@@ -25,9 +25,9 @@ A cada execução, reler este documento, comparar SHA local/remoto/produção e 
 | A1 — Auditoria Core/Provider/Baileys/Chat | VALIDADO_TECNICAMENTE (auditoria, com falhas encontradas) | AUDIT; inventário SDK/código e probes; Core127/127, Provider76/78, Chat287/287; CI verificado | Corrigir lacunas somente após aprovação |
 | A2 — Plano arquitetural/produto | APROVADO_TECNICAMENTE (PR25/revisão do usuário) | PROPOSAL; matriz existente/lacuna/teste/risco, diagrama, capabilities, limites, contratos, ADRs e rollback | B1–B4 autorizadas; B5 exige autorização específica |
 | B1 — Provider e captura/reconexão | VALIDADO_TECNICAMENTE (local e CI verde) | testes sintéticos SDK e contratos, sessão preservada | Revisão dos PRs, sem merge/deploy |
-| B2 — Core/Worker e persistência | EM_ANDAMENTO | tenant/RBAC/ingestão/dedup/paginação/outbox | Revisão dos PRs, sem merge/deploy |
-| B3 — Envio/recebimento, nova conversa, mídia e Chat | EM_ANDAMENTO | texto e mídia, contato existente e número não cadastrado, status/autoria, UI | Revisão dos PRs, sem merge/deploy |
-| B4 — Regressão/performance/segurança | EM_ANDAMENTO | testes Core/Provider/Chat, CI, recursos, segurança | Após B1–B3 |
+| B2 — Core/Worker e persistência | VALIDADO_TECNICAMENTE (local e CI) | Core131/131, Provider90/90; PR27; migrations12/OpenAPI/drift | Revisão PR27; B5 depende de autorização |
+| B3 — Envio/recebimento, nova conversa, mídia e Chat | VALIDADO_TECNICAMENTE (local e CI; sintético) | PR27 + ChatPR19; Chat294/294; runtime multimídia sem rede | Homologação real/visual após B5 autorizado |
+| B4 — Regressão/performance/segurança | VALIDADO_TECNICAMENTE | Todas CI verdes; limites Docker/bytes/cache; negativas e regressões | [Plano B5](WHATSAPP_WEB_CONSOLIDATION_B5.md), sem execução |
 | B5 — Publicação controlada | BLOQUEADO_POR_APROVACAO | backups/restauração/rollback, imagens, smokes, sessão | Exigir autorização de deploy |
 | B6 — Homologação final | BLOQUEADO_POR_APROVACAO | roteiro e feedback do usuário no navegador | Aguardar homologação humana |
 
@@ -170,3 +170,24 @@ Estado: EM_ANDAMENTO. Core/Provider c117b20eec991a30f5b8745ea84654ea1f4685b9 PR2
 Core131/131 e todos10checks0 no schema isolado release (core-checks-b4release.json), Chat294/294 confirmado (chat-test-release-confirm.log); teste legado AppShell isolado tambémverde. CIChat38179832791success. CICore38179831434falha typecheck: job instalava apenasnode_modulesCore, novos fixtures/HTTPtypeimportreferenciamBaileys Provider (TS2307). Corrigido workflow para npmci tambémdoadapter, lockfilesinalterados; nãoexcluir fontes/testesnemrelaxartipos. CIProvider38179831431emexecução.
 
 final-preservation.json: IDs/imagens/StartedAt dos6serviçosidênticos baseline, healthy,1socketativo,RSS180MB;checkoutsoperacionaislimpos. Próximaação: CI dosSHAscorrigidos, fecharB4/documentarB5.
+
+### 2026-10-11T22:23:22.474236+00:00 — B4 — encerramento técnico integrado
+
+Estado: VALIDADO_TECNICAMENTE. Ambiente: branches de revisão, serviços sintéticos isolados e conferência read-only de produção. Sem merge, deploy, alteração da sessão produtiva, migration produtiva, pareamento, mensagens reais ou solicitações históricas reais.
+
+Commits funcionais: Core/Provider B1 eb5e667c277ba9d26b105c7b686933cbc3dacdf7 (PR26); B2–B4 c117b20eec991a30f5b8745ea84654ea1f4685b9 e configuração CI c86b07ca208e57d118e1928757f3baba2790bb54 (PR27, base PR26). Chat 3afd2fffa074887dfd3ff4fbb676cc666fa3d1dd (PR19, base main34acd1f). PR25 continua documental, aprovado tecnicamente e sem merge; nenhum PR integrado nesta execução.
+
+CI **success** do SHA funcional c86b07c:
+- Core: https://github.com/uillaneduardo/wapphub-core/actions/runs/38179967004
+- Provider: https://github.com/uillaneduardo/wapphub-core/actions/runs/38179967011
+- Chat SHA3afd2ff: https://github.com/uillaneduardo/wapphub-chat/actions/runs/38179832791
+
+Local final: Core131/131, Provider90/90, Chat294/294; lint/typecheck/build verdes. Doze migrations, Prisma/drift/OpenAPI em banco isolado; runtime real da imagem com SDK/uploader sintéticos e sem rede: cinco envios sintéticos/zero reais, imagem/áudio/voz/vídeo e WebM→Opus. Compose smoke apenas projeto isolado. Falha inicial CI de dependências do adapter corrigida sem excluir testes; flake legado AppShell sob carga registrado, suite final e CI Chat passaram sem alterar expectativas/timeouts.
+
+Evidências: ~/homelab/deploy-records/wapphub-provider-web/20261011-consolidation-b1-b4/{TESTES.md,IMPLEMENTACAO.md,ci-validated-functional.json,core-checks-b4release.json,core-test-b4release.log,provider-test-b4-final.log,chat-test-release-confirm.log,media-runtime-final.log,provider-compose-smoke-final.log,final-preservation.json,final-domain-readonly.json}. Relatório e manifest final incluem o SHA documental de encerramento após commit.
+
+Produção: seis serviços healthy com IDs/imagens/StartedAt idênticos ao baseline; Core/Source CONNECTED, um socket ativo, attempts históricos5, grant ENABLED e produtor PAUSED; requests=1 preexistente, historicalMessages=0. Quatorze falhas legadas, novas falhas0. Checkouts operacionais Coredb85dac/Chatf13752f limpos; imagens publicadas continuam CP47. Imagem construída é exclusivamente local de teste, não publicada.
+
+Limites/riscos remanescentes: disponibilidade histórica/bytes depende do WhatsApp; não declarar histórico integral ou entrega real. Cache/ref expiram e possuem quotas; codecs aceitos limitados. Recursos do homelab exigem observar backlog/RSS/disk em B5. Bundle Chat509kB/gzip161kB mantém aviso Vite. Reconexão real do código novo e layouts/gravação/players dependem de B5/B6. Rollback deve interpretar recoveryFailures/receipts/cursors; CP47 antigo não é presumido seguro. Grant histórico existente precisa permanecer sem novas requests durante publicação.
+
+Próxima ação segura: revisão dos PRs e [plano B5](WHATSAPP_WEB_CONSOLIDATION_B5.md) mediante autorização específica; backups/restauração isolada/imagens/deploy produtivos ainda não executados. B6 pelo usuário após publicação autorizada. Documento de implementação consolidado: [IMPLEMENTATION](WHATSAPP_WEB_CONSOLIDATION_IMPLEMENTATION.md). Nenhuma alteração funcional após c86b07c; este encerramento apenas registra evidências/documentação.
