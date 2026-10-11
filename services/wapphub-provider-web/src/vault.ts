@@ -3,6 +3,7 @@ import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promis
 import { join } from "node:path";
 import { z } from "zod";
 import { parseProviderEvent, type ProviderEvent, type SyncItem } from "../../../contracts/provider.js";
+import type { HistoryOperation } from "./history-operation.js";
 import type { ProviderSync } from "../../../contracts/provider-internal.js";
 import { ServiceError } from "./errors.js";
 import { Serial } from "./serial.js";
@@ -17,8 +18,9 @@ export type Session = Scope & {
   events: Delivery[]; dedup: string[]; commands: { id: string; digest: string }[];
   pairingPhase?: string;
   processingFailure?: NonNullable<ProviderSync["processingFailure"]>;
+  historyOperation?: HistoryOperation;
   historyImports?: { downloads: number; decodedBytes: number; seen: string[] };
-  sync?: ProviderSync & { pending: { item: SyncItem; historical: boolean }[]; complete: boolean; startedAt: number; historyContacts: number; historyConversations: number; historyMessages: number; historyIdentities?: string[][] };
+  sync?: ProviderSync & { pending: { item: SyncItem; historical: boolean; operationId?: string }[]; complete: boolean; startedAt: number; historyContacts: number; historyConversations: number; historyMessages: number; historyIdentities?: string[][] };
 };
 const filename = (scope: Scope) => createHash("sha256").update(JSON.stringify([scope.organizationId, scope.connectionId])).digest("hex");
 const MAX_RECORD_BYTES = 8 * 1024 * 1024;
@@ -63,6 +65,12 @@ export class Vault {
     }
   }
   get(scope: Scope): Session | undefined { return structuredClone(this.records.get(filename(scope))); }
+  historyState(scope: Scope) { const op = this.records.get(filename(scope))?.historyOperation; return op ? { id: op.id, state: op.state, expiresAt: op.expiresAt } : undefined; }
+  history(scope: Scope) { return structuredClone(this.records.get(filename(scope))?.historyOperation); }
+  queueState(scope: Scope, now: number) {
+    const r = this.records.get(filename(scope));
+    return { pending: r?.sync?.pending.length ?? 0, live: r?.sync?.pending.some((e) => !e.historical) ?? false, events: r?.events.length ?? 0, batches: r?.events.filter((e) => e.event.type === "sync.batch").length ?? 0, available: r?.events.some((e) => !e.dead && e.leaseUntil <= now) ?? false };
+  }
   all(): Session[] { return structuredClone([...this.records.values()]); }
   async flush() { await this.serial.run(async () => undefined); }
   metrics() {

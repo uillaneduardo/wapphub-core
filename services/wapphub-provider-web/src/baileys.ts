@@ -4,7 +4,9 @@ import pino from "pino";
 import type { TransportFactory } from "./transport.js";
 import { ServiceError } from "./errors.js";
 import { Vault, type Scope } from "./vault.js";
-import { normalizeContact, normalizeConversation, directIdentity, diagnoseIdentity, diagnoseMessage, type NormalizationOutcome } from "./sync-normalization.js";
+import { normalizeContact, normalizeConversation, directIdentity, diagnoseIdentity, diagnoseMessage, normalizeSyncMessage, type NormalizationOutcome } from "./sync-normalization.js";
+import { HistoryImporter } from "./history-operation.js";
+import { selectHistory } from "./history-selection.js";
 import { readBoundedHistory } from "./history.js";
 import type { SyncObservation } from "../../../contracts/provider-internal.js";
 import type { SyncItem } from "../../../contracts/provider.js";
@@ -50,8 +52,8 @@ export async function encryptedAuth(vault: Vault, scope: Scope, failure: () => v
     };
     return { state: { creds, keys }, saveCreds, disable: (revoke = false) => { closed = true; revoked ||= revoke; }, isDisabled: () => closed };
 }
-type SocketCreator = (options: Parameters<typeof makeWASocket>[0]) => Pick<ReturnType<typeof makeWASocket>, "ev" | "end" | "logout">;
-export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean } = { enabled: false, historyEnabled: false }): TransportFactory {
+type SocketCreator = (options: Parameters<typeof makeWASocket>[0]) => Pick<ReturnType<typeof makeWASocket>, "ev" | "end" | "logout"> & Partial<Pick<ReturnType<typeof makeWASocket>, "fetchMessageHistory">>;
+export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; historyExecutionEnabled?: boolean } = { enabled: false, historyEnabled: false }): TransportFactory {
   return async (scope, callbacks) => {
     const historyEnabled = syncOptions.historyEnabled && syncOptions.approvedScope === `${scope.organizationId}:${scope.connectionId}`;
     if (syncOptions.linkedRecoveryOnly) {
@@ -69,6 +71,18 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       connectTimeoutMs: 20_000, keepAliveIntervalMs: 30_000, qrTimeout: 60_000,
       emitOwnEvents: false, generateHighQualityLinkPreview: false,
     });
+    const importer = new HistoryImporter(vault, scope, async (count, anchor) => {
+      if (!socket.fetchMessageHistory) throw new ServiceError("HISTORY_TRANSPORT_UNAVAILABLE", 409);
+      return socket.fetchMessageHistory(count, { remoteJid: anchor.chatId, id: anchor.messageId, fromMe: anchor.fromMe }, anchor.timestamp);
+    }, async (reference) => {
+      const notification = JSON.parse(reference, BufferJSON.reviver) as proto.Message.IHistorySyncNotification;
+      const op = vault.get(scope)?.historyOperation; if (!op) throw new ServiceError("HISTORY_OPERATION_MISMATCH", 409);
+      const { history, decodedBytes } = await readBoundedHistory(notification, downloads.signal, op);
+      // The durable file receipt prevents replays from spending admission twice.
+      await vault.update(scope, (record) => { const current = record.historyOperation; if (!current || current.id !== op.id || current.reference !== reference) throw new ServiceError("HISTORY_OPERATION_MISMATCH", 409); if (current.decodedReference !== createHash("sha256").update(reference).digest("hex")) { current.decodedBytes = (current.decodedBytes ?? 0) + decodedBytes; current.decodedReference = createHash("sha256").update(reference).digest("hex"); } if ((current.decodedBytes ?? 0) > 32 * 1024 * 1024) throw new ServiceError("HISTORY_BYTE_LIMIT", 413); });
+      return selectHistory(scope, history, op);
+    }, syncOptions.historyExecutionEnabled === true && syncOptions.approvedScope === `${scope.organizationId}:${scope.connectionId}`);
+    await importer.recover();
     socket.ev.on("creds.update", (update) => {
       if (auth.isDisabled()) return;
       if (syncOptions.linkedRecoveryOnly && (Object.hasOwn(update, "me") && update.me?.id !== auth.state.creds.me?.id)) {
@@ -104,6 +118,11 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
     socket.ev.on("chats.update", (values) => submit(values, (value) => diagnoseIdentity(value, () => normalizeConversation(value)), false, false, "CHATS_UPDATE"));
     socket.ev.on("lid-mapping.update", ({ lid, pn }) => submit([{ id: pn, lid }], (value) => diagnoseIdentity(value, () => normalizeContact(value)), false, false, "IDENTITY_MAPPING"));
     const processHistory = async (data: BaileysEventMap["messaging-history.set"]) => {
+      if (importer.accepting) {
+        const op = importer.current!;
+        const items = [...data.contacts.slice(0, 500).map(normalizeContact), ...data.chats.slice(0, 500).map(normalizeConversation), ...data.messages.slice(0, 1000).map((m) => normalizeSyncMessage(scope, m))].filter((x): x is SyncItem => !!x);
+        await importer.receive(items.filter((x) => x.kind !== "message" || Date.parse(x.occurredAt) >= Date.parse(op.from) && Date.parse(x.occurredAt) <= Date.parse(op.to))); return;
+      }
       if (!historyEnabled) return;
       historyObserved = true;
       await submit(data.lidPnMappings ?? [], (value) => diagnoseIdentity({ id: value.pn, lid: value.lid }, () => normalizeContact({ id: value.pn, lid: value.lid })), true, false, "IDENTITY_MAPPING");
@@ -111,7 +130,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       await submit(data.chats, (value) => diagnoseIdentity(value, () => normalizeConversation(value)), true, false, "HISTORY_CHATS");
       await submit(data.messages, (value) => diagnoseMessage(scope, value), true, data.progress === 100, "HISTORY_MESSAGES");
     };
-    socket.ev.on("messaging-history.set", (data) => { void processHistory(data).catch(() => callbacks.failure()); });
+    socket.ev.on("messaging-history.set", (data) => { void processHistory(data).catch(() => importer.current ? importer.fail("HISTORY_PROCESSING_FAILED") : callbacks.failure()); });
     socket.ev.on("messaging-history.status", (value) => {
       if (historyEnabled && historyObserved && !downloading && !auth.isDisabled()) callbacks.sync?.([], true, value.status === "complete" && value.explicit, value.explicit ? 0 : 1);
     });
@@ -123,6 +142,14 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
         // history off; our bounded reader accepts only self-origin notifications.
         for (const message of update.messages.slice(0, 250)) {
           const notification = normalizeMessageContent(message.message)?.protocolMessage?.historySyncNotification;
+          if (notification && message.key.fromMe && importer.accepting) {
+            if (notification.peerDataRequestSessionId && notification.peerDataRequestSessionId !== importer.current?.requestId) continue;
+            // Persist only the bounded encrypted download reference, never a raw message.
+            const minimal = { initialHistBootstrapInlinePayload: notification.initialHistBootstrapInlinePayload, fileLength: notification.fileLength, directPath: notification.directPath, mediaKey: notification.mediaKey, fileSha256: notification.fileSha256 };
+            const reference = JSON.stringify(minimal, BufferJSON.replacer);
+            if (Buffer.byteLength(reference) > 2 * 1024 * 1024) { void importer.fail("HISTORY_BYTE_LIMIT"); continue; }
+            void importer.receive([], reference).catch(() => importer.fail("HISTORY_BACKPRESSURE")); continue;
+          }
           if (!notification || !message.key.fromMe || !historyEnabled) continue;
           if (downloading) { callbacks.sync?.([], true, false, 1, true); continue; }
           downloading = true;
@@ -174,6 +201,6 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
         if (status === proto.WebMessageInfo.Status.READ || status === proto.WebMessageInfo.Status.PLAYED) callbacks.receipt(key.id, "READ", chatId);
       }
     });
-    return { close: () => { downloads.abort(); auth.disable(); void socket.end(new Error("CONTROLLED_SHUTDOWN")).catch(() => callbacks.failure()); }, logout: () => { downloads.abort(); auth.disable(true); return socket.logout(); } };
+    return { history: (control) => importer.command(control), close: () => { importer.close(); downloads.abort(); auth.disable(); void socket.end(new Error("CONTROLLED_SHUTDOWN")).catch(() => callbacks.failure()); }, logout: () => { downloads.abort(); auth.disable(true); return socket.logout(); } };
   };
 }

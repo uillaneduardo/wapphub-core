@@ -285,6 +285,7 @@ model ProviderConnection {
   pairingPhase String? @db.VarChar(24)
   providerSync Json?
   syncProgress Json?
+  historyOperation Json?
   pendingReceipts Json?
   leaseToken String? @db.Char(36)
   leaseUntil DateTime?
@@ -302,6 +303,7 @@ model ProviderCommand {
   actorUserId String @db.Char(36)
   sessionId String @db.Char(36)
   action String @db.VarChar(20)
+  payload Json?
   status String @default("PENDING") @db.VarChar(20)
   attempts Int @default(0)
   nextAttemptAt DateTime @default(now())

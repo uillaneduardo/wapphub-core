@@ -19,6 +19,8 @@ import { AppError } from "../domain/errors.js";
 import { loginRateLimitKey } from "./client-ip.js";
 import { DemoProvider } from "../integrations/demo-provider.js";
 import { MessageIngestionService } from "../application/message-ingestion.js";
+import { webHistoryRoutes } from "./web-history-routes.js";
+import { WebHistory } from "../application/web-history.js";
 import { WebConnections } from "../application/web-connections.js";
 import { configuredWebProvider, type WebProviderPort } from "../integrations/web-provider-client.js";
 import { ProviderDiagnostics } from "../application/provider-diagnostics.js";
@@ -198,6 +200,7 @@ export async function buildApp(
   await chatRoutes(app, foundation, chat, sessionCookie);
   await permissionRoutes(app, foundation, chat, new Permissions(db, chat, config), sessionCookie);
   await providerDiagnosticsRoutes(app, foundation, new ProviderDiagnostics(db, chat), sessionCookie);
+  await webHistoryRoutes(app, foundation, new WebHistory(db, chat, config.PROVIDER_HISTORY_EXECUTION_ENABLED), sessionCookie);
   await webProviderRoutes(app, foundation, new WebConnections(db, chat, webProvider ?? await configuredWebProvider(config)), chat, sessionCookie);
   await gateway.routes(app, config, sessionCookie);
   const authenticate = (req: { cookies: Record<string, string | undefined> }) =>

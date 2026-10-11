@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { historyControlSchema } from "../../../contracts/history.js";
 import { z } from "zod";
 import { InternalAuth } from "./auth.js";
 import { ServiceError } from "./errors.js";
@@ -10,7 +11,7 @@ const commandSchema = z.strictObject({ action: z.enum(["connect", "refresh", "di
 const eventAckSchema = z.strictObject({ eventId: z.uuid(), leaseId: z.uuid() });
 const prefix = "/internal/v1/organizations/:organizationId/connections/:connectionId";
 export function createHttp(sessions: Sessions, journal: EventJournal, auth: InternalAuth, log: (code: string) => void = () => undefined) {
-  const app = Fastify({ logger: false, bodyLimit: 16_384, requestTimeout: 15_000, connectionTimeout: 10_000, routerOptions: { maxParamLength: 100 } });
+  const app = Fastify({ logger: false, bodyLimit: 16 * 1024, requestTimeout: 15_000, connectionTimeout: 10_000, routerOptions: { maxParamLength: 100 } });
   app.setNotFoundHandler((_request, reply) => reply.code(404).send({ error: { code: "NOT_FOUND" } }));
   app.addHook("onRequest", async (_request, reply) => {
     reply.header("cache-control", "no-store").header("x-content-type-options", "nosniff");
@@ -35,6 +36,7 @@ export function createHttp(sessions: Sessions, journal: EventJournal, auth: Inte
   app.put(prefix, async (request) => sessions.create(scopeSchema.parse(request.params)));
   app.get(prefix, async (request) => sessions.view(scopeSchema.parse(request.params)));
   app.get(`${prefix}/qr`, async (request) => sessions.qr(scopeSchema.parse(request.params)));
+  app.post(`${prefix}/history`, async (request) => sessions.history(scopeSchema.parse(request.params), historyControlSchema.parse(request.body)));
   app.post(`${prefix}/commands`, async (request) => {
     const scope = scopeSchema.parse(request.params), body = commandSchema.parse(request.body);
     return sessions.command(scope, body.action, body.commandId);

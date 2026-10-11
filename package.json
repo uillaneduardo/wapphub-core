@@ -10,7 +10,7 @@
     "dev": "tsx watch src/api.ts",
     "start": "node dist/src/api.js",
     "worker": "node dist/src/worker.js",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "tsx --test --test-concurrency=1 tests/*.test.ts",

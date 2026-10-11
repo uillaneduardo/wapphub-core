@@ -9,5 +9,6 @@ export type TransportCallbacks = {
   sync?(items: SyncItem[], historical: boolean, completed?: boolean, failures?: number, limited?: boolean, observation?: SyncObservation): void | Promise<void>;
   failure(): void;
 };
-export type Transport = { close(): void; logout(): Promise<void> };
+import type { HistoryControl } from "../../../contracts/history.js";
+export type Transport = { close(): void; logout(): Promise<void>; history?(control: HistoryControl): Promise<void> };
 export type TransportFactory = (scope: Scope, callbacks: TransportCallbacks) => Promise<Transport>;

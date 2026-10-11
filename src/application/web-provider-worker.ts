@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { historyControlSchema } from "../../contracts/history.js";
+import { historyPermissions, historyRecord } from "./web-history.js";
 import type { PrismaClient, Prisma } from "@prisma/client";
 import type { Chat } from "./chat.js";
 import { WebConnections } from "./web-connections.js";
@@ -31,8 +34,17 @@ export class WebProviderWorker {
           if (!session) throw new AppError(403, "COMMAND_AUTHORIZATION_REVOKED");
           await this.chat.context({ session, user: session.user }, "providers.manage");
           // Only explicitly requested create/connect produces a session/socket.
-          await this.client.create(scope);
-          const view = command.action === "create" ? await this.client.session(scope) : await this.client.command(scope, command.action === "disconnect" ? "logout" : command.action as InternalAction, command.id);
+          let view;
+          if (command.action.startsWith("history_")) {
+            for (const permission of historyPermissions) await this.chat.context({ session, user: session.user }, permission);
+            const control = historyControlSchema.parse(command.payload);
+            if (["start", "resume"].includes(control.action) && !this.chat.historyExecutionEnabled) throw new AppError(403, "HISTORY_EXECUTION_DISABLED");
+            if (!this.client.history) throw new WebProviderError("HISTORY_TRANSPORT_UNAVAILABLE", 409);
+            view = await this.client.history(scope, control);
+          } else {
+            await this.client.create(scope);
+            view = command.action === "create" ? await this.client.session(scope) : await this.client.command(scope, command.action === "disconnect" ? "logout" : command.action as InternalAction, command.id);
+          }
           await this.connections.synchronize(scope, view, token);
           await this.chat.integrationMutation(scope.organizationId, async (tx) => {
             await this.fence(tx, scope, token);
@@ -48,13 +60,22 @@ export class WebProviderWorker {
           await this.chat.integrationMutation(scope.organizationId, async (tx) => {
             await this.fence(tx, scope, token);
             await tx.providerCommand.update({ where: { id: command.id }, data: { status: permanent || attempts >= 5 ? "FAILED" : "PENDING", errorCode: code, nextAttemptAt: new Date(Date.now() + Math.min(30_000, 1000 * 2 ** attempts)) } });
-            await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { errorCode: code, version: { increment: 1 } } });
+            await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { ...(command.action.startsWith("history_") ? {} : { errorCode: code }), version: { increment: 1 } } });
             await this.chat.resourceEvent(tx, scope.organizationId, "provider.connection.updated", scope.connectionId);
           });
           return;
         }
       }
       const view = await this.client.session(scope);
+      if (view.history && ["RUNNING", "WAITING", "BACKPRESSURE"].includes(view.history.state)) {
+        const row = await this.db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } } });
+        const op = historyRecord(row.historyOperation);
+        let authorized = this.chat.historyExecutionEnabled && op?.id === view.history.id;
+        if (authorized && op) {
+          try { const session = await this.db.session.findUniqueOrThrow({ where: { id: op.sessionId }, include: { user: true } }); for (const permission of historyPermissions) await this.chat.context({ session, user: session.user }, permission); authorized = session.currentOrganizationId === scope.organizationId; } catch { authorized = false; }
+        }
+        if (!authorized && this.client.history) await this.client.history(scope, { action: "pause", operationId: view.history.id, commandId: randomUUID() }).catch(() => this.onError("HISTORY_PAUSE_FAILED"));
+      }
       await this.connections.synchronize(scope, view, token, !available);
       // Bounded batch leaves time to refresh the lease, preserving tenant fairness.
       for (const delivery of await this.client.pull(scope)) {

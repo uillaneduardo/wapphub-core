@@ -136,6 +136,7 @@ export const tagDTO = (r: { id: string; name: string }) => ({
   name: r.name,
 });
 export class Chat {
+  get historyExecutionEnabled() { return this.config.PROVIDER_HISTORY_EXECUTION_ENABLED; }
   constructor(
     public db: PrismaClient,
     private config: Config,

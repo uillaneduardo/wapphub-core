@@ -1,0 +1,10 @@
+import { z } from "zod";
+export const historyStates = ["PREPARED", "RUNNING", "WAITING", "BACKPRESSURE", "PAUSED", "CANCELLED", "COMPLETED", "PARTIAL", "NO_DATA", "FAILED"] as const;
+export const historyActions = ["prepare", "start", "pause", "resume", "cancel"] as const;
+export const historyLimitsSchema = z.strictObject({ contacts: z.number().int().min(1).max(500), conversations: z.number().int().min(1).max(500), messages: z.number().int().min(1).max(1000) });
+export const historySpecSchema = z.strictObject({ id: z.uuid(), from: z.iso.datetime(), to: z.iso.datetime(), limits: historyLimitsSchema, anchors: z.array(z.strictObject({ chatId: z.string().min(1).max(120).regex(/^[a-zA-Z0-9_.:-]+@(s\.whatsapp\.net|lid)$/), messageId: z.string().min(1).max(160), fromMe: z.boolean(), timestamp: z.number().int().positive() })).max(16) }).refine((s) => Date.parse(s.to) > Date.parse(s.from) && Date.parse(s.to) - Date.parse(s.from) <= 30 * 86400000 && Date.parse(s.to) <= Date.now() + 60000, { message: "INVALID_HISTORY_WINDOW" });
+export type HistorySpec = z.infer<typeof historySpecSchema>;
+export const historyViewSchema = z.strictObject({ id: z.uuid(), state: z.enum(historyStates), from: z.iso.datetime(), to: z.iso.datetime(), limits: historyLimitsSchema, contacts: z.number().int().min(0).max(500), conversations: z.number().int().min(0).max(500), messages: z.number().int().min(0).max(1000), requests: z.number().int().min(0).max(16), duplicates: z.number().int().min(0), failures: z.number().int().min(0), limited: z.boolean(), queued: z.number().int().min(0), lastProcessedAt: z.iso.datetime().optional(), errorCode: z.string().regex(/^[A-Z][A-Z0-9_]{0,79}$/).optional() });
+export type HistoryView = z.infer<typeof historyViewSchema>;
+export const historyControlSchema = z.strictObject({ commandId: z.uuid(), operationId: z.uuid(), action: z.enum(historyActions), spec: historySpecSchema.optional() });
+export type HistoryControl = z.infer<typeof historyControlSchema>;

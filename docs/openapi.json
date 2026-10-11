@@ -16199,6 +16199,1314 @@
         }
       }
     },
+    "/api/v1/providers/whatsapp-web/connections/{id}/history": {
+      "get": {
+        "tags": [
+          "WhatsApp Web history"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "webSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "version": {
+                      "type": "integer"
+                    },
+                    "operation": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "state": {
+                          "type": "string"
+                        },
+                        "from": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "to": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "limits": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "contacts": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "conversations": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "messages": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "contacts",
+                            "conversations",
+                            "messages"
+                          ]
+                        },
+                        "processed": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "duplicates": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "rejected": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "persisted": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "contacts": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "conversations": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "messages": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "contacts",
+                            "conversations",
+                            "messages"
+                          ]
+                        },
+                        "source": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "state": {
+                              "type": "string"
+                            },
+                            "from": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "to": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "limits": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "contacts": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "conversations": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "messages": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                }
+                              },
+                              "required": [
+                                "contacts",
+                                "conversations",
+                                "messages"
+                              ]
+                            },
+                            "contacts": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "conversations": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "messages": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "requests": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "duplicates": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "failures": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "limited": {
+                              "type": "boolean"
+                            },
+                            "queued": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "lastProcessedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "errorCode": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "state",
+                            "from",
+                            "to",
+                            "limits",
+                            "contacts",
+                            "conversations",
+                            "messages",
+                            "requests",
+                            "duplicates",
+                            "failures",
+                            "limited",
+                            "queued"
+                          ],
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "state",
+                        "from",
+                        "to",
+                        "limits",
+                        "processed",
+                        "duplicates",
+                        "rejected",
+                        "persisted",
+                        "source",
+                        "createdAt"
+                      ],
+                      "nullable": true
+                    },
+                    "executionEnabled": {
+                      "type": "boolean"
+                    },
+                    "mechanism": {
+                      "type": "string"
+                    },
+                    "remoteAvailability": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "operation",
+                    "executionEnabled",
+                    "mechanism",
+                    "remoteAvailability"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/whatsapp-web/connections/{id}/history/prepare": {
+      "post": {
+        "tags": [
+          "WhatsApp Web history"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "commandId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "messages": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000
+                  }
+                },
+                "required": [
+                  "commandId",
+                  "expectedVersion"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "webSession": [],
+            "csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "operation": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "state": {
+                          "type": "string"
+                        },
+                        "from": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "to": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "limits": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "contacts": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "conversations": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "messages": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "contacts",
+                            "conversations",
+                            "messages"
+                          ]
+                        },
+                        "processed": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "duplicates": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "rejected": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "persisted": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "contacts": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "conversations": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "messages": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "contacts",
+                            "conversations",
+                            "messages"
+                          ]
+                        },
+                        "source": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "state": {
+                              "type": "string"
+                            },
+                            "from": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "to": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "limits": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "contacts": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "conversations": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "messages": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                }
+                              },
+                              "required": [
+                                "contacts",
+                                "conversations",
+                                "messages"
+                              ]
+                            },
+                            "contacts": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "conversations": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "messages": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "requests": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "duplicates": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "failures": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "limited": {
+                              "type": "boolean"
+                            },
+                            "queued": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "lastProcessedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "errorCode": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "state",
+                            "from",
+                            "to",
+                            "limits",
+                            "contacts",
+                            "conversations",
+                            "messages",
+                            "requests",
+                            "duplicates",
+                            "failures",
+                            "limited",
+                            "queued"
+                          ],
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "state",
+                        "from",
+                        "to",
+                        "limits",
+                        "processed",
+                        "duplicates",
+                        "rejected",
+                        "persisted",
+                        "source",
+                        "createdAt"
+                      ],
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "operation"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/providers/whatsapp-web/connections/{id}/history/commands": {
+      "post": {
+        "tags": [
+          "WhatsApp Web history"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "commandId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "operationId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "start",
+                      "pause",
+                      "resume",
+                      "cancel"
+                    ]
+                  }
+                },
+                "required": [
+                  "commandId",
+                  "operationId",
+                  "expectedVersion",
+                  "action"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "webSession": [],
+            "csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "operation": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "state": {
+                          "type": "string"
+                        },
+                        "from": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "to": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "limits": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "contacts": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "conversations": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "messages": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "contacts",
+                            "conversations",
+                            "messages"
+                          ]
+                        },
+                        "processed": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "duplicates": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "rejected": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "persisted": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "contacts": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "conversations": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "messages": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "contacts",
+                            "conversations",
+                            "messages"
+                          ]
+                        },
+                        "source": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "state": {
+                              "type": "string"
+                            },
+                            "from": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "to": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "limits": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "contacts": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "conversations": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                },
+                                "messages": {
+                                  "type": "integer",
+                                  "minimum": 0
+                                }
+                              },
+                              "required": [
+                                "contacts",
+                                "conversations",
+                                "messages"
+                              ]
+                            },
+                            "contacts": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "conversations": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "messages": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "requests": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "duplicates": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "failures": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "limited": {
+                              "type": "boolean"
+                            },
+                            "queued": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "lastProcessedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "errorCode": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "state",
+                            "from",
+                            "to",
+                            "limits",
+                            "contacts",
+                            "conversations",
+                            "messages",
+                            "requests",
+                            "duplicates",
+                            "failures",
+                            "limited",
+                            "queued"
+                          ],
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "state",
+                        "from",
+                        "to",
+                        "limits",
+                        "processed",
+                        "duplicates",
+                        "rejected",
+                        "persisted",
+                        "source",
+                        "createdAt"
+                      ],
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "operation"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/providers/whatsapp-web/connections": {
       "get": {
         "tags": [
@@ -16499,7 +17807,12 @@
                                 "create",
                                 "connect",
                                 "refresh",
-                                "disconnect"
+                                "disconnect",
+                                "history_prepare",
+                                "history_start",
+                                "history_pause",
+                                "history_resume",
+                                "history_cancel"
                               ]
                             },
                             "status": {
@@ -17199,7 +18512,12 @@
                             "create",
                             "connect",
                             "refresh",
-                            "disconnect"
+                            "disconnect",
+                            "history_prepare",
+                            "history_start",
+                            "history_pause",
+                            "history_resume",
+                            "history_cancel"
                           ]
                         },
                         "status": {
@@ -17920,7 +19238,12 @@
                             "create",
                             "connect",
                             "refresh",
-                            "disconnect"
+                            "disconnect",
+                            "history_prepare",
+                            "history_start",
+                            "history_pause",
+                            "history_resume",
+                            "history_cancel"
                           ]
                         },
                         "status": {
