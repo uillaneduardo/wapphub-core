@@ -24,8 +24,8 @@ const db = new PrismaClient(), redis = new Redis(config.REDIS_URL, { maxRetriesP
 const origin = config.origins[0]!;
 class FakeProvider implements WebProviderPort {
   views = new Map<string, ProviderSession>(); events: Delivery[] = []; calls: string[] = []; acked: string[] = []; nacked: string[] = [];
-  fail = false; qrValue: ProviderQr = { qr: "SYNTHETIC_PRIVATE_QR", revision: 1, expiresAt: new Date(Date.now() + 20000).toISOString() }; qrHook?: () => Promise<void>;
-  async ready() { return !this.fail; }
+  fail = false; unready = false; qrValue: ProviderQr = { qr: "SYNTHETIC_PRIVATE_QR", revision: 1, expiresAt: new Date(Date.now() + 20000).toISOString() }; qrHook?: () => Promise<void>;
+  async ready() { return !this.fail && !this.unready; }
   async create(scope: ProviderScope) { this.calls.push("create"); if (!this.views.has(scope.connectionId)) this.views.set(scope.connectionId, { state: "DISCONNECTED", revision: 0, qrRevision: 0, attempts: 0, connectEnabled: true }); return this.session(scope); }
   async session(scope: ProviderScope) { if (this.fail) throw new WebProviderError("PROVIDER_UNAVAILABLE"); const view = this.views.get(scope.connectionId); if (!view) throw new WebProviderError("SESSION_NOT_FOUND", 404); return view; }
   async command(scope: ProviderScope, action: InternalAction) { this.calls.push(action); const old = await this.session(scope); const view: ProviderSession = { ...old, state: action === "logout" ? "LOGGED_OUT" : "CONNECTING", revision: old.revision + 1 }; this.views.set(scope.connectionId, view); return view; }
@@ -399,6 +399,10 @@ test("diagnostics records actual failed attempts, recovery, definitive rejection
   assert.ok(!JSON.stringify(detail).includes("private-phone-token-content")); assert.ok(!JSON.stringify(detail).includes("diagnostic-private")); assert.ok(!("stack" in detail));
   await ingestion.apply(scope(), batch, token);
   page = (await request(owner, "GET", `${base}?kind=ERRORS&status=RECOVERED`)).json(); assert.ok(page.items.some((x: { id: string }) => x.id === batch.eventId)); assert.ok(page.counters.recovered >= 1);
+  const searched = (await request(owner, "GET", `${base}?kind=ERRORS&q=${batch.correlationId}&component=CORE&eventType=sync.batch`)).json(); assert.equal(searched.items.length, 1); assert.equal(searched.items[0].id, batch.eventId);
+  assert.equal((await request(owner, "GET", `${base}?kind=ERRORS&q=${batch.correlationId}&component=PROVIDER`)).json().items.length, 0);
+  const evidence = (await request(owner, "GET", `${base}?kind=EVENTS&status=ACCEPTED&q=${batch.correlationId}`)).json().items[0].pipeline;
+  assert.equal(evidence.find((x: {stage: string}) => x.stage === "PERSISTENCE").confirmed, true); assert.equal(evidence.find((x: {stage: string}) => x.stage === "REALTIME").confirmed, true); assert.equal(evidence.find((x: {stage: string}) => x.stage === "INBOX_RENDERED").confirmed, false); assert.equal(evidence.find((x: {stage: string}) => x.stage === "NORMALIZED").confirmed, false);
   const recovered = (await request(owner, "GET", `${base}/${batch.eventId}`)).json(); assert.equal(recovered.status, "RECOVERED"); assert.equal(recovered.attempts, 2); assert.ok(recovered.recoveredAt);
   const doomed = syncBatch([syncMessage("diagnostic-dead@lid", "diagnostic-dead")], false);
   await recordSyncFailure(chat, scope(), doomed, token, "PROVIDER_IDEMPOTENCY_CONFLICT", 5, true);
@@ -416,4 +420,16 @@ test("diagnostic checkpoints enforce retention, bounded volume and sanitize unex
  const progress = syncProgress({ occurrences: Array.from({ length: 100 }, () => good) }); assert.equal(progress.occurrences.length, 64); assert.ok(!JSON.stringify(progress.occurrences).includes("DO_NOT_EXPOSE"));
  assert.equal(syncProgress({ occurrences: [{ ...good, occurredAt: "2000-01-01T00:00:00Z" }] }).occurrences.length, 0);
  assert.equal(syncProgress({ occurrences: [{ ...good, code: "SECRET_PHONE_123456789" }] }).occurrences.length, 0);
+});
+
+test("unready provider metadata is refreshed without commands or reconnection; diagnostics reports actual scoped source faults", async () => {
+ const previous = await provider.session(scope()), faultId = randomUUID();
+ provider.views.set(channelId, { ...previous, revision: previous.revision + 1, sync: { historyEnabled: false, phase: "PARTIAL", queued: 1, contacts: 3, conversations: 2, messages: 2, failures: 14, limited: false, durationMs: 123, activeTransport: false, processingFailure: { id: faultId, code: "SYNC_BACKPRESSURE", stage: "QUEUE", occurredAt: new Date().toISOString() } } });
+ provider.unready = true; const calls = provider.calls.length;
+ const draining = syncBatch([syncMessage("drainable@lid", "synthetic-drain")], false); provider.events.push({ event: draining, leaseId: randomUUID(), attempt: 1 });
+ try { await worker.runConnection(scope()); const connection = await current(); assert.equal(connection.errorCode, "PROVIDER_UNAVAILABLE"); assert.equal(connection.sync.provider.queued, 1); assert.ok(!("processingFailure" in connection.sync.provider)); assert.equal(provider.calls.length, calls); assert.ok(provider.acked.includes(draining.eventId));
+  const health = (await request(owner, "GET", "/providers/WHATSAPP_WEB/diagnostics/health")).json(); assert.equal(health.connectionStateConfirmed, false); assert.equal(health.processingState, "UNAVAILABLE");
+  const page = (await request(owner, "GET", "/providers/WHATSAPP_WEB/diagnostics?kind=ERRORS&component=PROVIDER&stage=QUEUE")).json(); assert.equal(page.items.length, 1); assert.equal(page.items[0].id, faultId); assert.equal(page.items[0].code, "SYNC_BACKPRESSURE"); assert.equal(page.items[0].attempts, 1);
+  await request(other, "GET", `/providers/WHATSAPP_WEB/diagnostics/${faultId}`, undefined, 404);
+ } finally { provider.unready = false; provider.views.set(channelId, previous); await worker.runConnection(scope()); }
 });

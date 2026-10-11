@@ -21,10 +21,13 @@ function observe(progress: Progress, event: ProviderEvent, code: string, stage: 
  row.code = safeDiagnosticCode(code); row.status = status; row.lastAttemptAt = now; row.attempts = Math.max(row.attempts + 1, attempt ?? 0);
  if (progress.occurrences.length > 64) { progress.occurrences.shift(); progress.diagnosticEvictions++; }
 }
-export type Progress = { occurrences: SyncOccurrence[]; diagnosticEvictions: number; receivedItems: number; processedItems: number; duplicateItems: number; rejectedItems: number; conversationsLocated: number; failedAttempts: number; failedBatches: Record<string, string>; diagnosticsSince?: string; contacts: number; conversations: number; messages: number; failures: number; batches: number; lastProcessedAt?: string; lastErrorCode?: string };
+export type BatchEvidence = { id: string; correlationId: string; committedAt: string; processedItems: number; rejectedItems: number };
+export type Progress = { lastBatch?: BatchEvidence; occurrences: SyncOccurrence[]; diagnosticEvictions: number; receivedItems: number; processedItems: number; duplicateItems: number; rejectedItems: number; conversationsLocated: number; failedAttempts: number; failedBatches: Record<string, string>; diagnosticsSince?: string; contacts: number; conversations: number; messages: number; failures: number; batches: number; lastProcessedAt?: string; lastErrorCode?: string };
 export function syncProgress(value: Prisma.JsonValue | null): Progress {
   const input = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return { occurrences: occurrences(input.occurrences), diagnosticEvictions: Number(input.diagnosticEvictions ?? 0), receivedItems: Number(input.receivedItems ?? 0), processedItems: Number(input.processedItems ?? 0), duplicateItems: Number(input.duplicateItems ?? 0), rejectedItems: Number(input.rejectedItems ?? 0), conversationsLocated: Number(input.conversationsLocated ?? 0), failedAttempts: Number(input.failedAttempts ?? 0), failedBatches: input.failedBatches && typeof input.failedBatches === "object" && !Array.isArray(input.failedBatches) ? Object.fromEntries(Object.entries(input.failedBatches).filter(([key, value]) => /^[a-f0-9]{64}$/.test(key) && typeof value === "string" && /^[A-Z][A-Z0-9_]{0,79}$/.test(value)).slice(0, 32)) as Record<string, string> : {}, ...(typeof input.diagnosticsSince === "string" ? { diagnosticsSince: input.diagnosticsSince } : {}), contacts: Number(input.contacts ?? 0), conversations: Number(input.conversations ?? 0), messages: Number(input.messages ?? 0), failures: Number(input.failures ?? 0), batches: Number(input.batches ?? 0), ...(typeof input.lastProcessedAt === "string" ? { lastProcessedAt: input.lastProcessedAt } : {}), ...(typeof input.lastErrorCode === "string" ? { lastErrorCode: input.lastErrorCode } : {}) };
+  const last = input.lastBatch;
+  const lastBatch = last && typeof last === "object" && !Array.isArray(last) && typeof last.id === "string" && /^[a-f0-9-]{36}$/i.test(last.id) && typeof last.correlationId === "string" && /^[a-f0-9-]{36}$/i.test(last.correlationId) && typeof last.committedAt === "string" && Number.isFinite(Date.parse(last.committedAt)) && typeof last.processedItems === "number" && typeof last.rejectedItems === "number" ? { id: last.id, correlationId: last.correlationId, committedAt: last.committedAt, processedItems: last.processedItems, rejectedItems: last.rejectedItems } : undefined;
+  return { ...(lastBatch ? { lastBatch } : {}), occurrences: occurrences(input.occurrences), diagnosticEvictions: Number(input.diagnosticEvictions ?? 0), receivedItems: Number(input.receivedItems ?? 0), processedItems: Number(input.processedItems ?? 0), duplicateItems: Number(input.duplicateItems ?? 0), rejectedItems: Number(input.rejectedItems ?? 0), conversationsLocated: Number(input.conversationsLocated ?? 0), failedAttempts: Number(input.failedAttempts ?? 0), failedBatches: input.failedBatches && typeof input.failedBatches === "object" && !Array.isArray(input.failedBatches) ? Object.fromEntries(Object.entries(input.failedBatches).filter(([key, value]) => /^[a-f0-9]{64}$/.test(key) && typeof value === "string" && /^[A-Z][A-Z0-9_]{0,79}$/.test(value)).slice(0, 32)) as Record<string, string> : {}, ...(typeof input.diagnosticsSince === "string" ? { diagnosticsSince: input.diagnosticsSince } : {}), contacts: Number(input.contacts ?? 0), conversations: Number(input.conversations ?? 0), messages: Number(input.messages ?? 0), failures: Number(input.failures ?? 0), batches: Number(input.batches ?? 0), ...(typeof input.lastProcessedAt === "string" ? { lastProcessedAt: input.lastProcessedAt } : {}), ...(typeof input.lastErrorCode === "string" ? { lastErrorCode: input.lastErrorCode } : {}) };
 }
 export type PendingReceipt = { status: "SENT" | "DELIVERED" | "READ"; chatId?: string; expiresAt: number };
 const ranks = ["PENDING", "SENT", "DELIVERED", "READ"];
@@ -67,6 +70,7 @@ export class WebSync {
         await this.chat.resourceEvent(tx, scope.organizationId, "provider.connection.updated", scope.connectionId);
         return false;
       }
+      const initialProcessed = progress.processedItems, initialRejected = progress.rejectedItems;
       progress.receivedItems += event.data.items.length;
       const identities = new Map<string, Contact>(), conversations = new Map<string, Conversation>(), messages = new Map<string, Message>();
       const identifiers = [...new Set(event.data.items.flatMap((item) => [item.identity.externalId, ...(item.identity.aliases ?? [])]))];
@@ -166,6 +170,7 @@ export class WebSync {
         }
       }
       progress.batches++; progress.failures += event.data.failures ?? 0; progress.lastProcessedAt = new Date().toISOString();
+      progress.lastBatch = { id: event.eventId, correlationId: event.correlationId, committedAt: progress.lastProcessedAt, processedItems: progress.processedItems - initialProcessed, rejectedItems: progress.rejectedItems - initialRejected };
       if (contactsChanged) await this.chat.resourceEvent(tx, scope.organizationId, "contacts.updated", scope.connectionId);
       for (const id of historyChanged) await this.chat.resourceEvent(tx, scope.organizationId, "conversation.history.updated", id, id);
       for (const id of metadataChanged) await this.chat.resourceEvent(tx, scope.organizationId, "conversation.updated", id, id);

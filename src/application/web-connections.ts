@@ -12,15 +12,17 @@ export type CommandInput = { commandId: string; action: ConnectionAction; expect
 const pending = { in: ["PENDING", "PROCESSING"] };
 export function connectionDTO(record: ProviderConnection, command?: ProviderCommand | null) {
   const state = record.state;
-  const { failedBatches, occurrences: _occurrences, diagnosticEvictions: _evictions, ...progress } = syncProgress(record.syncProgress);
-  void _occurrences; void _evictions; // Private diagnostic fields require a separate permission.
+  const provider = record.providerSync && typeof record.providerSync === "object" && !Array.isArray(record.providerSync) ? { ...record.providerSync } : null;
+  if (provider) { delete provider.processingFailure; delete provider.activeTransport; }
+  const { failedBatches, lastBatch: _lastBatch, occurrences: _occurrences, diagnosticEvictions: _evictions, ...progress } = syncProgress(record.syncProgress);
+  void _lastBatch; void _occurrences; void _evictions; // Private diagnostic fields require a separate permission.
   return { id: record.channelId, state,
     uiState: state === "QR_REQUIRED" ? "QR_READY" : state === "FAILED" ? "ERROR" : state === "LOGGED_OUT" ? "DISCONNECTED" : state,
     version: record.version, qrRevision: record.qrRevision,
     errorCode: record.errorCode,
     lastCheckedAt: record.lastCheckedAt?.toISOString() ?? null,
     pairingPhase: record.pairingPhase ?? null,
-    sync: { ...progress, pendingFailures: Object.keys(failedBatches).length, provider: record.providerSync ?? null },
+    sync: { ...progress, pendingFailures: Object.keys(failedBatches).length, provider },
     operation: command ? { id: command.id, action: command.action, status: command.status, errorCode: command.errorCode } : null,
     sendingEnabled: false, mediaEnabled: false,
   };
@@ -92,13 +94,14 @@ export class WebConnections {
       return { ...qr, expiresInMs };
     });
   }
-  async synchronize(scope: { organizationId: string; connectionId: string }, view: ProviderSession, leaseToken: string) {
+  async synchronize(scope: { organizationId: string; connectionId: string }, view: ProviderSession, leaseToken: string, unavailable = false) {
     return this.chat.integrationMutation(scope.organizationId, async (tx) => {
       const record = await tx.providerConnection.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, leaseToken, leaseUntil: { gt: new Date() }, channel: { provider: "WHATSAPP_WEB" } } });
       if (!record) throw new AppError(409, "STALE_PROVIDER_LEASE");
       if (view.revision < record.providerRevision) return false;
-      const changed = view.revision !== record.providerRevision || view.state !== record.state || record.errorCode !== (view.errorCode ?? null) || JSON.stringify(record.providerSync) !== JSON.stringify(view.sync ?? null) || record.pairingPhase !== (view.pairingPhase ?? null);
-      await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { state: view.state, qrRevision: view.qrRevision, providerRevision: view.revision, errorCode: view.errorCode ?? null, lastCheckedAt: new Date(), pairingPhase: view.pairingPhase ?? null, ...(view.sync ? { providerSync: view.sync } : {}), ...(changed ? { version: { increment: 1 } } : {}) } });
+      const errorCode = unavailable ? "PROVIDER_UNAVAILABLE" : view.errorCode ?? null;
+      const changed = view.revision !== record.providerRevision || view.state !== record.state || record.errorCode !== errorCode || JSON.stringify(record.providerSync) !== JSON.stringify(view.sync ?? null) || record.pairingPhase !== (view.pairingPhase ?? null);
+      await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { state: view.state, qrRevision: view.qrRevision, providerRevision: view.revision, errorCode, lastCheckedAt: new Date(), pairingPhase: view.pairingPhase ?? null, ...(view.sync ? { providerSync: view.sync } : {}), ...(changed ? { version: { increment: 1 } } : {}) } });
       await tx.channel.update({ where: { organizationId_id: { organizationId: scope.organizationId, id: scope.connectionId } }, data: { status: view.state === "CONNECTED" ? "ENABLED" : "DISABLED" } });
       if (changed) await this.chat.resourceEvent(tx, scope.organizationId, "provider.connection.updated", scope.connectionId);
       return changed;

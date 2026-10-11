@@ -2179,6 +2179,9 @@
                           "primaryIdentifier": {
                             "type": "string"
                           },
+                          "displayIdentifier": {
+                            "type": "string"
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time"
@@ -2193,6 +2196,7 @@
                           "id",
                           "name",
                           "primaryIdentifier",
+                          "displayIdentifier",
                           "createdAt",
                           "updatedAt"
                         ]
@@ -2602,6 +2606,9 @@
                     "primaryIdentifier": {
                       "type": "string"
                     },
+                    "displayIdentifier": {
+                      "type": "string"
+                    },
                     "createdAt": {
                       "type": "string",
                       "format": "date-time"
@@ -2616,6 +2623,7 @@
                     "id",
                     "name",
                     "primaryIdentifier",
+                    "displayIdentifier",
                     "createdAt",
                     "updatedAt"
                   ]
@@ -2997,6 +3005,9 @@
                     "primaryIdentifier": {
                       "type": "string"
                     },
+                    "displayIdentifier": {
+                      "type": "string"
+                    },
                     "createdAt": {
                       "type": "string",
                       "format": "date-time"
@@ -3011,6 +3022,7 @@
                     "id",
                     "name",
                     "primaryIdentifier",
+                    "displayIdentifier",
                     "createdAt",
                     "updatedAt"
                   ]
@@ -3417,6 +3429,9 @@
                     "primaryIdentifier": {
                       "type": "string"
                     },
+                    "displayIdentifier": {
+                      "type": "string"
+                    },
                     "createdAt": {
                       "type": "string",
                       "format": "date-time"
@@ -3431,6 +3446,7 @@
                     "id",
                     "name",
                     "primaryIdentifier",
+                    "displayIdentifier",
                     "createdAt",
                     "updatedAt"
                   ]
@@ -14786,6 +14802,47 @@
           {
             "schema": {
               "type": "string",
+              "maxLength": 160
+            },
+            "in": "query",
+            "name": "q",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CORE",
+                "WORKER",
+                "PROVIDER"
+              ]
+            },
+            "in": "query",
+            "name": "component",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "sync.batch",
+                "connection.updated",
+                "message.received",
+                "message.sent",
+                "message.updated",
+                "contacts.updated",
+                "conversation.updated",
+                "PROVIDER_EVENT",
+                "PROVIDER_COMMAND"
+              ]
+            },
+            "in": "query",
+            "name": "eventType",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
               "enum": [
                 "ERRORS",
                 "EVENTS"
@@ -14851,7 +14908,8 @@
               "enum": [
                 "PERSISTENCE",
                 "VALIDATION",
-                "LIFECYCLE"
+                "LIFECYCLE",
+                "QUEUE"
               ]
             },
             "in": "query",
@@ -14964,6 +15022,36 @@
                           "deadLetter": {
                             "type": "boolean",
                             "nullable": true
+                          },
+                          "pipeline": {
+                            "type": "array",
+                            "maxItems": 6,
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "properties": {
+                                "stage": {
+                                  "type": "string"
+                                },
+                                "confirmed": {
+                                  "type": "boolean"
+                                },
+                                "occurredAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "nullable": true
+                                },
+                                "description": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "stage",
+                                "confirmed",
+                                "occurredAt",
+                                "description"
+                              ]
+                            }
                           }
                         },
                         "required": [
@@ -15395,6 +15483,27 @@
                     },
                     "detailsAvailable": {
                       "type": "boolean"
+                    },
+                    "connectionStateConfirmed": {
+                      "type": "boolean"
+                    },
+                    "processingState": {
+                      "type": "string"
+                    },
+                    "activeFailures": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "recoveredFailures": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "retryAttempts": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
                     }
                   },
                   "required": [
@@ -15409,7 +15518,12 @@
                     "lastProcessedAt",
                     "lastCheckedAt",
                     "diagnosticsSince",
-                    "detailsAvailable"
+                    "detailsAvailable",
+                    "connectionStateConfirmed",
+                    "processingState",
+                    "activeFailures",
+                    "recoveredFailures",
+                    "retryAttempts"
                   ]
                 }
               }
@@ -15773,6 +15887,36 @@
                     "deadLetter": {
                       "type": "boolean",
                       "nullable": true
+                    },
+                    "pipeline": {
+                      "type": "array",
+                      "maxItems": 6,
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "stage": {
+                            "type": "string"
+                          },
+                          "confirmed": {
+                            "type": "boolean"
+                          },
+                          "occurredAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "description": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "stage",
+                          "confirmed",
+                          "occurredAt",
+                          "description"
+                        ]
+                      }
                     }
                   },
                   "required": [

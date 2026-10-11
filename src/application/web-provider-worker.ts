@@ -20,8 +20,10 @@ export class WebProviderWorker {
     const token = await this.connections.claim({ organizationId: scope.organizationId, channelId: scope.connectionId });
     if (!token) return;
     try {
-      if (!await this.client.ready()) throw new WebProviderError("PROVIDER_UNAVAILABLE");
-      const command = await this.db.providerCommand.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, status: { in: ["PENDING", "PROCESSING"] }, nextAttemptAt: { lte: new Date() } }, orderBy: { createdAt: "asc" } });
+      const available = await this.client.ready();
+      // Even an unready service may still drain its durable queue. Never execute
+      // lifecycle commands until ready, and retain the unavailability marker.
+      const command = available ? await this.db.providerCommand.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, status: { in: ["PENDING", "PROCESSING"] }, nextAttemptAt: { lte: new Date() } }, orderBy: { createdAt: "asc" } }) : null;
       if (command) {
         await this.chat.integrationMutation(scope.organizationId, async (tx) => { await this.fence(tx, scope, token); await tx.providerCommand.update({ where: { id: command.id }, data: { status: "PROCESSING", attempts: { increment: 1 } } }); });
         try {
@@ -53,7 +55,7 @@ export class WebProviderWorker {
         }
       }
       const view = await this.client.session(scope);
-      await this.connections.synchronize(scope, view, token);
+      await this.connections.synchronize(scope, view, token, !available);
       // Bounded batch leaves time to refresh the lease, preserving tenant fairness.
       for (const delivery of await this.client.pull(scope)) {
         const started = performance.now();
@@ -61,7 +63,7 @@ export class WebProviderWorker {
           const committed = await this.ingestion.apply(scope, delivery.event, token);
           if (delivery.event.type === "sync.batch") this.onMetric({ code: "PROVIDER_SYNC_BATCH", durationMs: Math.round(performance.now() - started), items: delivery.event.data.items.length, historical: delivery.event.data.historical, committed });
           // Refresh lifecycle from current metadata, never from an old replay event.
-          if (delivery.event.type === "connection.updated") await this.connections.synchronize(scope, await this.client.session(scope), token);
+          if (delivery.event.type === "connection.updated") await this.connections.synchronize(scope, await this.client.session(scope), token, !available);
           await this.client.ack(scope, delivery.event.eventId, delivery.leaseId);
         } catch (error) {
           if (error instanceof AppError && error.code === "STALE_PROVIDER_LEASE") throw error;
