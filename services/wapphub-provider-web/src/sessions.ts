@@ -148,7 +148,7 @@ export class Sessions {
     this.close(actor);
     if (this.syncOptions.linkedRecoveryOnly) {
       const record = this.vault.get(scope); let linked = false;
-      try { const auth = JSON.parse(record?.auth ?? "null"); linked = Boolean(auth?.me?.id && auth.registered === true); } catch { /* never log credentials */ }
+      try { const auth = JSON.parse(record?.auth ?? "null"); linked = typeof auth?.me?.id === "string" && auth.me.id.length > 0; } catch { /* never log credentials */ }
       if (!linked) { await this.transition(scope, "FAILED", "EXISTING_AUTH_REQUIRED"); return; }
       if ((actor.recoveryStarts ?? 0) >= 3) { await this.transition(scope, "FAILED", "RECONNECT_LIMIT"); return; }
       actor.recoveryStarts = (actor.recoveryStarts ?? 0) + 1;

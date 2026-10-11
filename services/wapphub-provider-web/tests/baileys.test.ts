@@ -40,10 +40,24 @@ test("linked-only SDK factory never initializes new credentials without an authe
 });
 test("linked-only SDK refuses credential revocation updates without overwriting persisted auth", async (t) => {
  const f = await fixture(t); const { encryptedAuth } = await import("../src/baileys.js");
- const initial = await encryptedAuth(f.vault, f.scope); initial.state.creds.registered = true; initial.state.creds.me = { id: "synthetic@lid" }; await initial.saveCreds(); initial.disable();
+ const initial = await encryptedAuth(f.vault, f.scope); initial.state.creds.me = { id: "synthetic@lid" }; await initial.saveCreds(); initial.disable();
  const before = f.vault.get(f.scope)!.auth; const ev = makeEventBuffer(pino({ level: "silent" })); const updates: unknown[] = [];
  const factory = baileysFactory(f.vault, () => ({ ev, end: async () => undefined, logout: async () => assert.fail("no logout") }), { enabled: false, historyEnabled: false, linkedRecoveryOnly: true });
  const transport = await factory(f.scope, { connection: (x) => updates.push(x), text: () => undefined, receipt: () => undefined, failure: () => assert.fail("unexpected failure") });
- ev.emit("creds.update", { registered: false }); await f.vault.flush();
+ ev.emit("creds.update", { me: undefined }); await f.vault.flush();
  assert.deepEqual(updates, [{ state: "close", code: 401 }]); assert.equal(f.vault.get(f.scope)?.auth, before); transport.close();
+});
+
+test("QR-linked SDK recovery accepts registered false and preserves the authenticated identity", async (t) => {
+ const f = await fixture(t); const { encryptedAuth } = await import("../src/baileys.js");
+ const initial = await encryptedAuth(f.vault, f.scope); assert.equal(initial.state.creds.registered, false);
+ initial.state.creds.me = { id: "synthetic@lid" }; await initial.saveCreds(); initial.disable();
+ const ev = makeEventBuffer(pino({ level: "silent" }));
+ const factory = baileysFactory(f.vault, (options) => {
+   assert.equal(options.auth?.creds.me?.id, "synthetic@lid"); assert.equal(options.auth?.creds.registered, false);
+   return { ev, end: async () => undefined, logout: async () => assert.fail("no logout") };
+ }, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true });
+ const transport = await factory(f.scope, { connection: () => assert.fail("no identity rejection"), text: () => undefined, receipt: () => undefined, failure: () => assert.fail("unexpected failure") });
+ ev.emit("creds.update", { registered: false }); await new Promise((resolve) => setImmediate(resolve)); await f.vault.flush();
+ assert.equal(JSON.parse(f.vault.get(f.scope)!.auth!).me.id, "synthetic@lid"); assert.equal(JSON.parse(f.vault.get(f.scope)!.auth!).registered, false); transport.close();
 });
