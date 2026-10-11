@@ -1,3 +1,6 @@
+> CP4: sincronização contínua homologada pelo usuário em 11/10/2026.
+> [Aceite e limites](docs/WHATSAPP_WEB_CP4_ACCEPTANCE.md). Histórico anterior à conexão excluído do aceite; envio pelo Chat e download de mídias continuam bloqueados.
+
 > WhatsApp Web — checkpoint 3: [gestão de conexão/QR, ingestão de texto,
 > migration aditiva e limites](docs/WHATSAPP_WEB_CHECKPOINT3.md).
 > Envio pelo Chat/multimídia bloqueados; homologação humana pendente.

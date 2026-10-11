@@ -1,3 +1,9 @@
+# Estado vigente — WhatsApp Web CP4 (11/10/2026)
+
+Sincronização contínua publicada e funcionalmente homologada pelo usuário: recebimento realtime, persistência, deduplicação, saída pelo celular, identificação visual e diagnóstico aprovados. Latência observada aproximadamente1 segundo, sem promessa de SLA. [Aceite formal](WHATSAPP_WEB_CP4_ACCEPTANCE.md).
+
+Histórico anterior à conexão excluído do aceite. Sua preparação/auditoria é o escopo atual; importação real exige autorização específica. As14 falhas legadas permanecem sem causas reconstruídas. CP5, envio pelo Chat e download de mídias não iniciados. Os registros anteriores abaixo descrevem entregas históricas e não substituem este estado vigente.
+
 > Retomada 2026-10-11: Core/API/Worker PR15 e Chat PR13/14 publicados, migrations10 e serviços correspondentes saudáveis. Runtime Provider anterior permanece vivo/readiness503/socket0; auth preservada e recuperação específica aguardando autorização. Homologação manual/CP4 ainda pendentes. Correção adicional de isolamento de falhas do Provider validada com53 testes/lint/types/build, CI/ativação separados. Registros antigos abaixo são históricos.
 
 # WhatsApp Web — Checkpoint 4 publicado tecnicamente (2026-10-10)
