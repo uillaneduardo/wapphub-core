@@ -25,7 +25,7 @@ export class Sessions {
     private readonly log: (code: string, fields?: { source: string; stage: string; count: number }) => void = () => undefined,
     private readonly syncOptions: { enabled: boolean; historyEnabled: boolean; initialHistoryEnabled?: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean } = { enabled: false, historyEnabled: false },
   ) {}
-  private historyEnabled(scope: Scope) { return this.syncOptions.initialHistoryEnabled === true || this.syncOptions.historyEnabled && this.syncOptions.approvedScope === scopeKey(scope); }
+  private historyEnabled(scope: Scope) { return (this.syncOptions.initialHistoryEnabled === true && this.vault.get(scope)?.historyImports?.initialPending === true) || this.syncOptions.historyEnabled && this.syncOptions.approvedScope === scopeKey(scope); }
   private actor(scope: Scope) {
     const key = scopeKey(scope);
     let actor = this.actors.get(key);
