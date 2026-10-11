@@ -5,8 +5,8 @@ import { proto, downloadContentFromMessage } from "baileys";
 import { boundHistoryObjects } from "./history-selection.js";
 import { ServiceError } from "./errors.js";
 
-export const HISTORY_COMPRESSED_BYTES = 1024 * 1024;
-export const HISTORY_DECODED_BYTES = 8 * 1024 * 1024;
+export const HISTORY_COMPRESSED_BYTES = 4 * 1024 * 1024;
+export const HISTORY_DECODED_BYTES = 16 * 1024 * 1024;
 /** Bound BOTH sides of inflation. Never use the SDK's unbounded history reader. */
 export async function decodeBoundedHistory(source: AsyncIterable<Uint8Array>, volume?: (decoded: number) => void, window?: { from: string; to: string }) {
   const chunks: Buffer[] = []; let compressed = 0, decoded = 0;

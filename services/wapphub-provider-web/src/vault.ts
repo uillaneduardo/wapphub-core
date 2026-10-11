@@ -19,7 +19,7 @@ export type Session = Scope & {
   pairingPhase?: string;
   processingFailure?: NonNullable<ProviderSync["processingFailure"]>;
   historyOperation?: HistoryOperation;
-  historyImports?: { downloads: number; decodedBytes: number; seen: string[] };
+  historyImports?: { downloads: number; decodedBytes: number; seen: string[]; initialPending?: boolean; pending?: { digest: string; reference: string }[] };
   sync?: ProviderSync & { pending: { item: SyncItem; historical: boolean; operationId?: string }[]; complete: boolean; startedAt: number; historyContacts: number; historyConversations: number; historyMessages: number; historyIdentities?: string[][] };
 };
 const filename = (scope: Scope) => createHash("sha256").update(JSON.stringify([scope.organizationId, scope.connectionId])).digest("hex");
