@@ -65,6 +65,12 @@ export class Vault {
     }
   }
   get(scope: Scope): Session | undefined { return structuredClone(this.records.get(filename(scope))); }
+  historyState(scope: Scope) { const op = this.records.get(filename(scope))?.historyOperation; return op ? { id: op.id, state: op.state, expiresAt: op.expiresAt } : undefined; }
+  history(scope: Scope) { return structuredClone(this.records.get(filename(scope))?.historyOperation); }
+  queueState(scope: Scope, now: number) {
+    const r = this.records.get(filename(scope));
+    return { pending: r?.sync?.pending.length ?? 0, live: r?.sync?.pending.some((e) => !e.historical) ?? false, events: r?.events.length ?? 0, batches: r?.events.filter((e) => e.event.type === "sync.batch").length ?? 0, available: r?.events.some((e) => !e.dead && e.leaseUntil <= now) ?? false };
+  }
   all(): Session[] { return structuredClone([...this.records.values()]); }
   async flush() { await this.serial.run(async () => undefined); }
   metrics() {

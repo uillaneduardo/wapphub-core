@@ -85,8 +85,8 @@ export class EventJournal {
     });
   }
   private async promote(scope: Scope) {
-    const existing = this.vault.get(scope);
-    if (!existing?.sync?.pending.length || !existing.sync.pending.some((entry) => !entry.historical) && existing.events.filter((entry) => entry.event.type === "sync.batch").length >= 4 || existing.events.length >= 128) return;
+    const existing = this.vault.queueState(scope, this.now());
+    if (!existing.pending || !existing.live && existing.batches >= 4 || existing.events >= 128) return;
     await this.vault.update(scope, (record) => {
       const sync = record.sync!;
       // Live items precede historical work, with at most two batches per pull.
@@ -108,7 +108,7 @@ export class EventJournal {
   async pull(scope: Scope, limit: number) {
     await this.promote(scope);
     // Idle sessions do not rewrite ciphertext/fsync on every worker scan.
-    if (!this.vault.get(scope)?.events.some((item) => !item.dead && item.leaseUntil <= this.now())) return [];
+    if (!this.vault.queueState(scope, this.now()).available) return [];
     return this.vault.update(scope, (record) => {
       const available = record.events.filter((item) => !item.dead && item.leaseUntil <= this.now()).sort((a, b) => Number(a.event.type === "sync.batch" && a.event.data.historical) - Number(b.event.type === "sync.batch" && b.event.data.historical)).slice(0, limit);
       return available.flatMap((item) => {

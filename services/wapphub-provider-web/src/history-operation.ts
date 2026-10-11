@@ -15,8 +15,8 @@ const active = (op?: HistoryOperation) => !!op && ["RUNNING", "WAITING", "BACKPR
 export class HistoryImporter {
   private pumping = false; private closed = false;
   constructor(private readonly vault: Vault, private readonly scope: Scope, private readonly request: (count: number, anchor: HistorySpec["anchors"][number]) => Promise<string>, private readonly decode: (reference: string) => Promise<SyncItem[]>, private readonly executionEnabled = false, private readonly now = Date.now) {}
-  get current() { return this.vault.get(this.scope)?.historyOperation; }
-  get accepting() { return active(this.current) && !this.closed && this.current!.expiresAt > this.now(); }
+  get current() { return this.vault.history(this.scope); }
+  get accepting() { const op = this.vault.historyState(this.scope); return !!op && ["RUNNING", "WAITING", "BACKPRESSURE"].includes(op.state) && !this.closed && op.expiresAt > this.now(); }
   async command(input: HistoryControl) {
     const c = historyControlSchema.parse(input), digest = createHash("sha256").update(JSON.stringify(c)).digest("hex");
     await this.vault.update(this.scope, (record) => {
