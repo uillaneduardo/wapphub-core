@@ -162,3 +162,11 @@ Estado: VALIDADO_TECNICAMENTE localmente; CI consolidada pendente em B4. Texto/i
 Provider90/90 (provider-test-b4-final.log); imagem Docker somente local de teste, ID8b7ce4d29ec2816468dd8dc738d481208f64c181a08567afd1ee7209923c5211. media-runtime-final.log: IMAGE/AUDIO/VOICE/VIDEO, conversãoWebM, preparaçãoSDK/upload/downloadHMAC sintéticos,5sends/0reais,--network none. Compose smoke isolado saudável/connectionsEnabledfalse. Chat294/294 em chat-test-b4-final.log, lint/typecheck/build verdes; repetição sobCPU reproduziu flake de preview/logout no AppShell, teste isolado verde sem alteração de expectativa/timeout; CI e confirmação da suite completa exigidas. Sem novas dependênciasnpm/lockfiles;FFmpeg sónaimagem.
 
 Core integração amplia prova para retry explícito de autorização revogada antes daRPC, reusandoMsg/comando; âncoras rejeitamPENDING/UNKNOWN/enviointernosemprotocoltimestamp. SQLtrigger apenasbancoteste e callbackRedisfalho provam recuperação sem novoSDKcall. Implantação produtiva e homologação funcional/visual permanecem não executadas. Próxima ação: commits/PRs, aguardar todasasCI, finalizarB4 e planoB5.
+
+### 2026-10-11T22:19:29.129616+00:00 — B4 — PRs e correção da configuração de CI
+
+Estado: EM_ANDAMENTO. Core/Provider c117b20eec991a30f5b8745ea84654ea1f4685b9 PR27 https://github.com/uillaneduardo/wapphub-core/pull/27 (basePR26); Chat3afd2fffa074887dfd3ff4fbb676cc666fa3d1dd PR19 https://github.com/uillaneduardo/wapphub-chat/pull/19 (base34acd1f). Nenhum merge/deploy.
+
+Core131/131 e todos10checks0 no schema isolado release (core-checks-b4release.json), Chat294/294 confirmado (chat-test-release-confirm.log); teste legado AppShell isolado tambémverde. CIChat38179832791success. CICore38179831434falha typecheck: job instalava apenasnode_modulesCore, novos fixtures/HTTPtypeimportreferenciamBaileys Provider (TS2307). Corrigido workflow para npmci tambémdoadapter, lockfilesinalterados; nãoexcluir fontes/testesnemrelaxartipos. CIProvider38179831431emexecução.
+
+final-preservation.json: IDs/imagens/StartedAt dos6serviçosidênticos baseline, healthy,1socketativo,RSS180MB;checkoutsoperacionaislimpos. Próximaação: CI dosSHAscorrigidos, fecharB4/documentarB5.
