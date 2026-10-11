@@ -39,7 +39,7 @@ export class HistoryImporter {
           if (c.spec && c.spec.id === op.id && c.spec.from === op.from && c.spec.to === op.to && JSON.stringify(c.spec.limits) === JSON.stringify(op.limits)) {
             for (const anchor of c.spec.anchors) if (op.anchors.length < 16 && !op.anchors.some((a) => a.chatId === anchor.chatId)) op.anchors.push(anchor);
           }
-          if (this.now() >= (op.nextRequestAt ?? 0) && !op.requestAt && op.messages < op.limits.messages && op.requests < 16 && (op.failures === 0 || !!op.reference && op.failures < 5 && op.errorCode === "HISTORY_DOWNLOAD_FAILED") && (op.target < op.anchors.length || op.spool || op.reference) && ["COMPLETED", "NO_DATA", "PAUSED"].includes(op.state) && !["HISTORY_RESPONSE_TIMEOUT", "HISTORY_REQUEST_UNCERTAIN", "HISTORY_RESTART_UNCERTAIN"].includes(op.errorCode ?? "")) { op.state = "RUNNING"; delete op.errorCode; }
+          if (this.now() >= (op.nextRequestAt ?? 0) && !op.requestAt && op.messages < op.limits.messages && op.requests < 16 && (op.failures === 0 || !!op.reference && op.failures < 5 && ["HISTORY_DOWNLOAD_FAILED", "HISTORY_BYTE_LIMIT"].includes(op.errorCode ?? "")) && (op.target < op.anchors.length || op.spool || op.reference) && ["COMPLETED", "NO_DATA", "PAUSED"].includes(op.state) && !["HISTORY_RESPONSE_TIMEOUT", "HISTORY_REQUEST_UNCERTAIN", "HISTORY_RESTART_UNCERTAIN"].includes(op.errorCode ?? "")) { op.state = "RUNNING"; delete op.errorCode; }
         } else if (["start", "resume"].includes(c.action)) {
           if (!this.executionEnabled) throw new ServiceError("HISTORY_EXECUTION_DISABLED", 403);
           if (!["PREPARED", "PAUSED"].includes(op.state)) throw new ServiceError("INVALID_HISTORY_STATE", 409);
