@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import makeWASocket, { BufferJSON, initAuthCreds, proto, processHistoryMessage, normalizeMessageContent, type AuthenticationState, type SignalDataTypeMap, type BaileysEventMap } from "baileys";
+import makeWASocket, { Browsers, BufferJSON, initAuthCreds, proto, processHistoryMessage, normalizeMessageContent, type AuthenticationState, type SignalDataTypeMap, type BaileysEventMap } from "baileys";
 import pino from "pino";
 import type { TransportFactory } from "./transport.js";
 import { ServiceError } from "./errors.js";
@@ -53,7 +53,7 @@ export async function encryptedAuth(vault: Vault, scope: Scope, failure: () => v
     return { state: { creds, keys }, saveCreds, disable: (revoke = false) => { closed = true; revoked ||= revoke; }, isDisabled: () => closed };
 }
 type SocketCreator = (options: Parameters<typeof makeWASocket>[0]) => Pick<ReturnType<typeof makeWASocket>, "ev" | "end" | "logout"> & Partial<Pick<ReturnType<typeof makeWASocket>, "fetchMessageHistory">>;
-export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; historyExecutionEnabled?: boolean; scopedHistoryAuthorization?: boolean } = { enabled: false, historyEnabled: false }): TransportFactory {
+export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; initialHistoryEnabled?: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; historyExecutionEnabled?: boolean; scopedHistoryAuthorization?: boolean } = { enabled: false, historyEnabled: false }): TransportFactory {
   return async (scope, callbacks) => {
     const historyEnabled = syncOptions.historyEnabled && syncOptions.approvedScope === `${scope.organizationId}:${scope.connectionId}`;
     if (syncOptions.linkedRecoveryOnly) {
@@ -62,10 +62,22 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       if (!linked) throw new ServiceError("EXISTING_AUTH_REQUIRED", 403);
     }
     const auth = await encryptedAuth(vault, scope, callbacks.failure);
+    // The first QR pairing may deliver old chats. Process them through our bounded
+    // pipeline; a linked session must never be re-paired to retrieve old history.
+    const previousImport = vault.get(scope)?.historyImports;
+    const nativeBootstrap = syncOptions.enabled && syncOptions.initialHistoryEnabled === true &&
+      (!auth.state.creds.me?.id || previousImport?.initialPending === true);
+    if (nativeBootstrap && !previousImport?.initialPending) {
+      await vault.update(scope, (record) => {
+        const imports = record.historyImports ??= { downloads: 0, decodedBytes: 0, seen: [] };
+        imports.initialPending = true;
+      });
+    }
     const downloads = new AbortController(); let downloading = false, historyObserved = false;
     const socket = createSocket({
       auth: auth.state, logger: pino({ level: "silent" }),
-      markOnlineOnConnect: false, syncFullHistory: false,
+      markOnlineOnConnect: false, syncFullHistory: nativeBootstrap && !auth.state.creds.me?.id,
+       ...(nativeBootstrap && !auth.state.creds.me?.id ? { browser: Browsers.macOS("Desktop") } : {}),
       shouldSyncHistoryMessage: () => false,
       shouldIgnoreJid: (jid) => !jid.endsWith("@s.whatsapp.net") && !jid.endsWith("@lid"),
       connectTimeoutMs: 20_000, keepAliveIntervalMs: 30_000, qrTimeout: 60_000,
@@ -97,7 +109,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       callbacks.connection({ state: update.connection === "open" || update.connection === "close" ? update.connection : undefined, qr: update.qr, code: reason?.output?.statusCode, ...(update.isNewLogin ? { authenticating: true } : {}) });
     });
     const submit = <T>(values: T[], normalize: (value: T) => NormalizationOutcome, historical: boolean, completed = false, source: SyncObservation["source"] = "MESSAGES_NOTIFY") => {
-      if (auth.isDisabled() || !syncOptions.enabled || historical && !historyEnabled) return;
+      if (auth.isDisabled() || !syncOptions.enabled || historical && !historyEnabled && !nativeBootstrap) return;
       const limit = historical ? 1000 : 250;
       const writes: (void | Promise<void>)[] = [];
       const observation: SyncObservation = { source, received: values.length, normalized: 0, ignored: 0, rejected: 0, failures: 0, reasons: {} };
@@ -125,7 +137,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
         const items = [...data.contacts.slice(0, 500).map(normalizeContact), ...data.chats.slice(0, 500).map(normalizeConversation), ...data.messages.slice(0, 1000).map((m) => normalizeSyncMessage(scope, m))].filter((x): x is SyncItem => !!x);
         await importer.receive(items.filter((x) => x.kind !== "message" || Date.parse(x.occurredAt) >= Date.parse(op.from) && Date.parse(x.occurredAt) <= Date.parse(op.to))); return;
       }
-      if (!historyEnabled) return;
+      if (!historyEnabled && !nativeBootstrap) return;
       historyObserved = true;
       await submit(data.lidPnMappings ?? [], (value) => diagnoseIdentity({ id: value.pn, lid: value.lid }, () => normalizeContact({ id: value.pn, lid: value.lid })), true, false, "IDENTITY_MAPPING");
       await submit(data.contacts, (value) => diagnoseIdentity(value, () => normalizeContact(value)), true, false, "HISTORY_CONTACTS");
