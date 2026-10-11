@@ -593,3 +593,23 @@ test("CP4.7 activation API drives durable Worker, real journal and SQL without a
   await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { historyOperation: Prisma.JsonNull } });
  }
 });
+
+test("B1 paused reader-policy failure preserves diagnostics without generating reconciliation commands", async () => {
+  await state("CONNECTED", 3000);
+  const previous = await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } });
+  const view = provider.views.get(channelId)!, previousHistory = view.history;
+  const id = randomUUID(), now = Date.now(), from = new Date(now - 86400000).toISOString(), to = new Date(now).toISOString();
+  const source = { id, state: "PAUSED" as const, from, to, limits: { contacts: 500, conversations: 500, messages: 20 }, contacts: 0, conversations: 0, messages: 0, requests: 1, duplicates: 0, failures: 2, limited: false, queued: 0, errorCode: "HISTORY_BYTE_LIMIT" };
+  view.history = source;
+  await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { historyOperation: { id, from, to, limits: source.limits, state: "PAUSED", source, manifest: { contacts: [], conversations: [], messages: [] }, processed: 0, duplicates: 0, rejected: 0, createdAt: to, actorUserId: owner.userId, sessionId: owner.sessionId, authorization: { organizationId: orgA, connectionId: channelId, actorUserId: owner.userId, authorizedAt: to, state: "ENABLED", nextCheckAt: new Date(now - 3600000).toISOString() } } } });
+  const count = await db.providerCommand.count({ where: { organizationId: orgA, channelId } });
+  try {
+    for (let i = 0; i < 25; i++) await worker.runConnection(scope());
+    assert.equal(await db.providerCommand.count({ where: { organizationId: orgA, channelId } }), count);
+    const op = (await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } })).historyOperation as { source: typeof source };
+    assert.equal(op.source.errorCode, "HISTORY_BYTE_LIMIT"); assert.equal(op.source.requests, 1);
+  } finally {
+    view.history = previousHistory;
+    await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { historyOperation: previous.historyOperation ?? Prisma.JsonNull } });
+  }
+});

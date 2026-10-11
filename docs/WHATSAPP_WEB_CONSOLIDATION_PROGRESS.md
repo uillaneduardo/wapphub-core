@@ -1,6 +1,6 @@
 # WappHub — acompanhamento canônico de consolidação
 
-**Criado:** 2026-10-11. **Estado global:** `AGUARDANDO_APROVACAO_A2`. **Próxima ação:** aprovação única da [proposta consolidada](WHATSAPP_WEB_CONSOLIDATION_PROPOSAL.md); nenhum início de B nem deploy autorizado nesta execução.
+**Criado:** 2026-10-11. **Estado global:** `EXECUCAO_B1_B4`. **Próxima ação:** B1 P0, seguido de B2/B3/B4 integrados. Aprovação técnica do PR25 recebida; B5/B6 não autorizadas.
 
 Diagnóstico A0/A1: [WHATSAPP_WEB_CONSOLIDATION_AUDIT.md](WHATSAPP_WEB_CONSOLIDATION_AUDIT.md). Auditoria concluída não significa código integralmente aprovado: Provider remoto apresenta duas falhas locais em78testes e CI main falho; defeitos e riscos estão documentados para correção após aprovação.
 
@@ -24,10 +24,10 @@ A cada execução, reler este documento, comparar SHA local/remoto/produção e 
 | A0 — Contexto e baseline | VALIDADO_TECNICAMENTE | git-inventory.json, baseline-services/domain.json, session-state.json; local/remoto/publicado distintos | Baseline preservado; conferir novamente ao retomar |
 | A1 — Auditoria Core/Provider/Baileys/Chat | VALIDADO_TECNICAMENTE (auditoria, com falhas encontradas) | AUDIT; inventário SDK/código e probes; Core127/127, Provider76/78, Chat287/287; CI verificado | Corrigir lacunas somente após aprovação |
 | A2 — Plano arquitetural/produto | VALIDADO_TECNICAMENTE (proposta documental; aprovação pendente) | PROPOSAL; matriz existente/lacuna/teste/risco, diagrama, capabilities, limites, contratos, ADRs e rollback | Aguardar aprovação única do usuário |
-| B1 — Provider e captura/reconexão | BLOQUEADO_POR_APROVACAO | testes sintéticos SDK e contratos, sessão preservada | Após gate A2 |
-| B2 — Core/Worker e persistência | BLOQUEADO_POR_APROVACAO | tenant/RBAC/ingestão/dedup/paginação/outbox | Após gate A2 |
-| B3 — Envio/recebimento, nova conversa, mídia e Chat | BLOQUEADO_POR_APROVACAO | texto e mídia, contato existente e número não cadastrado, status/autoria, UI | Após gate A2 |
-| B4 — Regressão/performance/segurança | BLOQUEADO_POR_APROVACAO | testes Core/Provider/Chat, CI, recursos, segurança | Após B1–B3 |
+| B1 — Provider e captura/reconexão | VALIDADO_TECNICAMENTE (local; CI pendente) | testes sintéticos SDK e contratos, sessão preservada | Após gate A2 |
+| B2 — Core/Worker e persistência | PENDENTE | tenant/RBAC/ingestão/dedup/paginação/outbox | Após gate A2 |
+| B3 — Envio/recebimento, nova conversa, mídia e Chat | PENDENTE | texto e mídia, contato existente e número não cadastrado, status/autoria, UI | Após gate A2 |
+| B4 — Regressão/performance/segurança | PENDENTE | testes Core/Provider/Chat, CI, recursos, segurança | Após B1–B3 |
 | B5 — Publicação controlada | BLOQUEADO_POR_APROVACAO | backups/restauração/rollback, imagens, smokes, sessão | Exigir autorização de deploy |
 | B6 — Homologação final | BLOQUEADO_POR_APROVACAO | roteiro e feedback do usuário no navegador | Aguardar homologação humana |
 
@@ -118,3 +118,19 @@ Estado: VALIDADO_TECNICAMENTE para revisão A. git diff --check e verificação 
 final-verification.json comprova os mesmos IDs/imagens/StartedAt dos seis serviços; todos healthy, Core/Source CONNECTED e socket ativo. Checkouts originais Core/Chat limpos. Requests antes/depois=1 preexistente, historicalMessages=0. Nenhum deploy, logout, novo pareamento, envio real ou novo pedido histórico pelo executor. Manifest SHA256SUMS.json no diretório de evidências. Os dados de produção podem evoluir naturalmente pelo Worker/live existente, sem ação mutável desta auditoria.
 
 Próxima ação: aprovação única da proposta. Não iniciar B por inferência nem publicar esta branch documental como imagem de produto.
+
+### 2026-10-11T20:42:35.053126+00:00 — B1 — início autorizado após revisão A2
+
+Estado: EM_ANDAMENTO. Revisão vinculante: https://github.com/uillaneduardo/wapphub-core/pull/25#pullrequestreview-5484867318 (2026-10-11T20:39:38Z), mais instrução explícita do usuário nesta execução. A aprovação inclui texto/imagem/áudio/voz/vídeo e B1–B4; não autoriza merge do PR25, deploy, alteração de sessão produtiva, pareamento, envio ou histórico real.
+
+Core branch fix/consolidation-b1-p0 em worktree próprio, base dfaf9d6; Chat feat/consolidation-b3-chat, base34acd1f. Originais Core db85dac/Chatf13752f preservados. Baseline seis serviços healthy CP47 com mesmos containers; evidências 20261011-consolidation-b1-b4/baseline-services.json.
+
+Condições obrigatórias: P0 append RECENT100/reconexão attempts5/tempo/CI/churn primeiro; histórico progressivo sem teto permanente500/500/1000; intent idempotente com UNKNOWN/autoria; media criptografada stream/RBAC/bytes/hash/TTL; equivalência Demo/ingress; CI verde e progresso por gate. Testes usam somente serviços isolados e SDK socket mock. Próxima ação: corrigir P0 e reproduzir suites antes de conectar saída/mídia.
+
+### 2026-10-11T20:51:17.031185+00:00 — B1 — P0 corrigidos, regressões locais encerradas
+
+Estado: VALIDADO_TECNICAMENTE localmente; CI pendente. Captura dinâmica preserva append recente depois deRECENT100. RecoveryFailures opcional mantém attempts históricos e limita episódio5, três starts/processo no modo vinculado;30s de conexão autenticada estável encerram episódio. Vault legado CONNECTED/attempts5 recupera sem reset manual/auth/Signal/QR; estadoFAILED/esgotado ou revogado não recebe novo orçamento. Fixtures usam um epoch e schema30dias segue estrito. Worker não renova falha de reader-policy pausada a cada15s;25ticks preservam diagnóstico e contagem de comandos.
+
+Provider82/82, lint/typecheck/build aprovados; Core128/128, lint/typecheck/build/Prisma/OpenAPI/drift e11 migrations isoladas aprovados. Logs provider-*-b1*.log/core-*-b1.log em 20261011-consolidation-b1-b4. Nenhuma operação produtiva. Commit/PR P0 serão registrados antes de B2.
+
+Risco B5: CP47 antigo não interpreta recoveryFailures e attempts5 já impede seu restart; rollback deve usar imagem compatível com P0, sem editar/restaurar Signal. Próxima ação: PR B1/CI e B2 integrado, sem merge/deploy.

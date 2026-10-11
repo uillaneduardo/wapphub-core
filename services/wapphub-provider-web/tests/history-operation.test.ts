@@ -16,7 +16,7 @@ import { decodeBoundedHistory } from "../src/history.js";
 import { selectHistory } from "../src/history-selection.js";
 import type { HistorySpec } from "../../../contracts/history.js";
 import type { SyncItem } from "../../../contracts/provider.js";
-const spec = (messages = 1000): HistorySpec => ({ id: randomUUID(), from: new Date(Date.now() - 30 * 86400000).toISOString(), to: new Date().toISOString(), limits: { contacts: 500, conversations: 500, messages }, anchors: [{ chatId: "anchor@lid", messageId: "known", fromMe: false, timestamp: Date.now() }] });
+const spec = (messages = 1000): HistorySpec => { const now = Date.now(); return ({ id: randomUUID(), from: new Date(now - 30 * 86400000).toISOString(), to: new Date(now).toISOString(), limits: { contacts: 500, conversations: 500, messages }, anchors: [{ chatId: "anchor@lid", messageId: "known", fromMe: false, timestamp: now }] }); };
 async function until(check: () => boolean) { for (let i = 0; i < 400; i++) { if (check()) return; await delay(10); } assert.fail("bounded synthetic wait expired"); }
 test("CP4.6 disabled execution prepares idempotently without history requests or auth mutations", async (t) => {
  const f = await fixture(t); await f.sessions.create(f.scope); await f.vault.update(f.scope, (r) => { r.auth = "synthetic-preserved-auth"; r.keys = { preserved: "opaque" }; });

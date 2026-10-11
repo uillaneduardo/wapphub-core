@@ -15,6 +15,7 @@ export type Delivery = { event: ProviderEvent; attempts: number; leaseUntil: num
 export type Session = Scope & {
   version: 1; desired: boolean; state: State; revision: number; qrRevision: number;
   attempts: number; errorCode?: string; auth?: string; keys: Record<string, string>;
+  recoveryFailures?: number;
   events: Delivery[]; dedup: string[]; commands: { id: string; digest: string }[];
   pairingPhase?: string;
   processingFailure?: NonNullable<ProviderSync["processingFailure"]>;

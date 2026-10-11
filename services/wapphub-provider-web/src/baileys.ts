@@ -67,6 +67,10 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
     const previousImport = vault.get(scope)?.historyImports;
     const nativeBootstrap = syncOptions.enabled && syncOptions.initialHistoryEnabled === true &&
       (!auth.state.creds.me?.id || previousImport?.initialPending === true);
+    const capturingBootstrap = () => {
+      const imports = vault.get(scope)?.historyImports;
+      return nativeBootstrap && (imports?.initialPending === true || !!imports?.pending?.length);
+    };
     if (nativeBootstrap && !previousImport?.initialPending) {
       await vault.update(scope, (record) => {
         const imports = record.historyImports ??= { downloads: 0, decodedBytes: 0, seen: [] };
@@ -109,7 +113,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       callbacks.connection({ state: update.connection === "open" || update.connection === "close" ? update.connection : undefined, qr: update.qr, code: reason?.output?.statusCode, ...(update.isNewLogin ? { authenticating: true } : {}) });
     });
     const submit = <T>(values: T[], normalize: (value: T) => NormalizationOutcome, historical: boolean, completed = false, source: SyncObservation["source"] = "MESSAGES_NOTIFY") => {
-      if (auth.isDisabled() || !syncOptions.enabled || historical && !historyEnabled && !nativeBootstrap) return;
+      if (auth.isDisabled() || !syncOptions.enabled || historical && !historyEnabled && !capturingBootstrap()) return;
       const limit = historical ? 1000 : 250;
       const writes: (void | Promise<void>)[] = [];
       const observation: SyncObservation = { source, received: values.length, normalized: 0, ignored: 0, rejected: 0, failures: 0, reasons: {} };
@@ -137,7 +141,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
         const items = [...data.contacts.slice(0, 500).map(normalizeContact), ...data.chats.slice(0, 500).map(normalizeConversation), ...data.messages.slice(0, 1000).map((m) => normalizeSyncMessage(scope, m))].filter((x): x is SyncItem => !!x);
         await importer.receive(items.filter((x) => x.kind !== "message" || Date.parse(x.occurredAt) >= Date.parse(op.from) && Date.parse(x.occurredAt) <= Date.parse(op.to))); return;
       }
-      if (!historyEnabled && !nativeBootstrap) return;
+      if (!historyEnabled && !capturingBootstrap()) return;
       historyObserved = true;
       await submit(data.lidPnMappings ?? [], (value) => diagnoseIdentity({ id: value.pn, lid: value.lid }, () => normalizeContact({ id: value.pn, lid: value.lid })), true, false, "IDENTITY_MAPPING");
       await submit(data.contacts, (value) => diagnoseIdentity(value, () => normalizeContact(value)), true, false, "HISTORY_CONTACTS");
@@ -205,7 +209,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
             if (Buffer.byteLength(reference) > 2 * 1024 * 1024) { void importer.fail("HISTORY_BYTE_LIMIT"); continue; }
             void importer.receive([], reference).catch(() => importer.fail("HISTORY_BACKPRESSURE")); continue;
           }
-          if (!notification || !message.key.fromMe || !historyEnabled && !nativeBootstrap) continue;
+          if (!notification || !message.key.fromMe || !historyEnabled && !capturingBootstrap()) continue;
           // ON_DEMAND must be correlated to an authorized operation above.
           if (nativeBootstrap && !historyEnabled && ![
             proto.HistorySync.HistorySyncType.INITIAL_BOOTSTRAP,
@@ -236,7 +240,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
           });
         }
         const messages = update.messages.slice(0, update.type === "notify" ? 250 : 1000);
-        if (update.type === "notify" || historyEnabled || nativeBootstrap) submit(messages, (message) => diagnoseMessage(scope, message), update.type !== "notify", false, update.type === "notify" ? "MESSAGES_NOTIFY" : "MESSAGES_APPEND");
+        if (update.type === "notify" || historyEnabled || capturingBootstrap()) submit(messages, (message) => diagnoseMessage(scope, message), update.type !== "notify", false, update.type === "notify" ? "MESSAGES_NOTIFY" : "MESSAGES_APPEND");
         else {
           // Small recent offline catch-up is continuous ingestion, not a full
           // historical import. Older append data awaits explicit authorization.

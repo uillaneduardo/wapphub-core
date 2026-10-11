@@ -155,6 +155,13 @@ export class WebProviderWorker {
       const exhausted = !!source && (source.messages >= op.limits.messages || source.requests >= 16);
       const uncertain = !!source?.errorCode && ["HISTORY_RESPONSE_TIMEOUT", "HISTORY_REQUEST_UNCERTAIN", "HISTORY_RESTART_UNCERTAIN"].includes(source.errorCode);
       if (exhausted || uncertain || ["FAILED", "PARTIAL", "CANCELLED"].includes(source?.state ?? op.state)) return false;
+      if (source?.state === "PAUSED") {
+        // A reader-policy failure cannot make progress through lease renewal.
+        // Retain its diagnostic and reference for explicit/local controlled
+        // recovery rather than producing administrative commands every15s.
+        if (source.errorCode && !["HISTORY_AUTHORIZATION_EXPIRED", "HISTORY_RESTART_PAUSED", "HISTORY_LIVE_BACKLOG", "HISTORY_MEMORY_PRESSURE"].includes(source.errorCode)) return false;
+        if (Date.parse(grant.nextCheckAt) + 45000 > Date.now()) return false;
+      }
       const anchorCheckDue = !grant.lastAnchorCheckAt || Date.now() - Date.parse(grant.lastAnchorCheckAt) >= 300000;
       if (source && ["COMPLETED", "NO_DATA"].includes(source.state) && !anchorCheckDue) {
         grant.nextCheckAt = new Date(Date.parse(grant.lastAnchorCheckAt!) + 300000).toISOString();
