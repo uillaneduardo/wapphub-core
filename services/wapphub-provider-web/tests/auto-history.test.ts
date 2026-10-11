@@ -25,6 +25,30 @@ test("CP4.7 grants require exact scope, no-progress response and reconciliation 
  await importer.command({ commandId: randomUUID(), operationId: s.id, action: "reconcile", spec: { ...s, anchors: [...s.anchors, { ...s.anchors[0]!, chatId: "new@lid" }] }, authorization }); await until(() => requests === 2);
  assert.equal(importer.current?.id, s.id); assert.equal(importer.current?.limits.messages, 20); await importer.close();
 });
+test("retained ON_DEMAND reference can be retried locally after a bounded size-limit failure, without requesting history twice", async (t) => {
+ const f = await fixture(t); await f.sessions.create(f.scope);
+ let now = Date.now(), requests = 0, decodes = 0;
+ const s = spec(20), authorization = { ...f.scope, actorUserId: randomUUID(), authorizedAt: new Date(now).toISOString() };
+ const message = normalizeSyncMessage(f.scope, { key: { id: "retained-size-fix", remoteJid: "anchor@lid", fromMe: false },
+  messageTimestamp: Math.floor(now / 1000) - 3600, message: { conversation: "synthetic-history" } })!;
+ const { ServiceError } = await import("../src/errors.js");
+ const importer = new HistoryImporter(f.vault, f.scope, async () => { requests++; return "request-1"; },
+  async () => { if (++decodes === 1) throw new ServiceError("HISTORY_BYTE_LIMIT"); return [message]; },
+  true, () => now, true);
+ t.after(async () => { await importer.close(); });
+ await importer.command({ commandId: s.id, operationId: s.id, action: "prepare", spec: s, authorization });
+ await importer.command({ commandId: randomUUID(), operationId: s.id, action: "start", authorization });
+ await until(() => requests === 1);
+ await importer.receive([], "encrypted-reference");
+ await until(() => importer.current?.state === "PAUSED");
+ assert.equal(importer.current?.errorCode, "HISTORY_BYTE_LIMIT");
+ assert.equal(requests, 1);
+ now += 60001;
+ await importer.command({ commandId: randomUUID(), operationId: s.id, action: "reconcile", authorization });
+ await until(() => importer.current?.messages === 1);
+ assert.equal(decodes, 2); assert.equal(requests, 1);
+});
+
 test("CP4.7 cooldown and safe/uncertain restart use durable request checkpoints", async (t) => {
  const f = await fixture(t); await f.sessions.create(f.scope); let now = Date.now(), requests = 0;
  const s = spec(20), authorization = { ...f.scope, actorUserId: randomUUID(), authorizedAt: new Date(now).toISOString() };
