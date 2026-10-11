@@ -535,15 +535,18 @@ test("CP4.6 synthetic producer to journal to SQL to websocket creates an old una
 });
 
 test("CP4.7 anchor discovery selects oldest eligible in-window message rather than an older unusable anchor", async () => {
- const thread = await db.conversation.findFirstOrThrow({ where: { organizationId: orgA, channelId, providerConversationId: "synthetic@s.whatsapp.net" }, include: { messages: { where: { providerMessageId: { not: null } }, take: 2, orderBy: { createdAt: "asc" } } } });
- assert.ok(thread.messages.length >= 2);
- const old = thread.messages[0]!;
- await db.message.update({ where: { id: old.id }, data: { createdAt: new Date(Date.now() - 31 * 86400000) } });
+ const organizationId = (await db.organization.create({ data: { name: "Synthetic isolated anchors" } })).id;
+ const localChannel = await db.channel.create({ data: { organizationId, provider: "WHATSAPP_WEB" } });
+ const person = await db.contact.create({ data: { organizationId, name: "Synthetic", primaryIdentifier: "anchor-isolated@lid" } });
+ const thread = await db.conversation.create({ data: { organizationId, channelId: localChannel.id, contactId: person.id, providerConversationId: "anchor-isolated@lid" } });
+ const recent = new Date(Date.now() - 86400000);
  try {
-  const anchors = await db.$transaction((tx) => selectHistoryAnchors(tx, scope(), new Date(Date.now() - 30 * 86400000).toISOString()));
-  assert.ok(anchors.some((a) => a.chatId === thread.providerConversationId && a.messageId !== old.providerMessageId));
-  assert.ok(!anchors.some((a) => a.messageId === old.providerMessageId));
- } finally { await db.message.update({ where: { id: old.id }, data: { createdAt: old.createdAt } }); }
+  await db.message.createMany({ data: [{ providerMessageId: "outside", createdAt: new Date(Date.now() - 31 * 86400000) }, { providerMessageId: "eligible", createdAt: recent }].map((m) => ({ ...m, organizationId, channelId: localChannel.id, conversationId: thread.id, direction: "INBOUND", body: "synthetic reference" })) });
+  const anchors = await db.$transaction((tx) => selectHistoryAnchors(tx, { organizationId, connectionId: localChannel.id }, new Date(Date.now() - 30 * 86400000).toISOString()));
+  assert.deepEqual(anchors, [{ chatId: "anchor-isolated@lid", messageId: "eligible", fromMe: false, timestamp: recent.getTime() }]);
+ } finally {
+  await db.message.deleteMany({ where: { organizationId } }); await db.conversation.deleteMany({ where: { organizationId } }); await db.contact.deleteMany({ where: { organizationId } }); await db.channel.deleteMany({ where: { organizationId } }); await db.organization.delete({ where: { id: organizationId } });
+ }
 });
 
 test("CP4.7 activation API drives durable Worker, real journal and SQL without an active browser session", async () => {
