@@ -4,6 +4,8 @@ services:
     environment:
       ALLOW_SESSION_CONNECT: 'true'
       PROVIDER_SYNC_ENABLED: 'true'
+      # Native bounded history capture at the FIRST QR pairing, not a new QR request.
+      PROVIDER_INITIAL_HISTORY_ENABLED: 'true'
       # Extensive real import requires a separately authorized bounded operation.
       PROVIDER_HISTORY_ENABLED: 'false'
       PROVIDER_HISTORY_EXECUTION_ENABLED: ${PROVIDER_HISTORY_EXECUTION_ENABLED:-false}
