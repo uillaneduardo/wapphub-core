@@ -83,3 +83,7 @@ Nesta preparação não há runtime/migration/dados reais alterados; rollback do
 Na operação futura, rollback preferencial é pausar/cancelar requisições históricas e escoar lotes duráveis válidos com worker compatível, mantendo live e autenticação. Preservar mensagens já importadas é mais seguro que desfazer commits. Exclusão corretiva não está autorizada; exigiria manifest de IDs criados pela operação e autorização específica, preservando tráfego contínuo/atribuições/tags/notas/autoria. Não executar DELETE por historical=true, não restaurar banco inteiro ou snapshot Signal sobre sessão viva e não trocar para parser antigo incompatível com sync.batch.
 
 Novo pareamento pode invalidar o dispositivo existente, interromper intake e expor novamente QR/credenciais, sem garantia de mais histórico. Exige uma decisão separada após falha documentada das alternativas não destrutivas; não será solicitado automaticamente.
+
+## Continuação CP4.6
+
+Este texto registra a preparação anterior, não conclusão CP4.6. Gaps de pipeline/controle foram implementados em [WHATSAPP_WEB_CP46.md](WHATSAPP_WEB_CP46.md), mantendo requisição real bloqueada. A disponibilidade histórica adicional na conta atual continua sem comprovação; autorização específica é necessária antes de consultar o aparelho.

@@ -358,3 +358,5 @@ tenant/CSRF, e recebe QR temporário autorizado fora do realtime. Texto reutiliz
 histórico/visibilidade M1; mídia/envio permanecem bloqueados. A integração é opt-in
 por compose.provider-web.yml e overlay privado do provider, sem novo ingress.
 [Contratos, migration, estados, segurança e rollback](WHATSAPP_WEB_CHECKPOINT3.md).
+
+CP4.6 reutiliza ProviderCommand para controles assíncronos de histórico e o journal/inbox existente para sync.batch. Duas colunas JSON nullable guardam operação/manifest e payload limitado de controle; não há segundo modelo de mensagens/contatos. Contrato canônico permanece independente do SDK. Ver [CP4.6](WHATSAPP_WEB_CP46.md).

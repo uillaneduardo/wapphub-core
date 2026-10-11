@@ -114,3 +114,9 @@ Correção CP4 e diagnóstico contextual implementados: filtro inicial da Inbox 
 Padronização de autoria incorporada à correção: REST senderName nullable por relações existentes, sem novo campo persistente, autoria por IDs conservada inclusive em histórico/renomeação. Interface operacional recebe nomes e capacidades genéricas, enquanto providers continuam nos metadados internos. Nenhuma migration de autoria. Homologação final pelo usuário permanece pendente.
 
 Retomada adicional em validação: apresentação amigável de contatos no Core, busca/filtros avançados, evidências do pipeline e diagnóstico de indisponibilidade. Platform permanece documental e separado do atendimento. Não declarar CP4 homologado; produção ainda não recebeu estas alterações.
+
+## Estado vigente — CP4.6 (11/10/2026)
+
+As notas de validação CP4 acima são históricas: o usuário homologou a sincronização contínua, persistência/deduplicação, saída pelo celular, identificação e diagnóstico, com latência observada de aproximadamente 1s. Ver WHATSAPP_WEB_CP4_ACCEPTANCE.md. As 14 falhas legadas não têm causas reconstruídas.
+
+CP4.6 implementa importação controlada, outbox/manifest aditivo, limites protobuf, cursor/backpressure, controles administrativos e Inbox metadata-only. Validação técnica e publicação rastreadas no relatório específico do homelab; homologação visual CP4.6 pendente. Execução histórica real bloqueada no Core/Provider; recuperação na conta atual não comprovada sem requisição autorizada. Ver WHATSAPP_WEB_CP46.md. CP5/envio/multimídia não iniciados.

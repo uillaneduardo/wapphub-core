@@ -144,3 +144,5 @@ integração Meta implementado. Diagnóstico anterior ao schema em
 [M2_1_RBAC_DIAGNOSIS.md](M2_1_RBAC_DIAGNOSIS.md).
 
 Diagnóstico de providers: GET `/api/v1/providers/:provider/diagnostics`, `/health`, `/:id`, documentados no OpenAPI. `provider` usa código canônico WHATSAPP_WEB/DEMO/META. Diagnóstico exige permissão específica além de providers.manage. Janela de 30 dias, paginação limitada, filtros e contadores da janela; indisponibilidade de métricas é null. Nenhum endpoint de reprocessamento ou alteração de estado.
+
+CP4.6 acrescenta histórico administrativo scoped: GET connections/{id}/history, POST history/prepare e history/commands sob /api/v1/providers/whatsapp-web. Requer os quatro direitos documentados em [CP4.6](WHATSAPP_WEB_CP46.md), CSRF e versão para controles. Read-only status sanitizado; execução bloqueada por padrão. OpenAPI atualizado.

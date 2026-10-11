@@ -244,3 +244,5 @@ Estas proteções não substituem a política de retenção administrativa da or
 Ver WHATSAPP_WEB_CHECKPOINT4.md e relatório de deploy para evidências.
 
 Diagnósticos de providers exigem `providers.manage` + `providers.diagnostics.read`, são somente leitura tenant/conexão e retornam projeções permitidas. Não expõem corpos, telefones, JIDs/LIDs, QR, auth, payloads nem stack. Exportação utiliza a mesma projeção sanitizada. Detalhes adicionais são limitados a 64 por conexão e 30 dias no checkpoint existente; os hashes Inbox continuam para deduplicação. Não há alteração de visibilidade do domínio ou autoria por prefixos de texto.
+
+CP4.6 mantém flags de execução real false e requer gestão+diagnóstico+supervisão+leitura para histórico. Âncoras privadas somente no outbox existente; nenhum corpo/token/QR/chave/stack no diagnóstico. Manifest bounded guarda somente IDs internos novos, payload SDK não é persistido indiscriminadamente. Sessão/Signal seguem volume criptografado. Ver [CP4.6](WHATSAPP_WEB_CP46.md).
