@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import makeWASocket, { BufferJSON, initAuthCreds, proto, processHistoryMessage, normalizeMessageContent, type AuthenticationState, type SignalDataTypeMap, type BaileysEventMap } from "baileys";
 import pino from "pino";
 import type { TransportFactory } from "./transport.js";
+import { ServiceError } from "./errors.js";
 import { Vault, type Scope } from "./vault.js";
 import { normalizeContact, normalizeConversation, directIdentity, diagnoseIdentity, diagnoseMessage, type NormalizationOutcome } from "./sync-normalization.js";
 import { readBoundedHistory } from "./history.js";
@@ -50,9 +51,14 @@ export async function encryptedAuth(vault: Vault, scope: Scope, failure: () => v
     return { state: { creds, keys }, saveCreds, disable: (revoke = false) => { closed = true; revoked ||= revoke; }, isDisabled: () => closed };
 }
 type SocketCreator = (options: Parameters<typeof makeWASocket>[0]) => Pick<ReturnType<typeof makeWASocket>, "ev" | "end" | "logout">;
-export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; approvedScope?: string } = { enabled: false, historyEnabled: false }): TransportFactory {
+export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean } = { enabled: false, historyEnabled: false }): TransportFactory {
   return async (scope, callbacks) => {
     const historyEnabled = syncOptions.historyEnabled && syncOptions.approvedScope === `${scope.organizationId}:${scope.connectionId}`;
+    if (syncOptions.linkedRecoveryOnly) {
+      let linked = false;
+      try { const existing = JSON.parse(vault.get(scope)?.auth ?? "null"); linked = Boolean(existing?.me?.id && existing.registered === true); } catch { /* no credential logging */ }
+      if (!linked) throw new ServiceError("EXISTING_AUTH_REQUIRED", 403);
+    }
     const auth = await encryptedAuth(vault, scope, callbacks.failure);
     const downloads = new AbortController(); let downloading = false, historyObserved = false;
     const socket = createSocket({
@@ -65,6 +71,9 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
     });
     socket.ev.on("creds.update", (update) => {
       if (auth.isDisabled()) return;
+      if (syncOptions.linkedRecoveryOnly && (update.registered === false || Object.hasOwn(update, "me") && update.me?.id !== auth.state.creds.me?.id)) {
+        auth.disable(); callbacks.connection({ state: "close", code: 401 }); return;
+      }
       Object.assign(auth.state.creds, update);
       void auth.saveCreds().catch(() => callbacks.failure());
     });

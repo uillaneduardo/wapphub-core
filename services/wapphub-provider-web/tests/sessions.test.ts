@@ -143,3 +143,28 @@ test("capacity failure in one tenant cannot become a global storage failure when
  assert.equal(f.sessions.view(f.other).state, "CONNECTED"); assert.equal(f.sessions.view(f.scope).errorCode, "EVENT_QUEUE_FULL"); assert.equal(f.sessions.ready(), true); assert.equal(f.sessions.metrics().active, 1);
  assert.equal(f.vault.get(f.other)?.processingFailure, undefined); assert.equal(f.vault.get(f.scope)?.processingFailure?.code, "EVENT_QUEUE_FULL");
 });
+
+for (const code of [401, 500, 440]) test(`linked recovery rejects ${code} without erasing credentials or requesting pairing`, async (t) => {
+ const f = await fixture(t); const auth = JSON.stringify({ registered: true, me: { id: "synthetic@lid" } });
+ await f.vault.update(f.scope, (r) => { r.auth = auth; r.keys = { synthetic: "KEY" }; r.desired = true; });
+ const sessions = new Sessions(f.vault, f.journal, f.factory, true, undefined, undefined, undefined, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true }); t.after(() => sessions.shutdown());
+ await sessions.recover(); await f.callbacks[0]!.connection({ state: "close", code }); await sessions.settle(f.scope);
+ assert.equal(sessions.view(f.scope).state, "FAILED"); assert.equal(f.vault.get(f.scope)?.auth, auth); assert.deepEqual(f.vault.get(f.scope)?.keys, { synthetic: "KEY" }); assert.equal(f.vault.get(f.scope)?.desired, true); assert.equal(f.stats().logouts, 0); assert.equal(f.stats().starts, 1);
+ await assert.rejects(sessions.command(f.scope, "logout", randomUUID()), /LINKED_RECOVERY_ONLY/);
+});
+test("linked recovery refuses missing auth and suppresses QR without rotating persisted identity", async (t) => {
+ const f = await fixture(t); await f.vault.update(f.scope, (r) => { r.desired = true; });
+ const sessions = new Sessions(f.vault, f.journal, f.factory, true, undefined, undefined, undefined, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true }); t.after(() => sessions.shutdown());
+ await sessions.recover(); assert.equal(f.stats().starts, 0); assert.equal(f.vault.get(f.scope)?.auth, undefined); assert.equal(sessions.view(f.scope).errorCode, "EXISTING_AUTH_REQUIRED");
+ const auth = JSON.stringify({ registered: true, me: { id: "synthetic@lid" } }); await f.vault.update(f.scope, (r) => { r.auth = auth; });
+ await sessions.command(f.scope, "connect", randomUUID()); await f.callbacks[0]!.connection({ qr: "DO_NOT_STORE_OR_EXPOSE" }); await sessions.settle(f.scope);
+ assert.equal(sessions.view(f.scope).state, "FAILED"); assert.equal(sessions.view(f.scope).qrRevision, 0); assert.throws(() => sessions.qr(f.scope), /QR_NOT_AVAILABLE/); assert.equal(f.vault.get(f.scope)?.auth, auth); assert.ok(!JSON.stringify(f.vault.get(f.scope)).includes("DO_NOT_STORE_OR_EXPOSE"));
+});
+test("linked recovery allows at most three transport attempts per process and preserves desired auth", async (t) => {
+ const f = await fixture(t); const auth = JSON.stringify({ registered: true, me: { id: "synthetic@lid" } });
+ await f.vault.update(f.scope, (r) => { r.auth = auth; r.desired = true; });
+ const timers: (() => void)[] = []; const sessions = new Sessions(f.vault, f.journal, f.factory, true, (cb, delay) => { if (delay < 120000) timers.push(cb); return () => undefined; }, undefined, undefined, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true }); t.after(() => sessions.shutdown());
+ await sessions.recover();
+ for (let i = 0; i < 3; i++) { await f.callbacks[i]!.connection({ state: "close", code: 503 }); if (i < 2) { timers.shift()!(); await sessions.settle(f.scope); } }
+ assert.equal(f.stats().starts, 3); assert.equal(sessions.view(f.scope).errorCode, "RECONNECT_LIMIT"); assert.equal(timers.length, 0); assert.equal(f.vault.get(f.scope)?.auth, auth); assert.equal(f.vault.get(f.scope)?.desired, true);
+});

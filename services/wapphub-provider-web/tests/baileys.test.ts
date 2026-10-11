@@ -32,3 +32,18 @@ test("exact RC14 is locked and the actual SDK adapter disables logging and histo
   ev.emit("connection.update", { qr: "TEST_QR" }); assert.equal(connection.length, 1);
   transport.close();
 });
+test("linked-only SDK factory never initializes new credentials without an authenticated identity", async (t) => {
+ const f = await fixture(t); let starts = 0;
+ const factory = baileysFactory(f.vault, () => { starts++; throw new Error("must not start"); }, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true });
+ await assert.rejects(factory(f.scope, { connection: () => undefined, text: () => undefined, receipt: () => undefined, failure: () => undefined }), /EXISTING_AUTH_REQUIRED/);
+ assert.equal(starts, 0); assert.equal(f.vault.get(f.scope)?.auth, undefined);
+});
+test("linked-only SDK refuses credential revocation updates without overwriting persisted auth", async (t) => {
+ const f = await fixture(t); const { encryptedAuth } = await import("../src/baileys.js");
+ const initial = await encryptedAuth(f.vault, f.scope); initial.state.creds.registered = true; initial.state.creds.me = { id: "synthetic@lid" }; await initial.saveCreds(); initial.disable();
+ const before = f.vault.get(f.scope)!.auth; const ev = makeEventBuffer(pino({ level: "silent" })); const updates: unknown[] = [];
+ const factory = baileysFactory(f.vault, () => ({ ev, end: async () => undefined, logout: async () => assert.fail("no logout") }), { enabled: false, historyEnabled: false, linkedRecoveryOnly: true });
+ const transport = await factory(f.scope, { connection: (x) => updates.push(x), text: () => undefined, receipt: () => undefined, failure: () => assert.fail("unexpected failure") });
+ ev.emit("creds.update", { registered: false }); await f.vault.flush();
+ assert.deepEqual(updates, [{ state: "close", code: 401 }]); assert.equal(f.vault.get(f.scope)?.auth, before); transport.close();
+});
