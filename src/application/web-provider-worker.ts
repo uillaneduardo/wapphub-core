@@ -71,7 +71,7 @@ export class WebProviderWorker {
           });
         } catch (error) {
           const attempts = command.attempts + 1;
-          const permanent = error instanceof AppError && [401, 403, 409].includes(error.status) || error instanceof WebProviderError && [400, 403, 409].includes(error.status);
+          const permanent = error instanceof WebProviderError && error.code === "SESSION_COMMAND_LIMIT" || error instanceof AppError && [401, 403, 409].includes(error.status) || error instanceof WebProviderError && [400, 403, 409].includes(error.status);
           const code = error instanceof AppError && [401, 403].includes(error.status) ? "COMMAND_AUTHORIZATION_REVOKED" : error instanceof WebProviderError ? error.code : "PROVIDER_OPERATION_FAILED";
           await this.chat.integrationMutation(scope.organizationId, async (tx) => {
             await this.fence(tx, scope, token);

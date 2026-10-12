@@ -26,7 +26,7 @@ export function connectionDTO(record: ProviderConnection, command?: ProviderComm
     lastCheckedAt: record.lastCheckedAt?.toISOString() ?? null,
     pairingPhase: record.pairingPhase ?? null,
     sync: { ...progress, pendingFailures: Object.keys(failedBatches).length, provider },
-    operation: command ? { id: command.id, action: command.action, status: command.status, errorCode: command.errorCode } : null,
+    operation: command ? { id: command.id, action: command.action, status: command.status, errorCode: command.errorCode, createdAt: command.createdAt.toISOString(), updatedAt: command.updatedAt.toISOString(), attempts: command.attempts, nextAttemptAt: command.nextAttemptAt.toISOString() } : null,
     sendingEnabled: record.outboundEnabled, mediaEnabled: record.mediaEnabled, lifecycle: lifecycle.success ? lifecycle.data : null,
   };
 }

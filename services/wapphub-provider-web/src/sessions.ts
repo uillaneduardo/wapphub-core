@@ -125,7 +125,10 @@ export class Sessions {
       const digest = createHash("sha256").update(controlVersion === undefined ? action : JSON.stringify([action, controlVersion, ...(action === "prepare_link" ? [removedOnPhone] : [])])).digest("hex"), record = this.vault.get(scope)!;
       const previous = record.commands.find(command => command.id === commandId);
       if (previous) { if (previous.digest !== digest) throw new ServiceError("IDEMPOTENCY_CONFLICT"); return this.view(scope); }
-      if (record.commands.length >= 256 && !["disconnect", "logout"].includes(action)) throw new ServiceError("SESSION_COMMAND_LIMIT", 429);
+      // Versioned administrative commands can rotate the bounded receipt window.
+      // An evicted identity still cannot replay: its persisted controlVersion
+      // must be greater than the durable fence before any state/network change.
+      if (record.commands.length >= 256 && controlVersion === undefined && !["disconnect", "logout"].includes(action)) throw new ServiceError("SESSION_COMMAND_LIMIT", 429);
       if (controlVersion !== undefined && controlVersion <= (record.controlVersion ?? 0) || controlVersion === undefined && record.controlVersion !== undefined) throw new ServiceError("STALE_CONTROL_COMMAND", 409);
       if (["connect", "refresh", "recover"].includes(action) && !this.connectEnabled) throw new ServiceError("CONNECTIONS_DISABLED", 403);
       if (this.syncOptions.linkedRecoveryOnly && action === "refresh" && !this.pairingAuthorized(scope)) throw new ServiceError("LINKED_RECOVERY_ONLY", 403);
@@ -139,7 +142,7 @@ export class Sessions {
         await this.vault.update(scope, current => {
           current.retiredSessions ??= [];
           current.retiredSessions.push({ commandId, retiredAt: new Date(this.now()).toISOString(), proof: preparation.remote ? "REMOTE_CONFIRMED" : "PHONE_CONFIRMED", ...(current.auth ? { auth: current.auth } : {}), keys: current.keys, ...(current.invalidated ? { invalidated: current.invalidated } : {}), ...(current.termination ? { termination: current.termination } : {}) });
-          current.commands.push({ id: commandId, digest }); current.controlVersion = controlVersion; current.desired = false;
+          current.commands.push({ id: commandId, digest }); if (current.commands.length > 256) current.commands.shift(); current.controlVersion = controlVersion; current.desired = false;
           delete current.auth; current.keys = {}; delete current.invalidated; delete current.termination; delete current.recovery; delete current.pairingAuthorization;
           // Lifetime attempts, history references, journal and receipts remain.
         });

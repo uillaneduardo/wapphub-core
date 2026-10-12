@@ -52,3 +52,19 @@ test("authenticated lifecycle emits normalized events through pull/ack", async (
   assert.equal((await call("POST", `${f.path}/events/ack`, { eventId: item.event.eventId, leaseId: item.leaseId })).statusCode, 200);
   assert.equal(f.journal.metrics().pending, 0);
 });
+
+test("P0 full receipt window permits only fenced lifecycle commands and rejects evicted replay", async t => {
+ const f = await fixture(t); await f.sessions.create(f.scope);
+ const first = randomUUID();
+ await f.vault.update(f.scope, r => { r.controlVersion = 10; r.commands = Array.from({length:256}, (_,i) => ({id:i===0?first:randomUUID(), digest:'synthetic'})); r.auth=JSON.stringify({me:{id:'synthetic@lid'}}); r.keys={'synthetic':'protected'}; r.attempts=5; r.desired=false; r.state='DISCONNECTED'; r.termination={commandId:randomUUID(),action:'logout',remote:'UNCONFIRMED',requestedAt:new Date(f.now()).toISOString()}; });
+ const call = (body: object) => f.app.inject({method:'POST',url:`${f.path}/commands`,payload:body,headers:signedHeaders(f.internalKey,'POST',`${f.path}/commands`,body,f.now())});
+ const original=f.vault.get(f.scope)!.auth;
+ const legacy=await call({action:'prepare_link',commandId:randomUUID(),removedOnPhone:true}); assert.equal(legacy.statusCode,429); assert.equal(legacy.json().error.code,'SESSION_COMMAND_LIMIT');
+ const denied=await call({action:'prepare_link',commandId:randomUUID(),controlVersion:11,removedOnPhone:false}); assert.equal(denied.statusCode,409); assert.equal(f.vault.get(f.scope)?.auth,original);
+ const id=randomUUID(),body={action:'prepare_link',commandId:id,controlVersion:11,removedOnPhone:true};
+ assert.equal((await call(body)).statusCode,200); assert.equal(f.vault.get(f.scope)?.commands.length,256); assert.equal(f.vault.get(f.scope)?.retiredSessions?.length,1); assert.equal(f.vault.get(f.scope)?.retiredSessions?.[0]?.auth,original); assert.equal(f.stats().starts,0);
+ assert.equal((await call(body)).statusCode,200); assert.equal(f.vault.get(f.scope)?.retiredSessions?.length,1);
+ const stale=await call({action:'connect',commandId:first,controlVersion:10}); assert.equal(stale.statusCode,409); assert.equal(stale.json().error.code,'STALE_CONTROL_COMMAND'); assert.equal(f.stats().starts,0);
+ const connect=await call({action:'connect',commandId:randomUUID(),controlVersion:12}); assert.equal(connect.statusCode,200); assert.equal(f.vault.get(f.scope)?.commands.length,256); assert.equal(f.stats().starts,1);
+ f.callbacks[0]!.connection({qr:'SYNTHETIC_QR'}); await f.sessions.settle(f.scope); assert.equal(f.sessions.qr(f.scope).qr,'SYNTHETIC_QR');
+});
