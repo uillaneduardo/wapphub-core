@@ -87,3 +87,12 @@ Relatório atual completo no homelab: 20261012-consolidation-b5/RELATORIO.md, DE
 ## Piloto isolado QA — publicação técnica12/10/2026
 
 Estado QA_PRONTO_PARA_VINCULACAO, sem concluir B5/B6 para a sessão antigaFAILED/RECONNECT_LIMIT/attempts10. Chat qa-text-7ae2018 publicado; Core/Worker/Providerp0link-e6aa1c6 não reiniciados. CLI administrativo CorePR34 cria QA/Owner/canal e registro criptografado ocioso com IDs estáveis e auditoria, sem QR. Backup/restauração isolada/CI134/126/326 e smokes aprovados, schema12 inalterado. Capability de texto somente (ChatPR25) disponível ao Owner depois do vínculo; ambas as conexões ainda false para envio/mídia, gates históricosfalse. Rollback apenas Chatp0link-49bc91d, sem apagamento de QA/Signal ou downgrade. Fluxo humano, identidades pendentes de Supervisor/Agent, imagens e evidências no progresso canônico e20261012-qa-real-pilot/HOMOLOGACAO.md. Dados antigos não copiados; auth/Signal/recibos/história aposentados preservados. Sem operações reais de WhatsApp pelo Codex.
+
+
+## P0 primeiro QR QA — publicação controlada de 12/10/2026
+
+**QA_AGUARDANDO_NOVA_TENTATIVA_DE_QR.** Core35/Chat26 integrados, API/Provider firstqr-686a852 e Chat firstqr-0a58753 publicados; Worker p0link-e6aa1c6 compatível preservado sem restart. Sem migration/dependência nova. Core134/Provider136/Chat332 e CI/lint/typecheck/build/Prisma/OpenAPI aprovados; backup fresco, restauração SQL isolada e startup sobre cópia real do Vault sem rede/factory aprovados. Seis serviços healthy, dados históricos/credenciais/counters/recibos intactos; detalhamento no progresso canônico e20261012-p0-first-pairing/.
+
+Primeiro pareamento agora tem prazo de geração30s/autorização120s e falha terminal sem usar recuperação autenticada. QA mantém FAILED/RECONNECT_LIMIT legado/attempts5/sem identidade, com pairingEligibletrue/desiredfalse e ação contextual de nova tentativa explícita. Nenhum novo QR ou operação WhatsApp real executada. Organização antigaFAILED10 permanece separada. A causa remota exata dos fechamentos428 anteriores não foi registrada, portanto disponibilidade real de QR exige homologação humana. Não marcar B5/B6 concluídos a partir de healthchecks.
+
+Rollback continua sem restoreSignal/downgrade. Provider antigo não é reversão automática segura para esta correção; contingência conserva Source final compatível com gates/connectfalse. Usuário deve realizar novo clique em Vincular WhatsApp no QA; fluxo real/autenticação e posterior texto permanecem responsabilidade humana.
