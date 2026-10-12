@@ -167,15 +167,18 @@ test("CP4 in-memory serial admission is bounded and recovers after draining", as
 });
 test("CP4 bounded inline protocol history checkpoints only after durable staging and deduplicates downloads", async (t) => {
   const f = await fixture(t), ev = makeEventBuffer(pino({ level: "silent" }));
-  let persisted = 0, release!: () => void;
+  let persisted = 0, release!: () => void, entered!: () => void;
+  const staging = new Promise<void>((resolve) => { entered = resolve; });
   const gate = new Promise<void>((resolve) => { release = resolve; });
-  const transport = await baileysFactory(f.vault, () => ({ ev, end: async () => undefined, logout: async () => undefined }), { enabled: true, historyEnabled: true, approvedScope: `${f.scope.organizationId}:${f.scope.connectionId}` })(f.scope, { connection: () => undefined, text: () => undefined, receipt: () => undefined, failure: () => assert.fail(), sync: async (items) => { if (items.length) { await gate; persisted += items.length; } } });
+  const transport = await baileysFactory(f.vault, () => ({ ev, end: async () => undefined, logout: async () => undefined }), { enabled: true, historyEnabled: true, approvedScope: `${f.scope.organizationId}:${f.scope.connectionId}` })(f.scope, { connection: () => undefined, text: () => undefined, receipt: () => undefined, failure: () => assert.fail(), sync: async (items) => { if (items.length) { entered(); await gate; persisted += items.length; } } });
   const raw = proto.HistorySync.encode({ syncType: proto.HistorySync.HistorySyncType.RECENT, progress: 100, conversations: [{ id: "opaque@lid", messages: [{ message: sample("inline-history") }] }] }).finish();
   const notification = { key: { id: "protocol-history", remoteJid: "self@s.whatsapp.net", fromMe: true }, message: { protocolMessage: { historySyncNotification: { initialHistBootstrapInlinePayload: deflateSync(raw) } } } };
   ev.emit("messages.upsert", { type: "notify", messages: [{ ...notification, key: { ...notification.key, fromMe: false } }] });
   await new Promise((resolve) => setTimeout(resolve, 10)); assert.equal(f.vault.get(f.scope)?.historyImports, undefined);
   ev.emit("messages.upsert", { type: "notify", messages: [notification] });
-  await new Promise((resolve) => setTimeout(resolve, 30)); assert.equal(f.vault.get(f.scope)?.historyImports?.seen.length, 0);
+  // Observe the real staging boundary, not runner speed: the checkpoint must
+  // still be empty while persistence is deliberately held by the gate.
+  await staging; assert.equal(f.vault.get(f.scope)?.historyImports?.seen.length, 0);
   release();
   const deadline = Date.now() + 3000; while (!f.vault.get(f.scope)?.historyImports?.seen.length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.ok(persisted >= 3); assert.equal(f.vault.get(f.scope)?.historyImports?.seen.length, 1);
