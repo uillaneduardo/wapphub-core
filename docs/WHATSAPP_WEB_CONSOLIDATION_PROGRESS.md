@@ -303,3 +303,7 @@ Core HTTP/outbox/Worker/HMAC/QR sintético passou133/133; Prisma schema12/OpenAP
 ### 2026-10-12T14:38:37.759184+00:00 — simplificação — VALIDADO_TECNICAMENTE / PR e CI pendentes
 
 Core133/133 completo+uploadHTTP/OpenAPI/drift/migration12/lint/typecheck/build aprovados. Provider final124/124 (inclui401/403, arquivo criptografado limitado, primeiro pairing escopado, restart semQR e todas regressões). Chat integral321/321 e56/56 focados após indicador QR e teste do cliente prepare_link; resultado integral final será comprovado pela CI. Sem mudanças de dependências/migrations. Backup/restauração isolados aprovados; sessão produtiva permanece DISCONNECTED/logoutUNCONFIRMED sem transporte, attempts5 e credenciais preservadas. Próximo gate: PRs e CI dos SHAs reais; publicações exigem imagem testada contra cópia do Vault atual, gates globais mantidos, nenhuma operação remota.
+
+### 2026-10-12T14:42Z — revisão final — guard de identidade após primeiro QR
+
+Revisão detectou que a permissão passada ao factory poderia permanecer efetiva após open do primeiro pareamento. Guard corrigido para consultar autorização persistida escopada e prazo em cada atualização de identidade; open remove o grant de pairing e volta imediatamente à proteção linked-only. Teste SDK RC14 sintético comprova primeira identidade aceita e tentativa subsequente de remover identidade rejeitada, sem sobrescrever auth. Nenhuma operação produtiva; CI novo SHA será exigida antes de merge.
