@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import makeWASocket, { Browsers, BufferJSON, initAuthCreds, proto, processHistoryMessage, normalizeMessageContent, type AuthenticationState, type SignalDataTypeMap, type BaileysEventMap } from "baileys";
 import pino from "pino";
-import type { TransportFactory } from "./transport.js";
+import type { TransportFactory, TransportCause } from "./transport.js";
 import { ProviderMedia } from "./media.js";
 import { ServiceError } from "./errors.js";
 import { Vault, type Scope } from "./vault.js";
@@ -13,6 +13,14 @@ import type { SyncObservation } from "../../../contracts/provider-internal.js";
 import type { SyncItem } from "../../../contracts/provider.js";
 
 const signalId = (type: string, id: string) => createHash("sha256").update(JSON.stringify([type, id])).digest("hex");
+/** Explicit deploy-time pin, never a network lookup or automatic SDK upgrade. */
+export function pairingWebVersion(value?: string): [number, number, number] | undefined {
+  if (!value) return undefined;
+  if (!/^2,3000,[1-9][0-9]{0,9}$/.test(value)) throw new ServiceError("PROTOCOL_VERSION_CONFIGURATION_ERROR", 503);
+  const revision = Number(value.split(",")[2]);
+  if (revision > 0xffffffff) throw new ServiceError("PROTOCOL_VERSION_CONFIGURATION_ERROR", 503);
+  return [2, 3000, revision];
+}
 /** Auth persistence is independent of SDK logging and never uses plaintext files. */
 export async function encryptedAuth(vault: Vault, scope: Scope, failure: () => void = () => undefined) {
     let closed = false;
@@ -53,8 +61,8 @@ export async function encryptedAuth(vault: Vault, scope: Scope, failure: () => v
     };
     return { state: { creds, keys }, saveCreds, disable: (revoke = false) => { closed = true; revoked ||= revoke; }, isDisabled: () => closed };
 }
-type SocketCreator = (options: Parameters<typeof makeWASocket>[0]) => Pick<ReturnType<typeof makeWASocket>, "ev" | "end" | "logout"> & Partial<Pick<ReturnType<typeof makeWASocket>, "fetchMessageHistory" | "onWhatsApp" | "sendMessage" | "query">>;
-export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; initialHistoryEnabled?: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; historyExecutionEnabled?: boolean; scopedHistoryAuthorization?: boolean; mediaEnabled?: boolean } = { enabled: false, historyEnabled: false }): TransportFactory {
+type SocketCreator = (options: Parameters<typeof makeWASocket>[0]) => Pick<ReturnType<typeof makeWASocket>, "ev" | "end" | "logout"> & Partial<Pick<ReturnType<typeof makeWASocket>, "fetchMessageHistory" | "onWhatsApp" | "sendMessage" | "query" | "ws">>;
+export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; initialHistoryEnabled?: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; historyExecutionEnabled?: boolean; scopedHistoryAuthorization?: boolean; mediaEnabled?: boolean; pairingWebVersion?: [number, number, number] } = { enabled: false, historyEnabled: false }): TransportFactory {
   return async (scope, callbacks, authorization) => {
     const pairingAllowed = () => {
       if (!authorization?.allowPairing) return false;
@@ -87,12 +95,34 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
     const downloads = new AbortController(); let downloading = false, historyObserved = false;
     const socket = createSocket({
       auth: auth.state, logger: pino({ level: "silent" }),
+      // Only new, explicitly authorized pairing uses the operational pin.
+      // Existing authenticated transports retain the installed SDK settings.
+      ...(pairingAllowed() && !auth.state.creds.me?.id && syncOptions.pairingWebVersion ? { version: syncOptions.pairingWebVersion } : {}),
       markOnlineOnConnect: false, syncFullHistory: nativeBootstrap && !auth.state.creds.me?.id,
        ...(nativeBootstrap && !auth.state.creds.me?.id ? { browser: Browsers.macOS("Desktop") } : {}),
       shouldSyncHistoryMessage: () => false,
       shouldIgnoreJid: (jid) => !jid.endsWith("@s.whatsapp.net") && !jid.endsWith("@lid"),
       connectTimeoutMs: 20_000, keepAliveIntervalMs: 30_000, qrTimeout: 60_000,
       emitOwnEvents: false, generateHighQualityLinkPreview: false,
+    });
+    callbacks.diagnostic?.("SOCKET_CREATED");
+    socket.ws?.on("open", () => callbacks.diagnostic?.("WS_OPEN"));
+    socket.ws?.on("close", () => callbacks.diagnostic?.("WS_CLOSED"));
+    socket.ws?.on("error", () => callbacks.diagnostic?.("WS_ERROR"));
+    socket.ev.on("creds.update", (update) => {
+      if (auth.isDisabled()) return;
+      if (syncOptions.linkedRecoveryOnly && !pairingAllowed() && (Object.hasOwn(update, "me") && update.me?.id !== auth.state.creds.me?.id)) {
+        auth.disable(); callbacks.connection({ state: "close", code: 401 }); return;
+      }
+      Object.assign(auth.state.creds, update);
+      void auth.saveCreds().catch(() => callbacks.failure());
+    });
+    socket.ev.on("connection.update", (update) => {
+      const reason = update.lastDisconnect?.error as { output?: { statusCode?: number }; message?: string; code?: string } | undefined;
+      // Map known SDK observations only. Never publish exception messages,
+      // handshake frames, URLs, IDs, QR, auth or Signal material.
+      const cause: TransportCause | undefined = !reason ? undefined : reason.message === "Connection Terminated" ? "WS_CLOSED" : reason.message === "Connection Terminated by Server" ? "SERVER_CLOSED" : ["EAI_AGAIN", "ETIMEDOUT", "ECONNRESET", "ECONNREFUSED", "ENETUNREACH"].includes(reason.code ?? "") ? "NETWORK_ERROR" : reason.message === "Connection Failure" ? "PROTOCOL_FAILURE" : "TRANSPORT_ERROR";
+      callbacks.connection({ state: update.connection === "open" || update.connection === "close" ? update.connection : undefined, qr: update.qr, code: reason?.output?.statusCode, ...(update.isNewLogin ? { authenticating: true } : {}), ...(cause ? { cause } : {}) });
     });
     const importer = new HistoryImporter(vault, scope, async (count, anchor) => {
       if (!socket.fetchMessageHistory) throw new ServiceError("HISTORY_TRANSPORT_UNAVAILABLE", 409);
@@ -107,18 +137,6 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       return selectHistory(scope, history, op);
     }, syncOptions.historyExecutionEnabled === true && (syncOptions.scopedHistoryAuthorization === true || syncOptions.approvedScope === `${scope.organizationId}:${scope.connectionId}`), Date.now, syncOptions.scopedHistoryAuthorization === true);
     await importer.recover();
-    socket.ev.on("creds.update", (update) => {
-      if (auth.isDisabled()) return;
-      if (syncOptions.linkedRecoveryOnly && !pairingAllowed() && (Object.hasOwn(update, "me") && update.me?.id !== auth.state.creds.me?.id)) {
-        auth.disable(); callbacks.connection({ state: "close", code: 401 }); return;
-      }
-      Object.assign(auth.state.creds, update);
-      void auth.saveCreds().catch(() => callbacks.failure());
-    });
-    socket.ev.on("connection.update", (update) => {
-      const reason = update.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined;
-      callbacks.connection({ state: update.connection === "open" || update.connection === "close" ? update.connection : undefined, qr: update.qr, code: reason?.output?.statusCode, ...(update.isNewLogin ? { authenticating: true } : {}) });
-    });
     const submit = async <T>(values: T[], normalize: (value: T) => NormalizationOutcome | Promise<NormalizationOutcome>, historical: boolean, completed = false, source: SyncObservation["source"] = "MESSAGES_NOTIFY") => {
       if (auth.isDisabled() || !syncOptions.enabled || historical && !historyEnabled && !capturingBootstrap()) return;
       const limit = historical ? 1000 : 250;

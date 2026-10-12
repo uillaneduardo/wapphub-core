@@ -16,6 +16,7 @@ services:
     stop_grace_period: 20s
     environment:
       ALLOW_SESSION_CONNECT: 'false'
+      PROVIDER_PAIRING_WEB_VERSION: ${PROVIDER_PAIRING_WEB_VERSION:-}
       PROVIDER_OUTBOUND_ENABLED: ${PROVIDER_OUTBOUND_ENABLED:-false}
       PROVIDER_MEDIA_ENABLED: ${PROVIDER_MEDIA_ENABLED:-false}
     networks: [core-backend, egress]

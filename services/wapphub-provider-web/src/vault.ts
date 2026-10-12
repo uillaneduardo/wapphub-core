@@ -22,7 +22,7 @@ export type Session = Scope & {
   retiredSessions?: { commandId: string; retiredAt: string; proof: "REMOTE_CONFIRMED" | "PHONE_CONFIRMED"; auth?: string; keys: Record<string, string>; invalidated?: string; termination?: SessionLifecycle["termination"] }[];
   recovery?: SessionLifecycle["recovery"];
   termination?: SessionLifecycle["termination"];
-  lastDisconnect?: { occurredAt: string; code?: number };
+  lastDisconnect?: { occurredAt: string; code?: number; cause?: import("./transport.js").TransportCause };
   lastAuthenticatedAt?: string;
   invalidated?: "SESSION_REVOKED" | "SESSION_REPLACED" | "BAD_SESSION";
   media?: { id: string; reference?: string; type: "IMAGE" | "AUDIO" | "VOICE" | "VIDEO"; mimeType: string; fileName: string; size: number; sha256: string; expiresAt: number; seconds?: number }[];

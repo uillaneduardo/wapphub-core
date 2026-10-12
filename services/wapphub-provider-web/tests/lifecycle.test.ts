@@ -48,7 +48,7 @@ for (const result of ["CONFIRMED", "UNCONFIRMED", "ERROR"] as const) test(`logou
  assert.equal(logouts, 1); assert.equal(f.vault.get(f.scope)?.termination?.remote, result === "CONFIRMED" ? "CONFIRMED" : "UNCONFIRMED"); assert.equal(sessions.view(f.scope).state, result === "CONFIRMED" ? "LOGGED_OUT" : "DISCONNECTED"); assert.equal(f.vault.get(f.scope)?.desired, false); assert.equal(f.vault.get(f.scope)?.auth, linkedAuth);
 });
 test("local stop cancels a scheduled reconnect even when a stale timer fires", async t => {
- const f = await fixture(t); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID(), 1); f.callbacks[0]!.connection({ state: "close", code: 503 }); await f.sessions.settle(f.scope); const timer = f.timers.find(x => !x.canceled)!;
+ const f = await fixture(t); await f.vault.update(f.scope, r => { r.auth = JSON.stringify({me:{id:"synthetic@lid"},noiseKey:{private:"synthetic",public:"synthetic"},signedIdentityKey:{private:"synthetic",public:"synthetic"}}); }); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID(), 1); f.callbacks[0]!.connection({ state: "close", code: 503 }); await f.sessions.settle(f.scope); const timer = f.timers.find(x => !x.canceled)!;
  await f.sessions.command(f.scope, "disconnect", randomUUID(), 2); timer.run(); await f.sessions.settle(f.scope); assert.equal(f.stats().starts, 1); assert.equal(f.sessions.view(f.scope).state, "DISCONNECTED");
 });
 test("restart during uncertain logout does not retry remote revocation or reconnect", async t => {
@@ -106,5 +106,5 @@ for (const code of [401, 403] as const) test(`remote revocation code ${code} kee
 
 test("restart after pairing identity is persisted but before authenticated open does not resume QR or transport", async t => {
  const f = await fixture(t); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID(), 1); await f.vault.update(f.scope, r => { r.auth = linkedAuth; }); await f.sessions.shutdown();
- const restored = new Sessions(f.vault, f.journal, f.factory, true); t.after(() => restored.shutdown()); await restored.recover(); assert.equal(f.stats().starts, 1); assert.equal(f.vault.get(f.scope)?.desired, false); assert.equal(f.vault.get(f.scope)?.pairingAuthorization, undefined); assert.equal(f.vault.get(f.scope)?.auth, linkedAuth); assert.equal(restored.view(f.scope).state, "DISCONNECTED");
+ const restored = new Sessions(f.vault, f.journal, f.factory, true); t.after(() => restored.shutdown()); await restored.recover(); assert.equal(f.stats().starts, 1); assert.equal(f.vault.get(f.scope)?.desired, false); assert.equal(f.vault.get(f.scope)?.pairingAuthorization, undefined); assert.equal(f.vault.get(f.scope)?.auth, linkedAuth); assert.equal(restored.view(f.scope).state, "FAILED"); assert.equal(restored.view(f.scope).errorCode,"PAIRING_INTERRUPTED");
 });
