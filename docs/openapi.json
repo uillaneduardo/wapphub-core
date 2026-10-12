@@ -22560,13 +22560,33 @@
                             "errorCode": {
                               "type": "string",
                               "nullable": true
+                            },
+                            "createdAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "updatedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "attempts": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "nextAttemptAt": {
+                              "type": "string",
+                              "format": "date-time"
                             }
                           },
                           "required": [
                             "id",
                             "action",
                             "status",
-                            "errorCode"
+                            "errorCode",
+                            "createdAt",
+                            "updatedAt",
+                            "attempts",
+                            "nextAttemptAt"
                           ],
                           "nullable": true
                         },
@@ -23386,13 +23406,33 @@
                         "errorCode": {
                           "type": "string",
                           "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "attempts": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "nextAttemptAt": {
+                          "type": "string",
+                          "format": "date-time"
                         }
                       },
                       "required": [
                         "id",
                         "action",
                         "status",
-                        "errorCode"
+                        "errorCode",
+                        "createdAt",
+                        "updatedAt",
+                        "attempts",
+                        "nextAttemptAt"
                       ],
                       "nullable": true
                     },
@@ -24242,13 +24282,33 @@
                         "errorCode": {
                           "type": "string",
                           "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "attempts": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "nextAttemptAt": {
+                          "type": "string",
+                          "format": "date-time"
                         }
                       },
                       "required": [
                         "id",
                         "action",
                         "status",
-                        "errorCode"
+                        "errorCode",
+                        "createdAt",
+                        "updatedAt",
+                        "attempts",
+                        "nextAttemptAt"
                       ],
                       "nullable": true
                     },
