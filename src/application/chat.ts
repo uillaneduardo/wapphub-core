@@ -1,3 +1,9 @@
+import { createWebContact } from "./web-contact.js";
+import { mediaUploadSchema, mediaLimit, validMediaKind, type MediaUpload } from "../../contracts/provider-media.js";
+import { mediaReferenceSchema } from "../../contracts/provider.js";
+import { randomUUID } from "node:crypto";
+import { WebProviderError, type WebProviderPort } from "../integrations/web-provider-client.js";
+import { internationalPhoneSchema, directJidSchema } from "../../contracts/provider-outbound.js";
 import { externalContactPresentation, trustedContactName, type PresentationIdentity } from "../integrations/provider-contact-presentation.js";
 import { resolvePermissions } from "../domain/resources.js";
 import { chatEventTypes, type ChatEventType } from "../realtime/contract.js";
@@ -19,6 +25,8 @@ export type ChatContext = {
   organizationId: string;
   userId: string;
   permissions: string[];
+  webOutboundEnabled?: boolean;
+  webMediaEnabled?: boolean;
 };
 export type PageQuery = {
   limit?: number;
@@ -31,7 +39,7 @@ export type PageQuery = {
   q?: string;
 };
 type ContactPresentation = { id?: string; name: string; providerName?: string | null; primaryIdentifier?: string; channelIdentities?: PresentationIdentity[] };
-const contactPresentationSelect = { id: true, name: true, providerName: true, primaryIdentifier: true, channelIdentities: { include: { channel: { select: { provider: true } } } } } as const;
+const contactPresentationSelect = { id: true, name: true, providerName: true, primaryIdentifier: true, channelIdentities: { include: { channel: { select: { provider: true, webConnection: { select: { outboundEnabled: true, mediaEnabled: true, state: true, errorCode: true, lastCheckedAt: true } } } } } } } as const;
 function contactPresentation(contact: ContactPresentation, includePhone = true) {
  const external = externalContactPresentation(contact.primaryIdentifier ?? "", contact.channelIdentities);
  const generated = external.external && contact.providerName == null && ["Contato", "Contato WhatsApp Web"].includes(contact.name);
@@ -64,7 +72,7 @@ const messageReadFloor = (c: ChatContext, r: Pick<Conversation, "organizationId"
     : null;
 
 export const conversationDTO = (
-  r: Conversation & { tags?: { tagId: string }[]; channel?: { provider: string } | null; contact?: ContactPresentation; messages?: { body: string | null; sequence: bigint; historical?: boolean; importedAt?: Date }[] },
+  r: Conversation & { tags?: { tagId: string }[]; channel?: { provider: string; webConnection?: { outboundEnabled: boolean; mediaEnabled?: boolean; state?: string; errorCode?: string | null; lastCheckedAt?: Date | null } | null } | null; contact?: ContactPresentation; messages?: { body: string | null; sequence: bigint; historical?: boolean; importedAt?: Date }[] },
   c: ChatContext,
 ) => {
   const floor = messageReadFloor(c, r);
@@ -78,7 +86,8 @@ export const conversationDTO = (
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
     lastMessageAt: r.lastMessageAt.toISOString(),
-    outboundEnabled: r.channel?.provider !== "WHATSAPP_WEB",
+    outboundEnabled: r.channel?.provider !== "WHATSAPP_WEB" || !!(c.webOutboundEnabled && r.channel.webConnection?.outboundEnabled && r.channel.webConnection.state === "CONNECTED" && !r.channel.webConnection.errorCode && r.channel.webConnection.lastCheckedAt && r.channel.webConnection.lastCheckedAt.getTime() > Date.now() - 30000),
+    mediaEnabled: !!(c.webMediaEnabled && r.channel?.webConnection?.mediaEnabled),
     visibility: r.visibility,
     tagIds: r.tags?.map((t) => t.tagId) ?? [],
     provider: r.channel?.provider ?? null,
@@ -104,6 +113,7 @@ export const messageDTO = (r: {
   updatedAt: Date;
   historical?: boolean;
   mediaMetadata?: Prisma.JsonValue | null;
+  deliveryOutcome?: string | null;
 }, includePhone = true) => ({
   id: r.id,
   conversationId: r.conversationId,
@@ -115,6 +125,7 @@ export const messageDTO = (r: {
   type: r.type,
   body: r.body,
   status: r.status,
+  deliveryOutcome: r.deliveryOutcome ?? null,
   historical: r.historical ?? false,
   media: r.mediaMetadata ?? null,
   createdAt: r.createdAt.toISOString(),
@@ -136,6 +147,9 @@ export const tagDTO = (r: { id: string; name: string }) => ({
   name: r.name,
 });
 export class Chat {
+  webProvider?: WebProviderPort;
+  get outboundExecutionEnabled() { return this.config.PROVIDER_OUTBOUND_ENABLED; }
+  get mediaExecutionEnabled() { return this.config.PROVIDER_MEDIA_ENABLED; }
   get historyExecutionEnabled() { return this.config.PROVIDER_HISTORY_EXECUTION_ENABLED; }
   constructor(
     public db: PrismaClient,
@@ -185,7 +199,7 @@ export class Chat {
       : [permission];
     if (!requiredPermissions.some((required) => permissions.includes(required)))
       throw new AppError(403, "PERMISSION_DENIED");
-    return { organizationId, userId: principal.user.id, permissions };
+    return { organizationId, userId: principal.user.id, permissions, webOutboundEnabled: this.outboundExecutionEnabled, webMediaEnabled: this.mediaExecutionEnabled };
   }
   async teamMembers(principal: Principal, q: PageQuery = {}) {
     const c = await this.context(principal, [
@@ -257,7 +271,7 @@ export class Chat {
   async conversation(c: ChatContext, id: string, tx: DB = this.db, withPreview = false) {
     this.require(c, "conversations.read");
     const r = await tx.conversation.findFirst({
-      include: { tags: true, channel: { select: { provider: true } }, contact: { select: contactPresentationSelect }, messages: withPreview && c.permissions.includes("messages.read") ? { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { body: true, sequence: true, historical: true, importedAt: true } } : false },
+      include: { tags: true, channel: { select: { provider: true, webConnection: { select: { outboundEnabled: true, mediaEnabled: true, state: true, errorCode: true, lastCheckedAt: true } } } }, contact: { select: contactPresentationSelect }, messages: withPreview && c.permissions.includes("messages.read") ? { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { body: true, sequence: true, historical: true, importedAt: true } } : false },
       where: { id, organizationId: c.organizationId },
     });
     if (
@@ -320,7 +334,7 @@ export class Chat {
   // A stream cursor never skips a same-tenant transaction that commits later.
   async mutation<T>(
     p: Principal,
-    permission: string,
+    permission: string | string[],
     fn: (tx: DB, c: ChatContext) => Promise<T>,
   ) {
     const org = p.session.currentOrganizationId;
@@ -363,7 +377,7 @@ export class Chat {
         ...(id ? { id: { gt: id } } : {}),
         ...(search ? { OR: [{ name: { contains: search.replace(/[\\%_]/g, "\\$&") } }, { primaryIdentifier: { contains: search.replace(/[\\%_]/g, "\\$&") } }] } : {}),
       },
-      include: { channelIdentities: { select: { externalId: true, channel: { select: { provider: true } } } } },
+      include: { channelIdentities: { select: { externalId: true, channel: { select: { provider: true, webConnection: { select: { outboundEnabled: true, mediaEnabled: true, state: true, errorCode: true, lastCheckedAt: true } } } } } } },
       orderBy: { id: "asc" },
       take: limit + 1,
     });
@@ -379,7 +393,7 @@ export class Chat {
     const c = await this.context(p, "contacts.read");
     const r = await this.db.contact.findFirst({
       where: { organizationId: c.organizationId, id },
-      include: { channelIdentities: { select: { externalId: true, channel: { select: { provider: true } } } } },
+      include: { channelIdentities: { select: { externalId: true, channel: { select: { provider: true, webConnection: { select: { outboundEnabled: true, mediaEnabled: true, state: true, errorCode: true, lastCheckedAt: true } } } } } } },
     });
     if (!r) throw new AppError(404, "NOT_FOUND");
     return contactDTO(r);
@@ -403,7 +417,7 @@ export class Chat {
               organizationId_id: { organizationId: c.organizationId, id },
             },
             data,
-            include: { channelIdentities: { select: { externalId: true, channel: { select: { provider: true } } } } },
+            include: { channelIdentities: { select: { externalId: true, channel: { select: { provider: true, webConnection: { select: { outboundEnabled: true, mediaEnabled: true, state: true, errorCode: true, lastCheckedAt: true } } } } } } },
           })
         : await tx.contact.create({
             data: {
@@ -467,7 +481,7 @@ export class Chat {
     }
     const limit = q.limit ?? 50;
     const rows = await this.db.conversation.findMany({
-      include: { tags: true, channel: { select: { provider: true } }, contact: { select: contactPresentationSelect }, messages: c.permissions.includes("messages.read") ? { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { body: true, sequence: true, historical: true, importedAt: true } } : false },
+      include: { tags: true, channel: { select: { provider: true, webConnection: { select: { outboundEnabled: true, mediaEnabled: true, state: true, errorCode: true, lastCheckedAt: true } } } }, contact: { select: contactPresentationSelect }, messages: c.permissions.includes("messages.read") ? { orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { body: true, sequence: true, historical: true, importedAt: true } } : false },
       where: {
         organizationId: c.organizationId,
         status: q.archived ? "ARCHIVED" : { not: "ARCHIVED" },
@@ -509,6 +523,79 @@ export class Chat {
       await this.audit(this.db, c, "CONVERSATION_SUPERVISED");
     return conversationDTO(r, c);
   }
+  async setWebCapabilities(p: Principal, channelId: string, data: { outboundEnabled: boolean; mediaEnabled: boolean }) {
+    if (data.outboundEnabled && !this.outboundExecutionEnabled || data.mediaEnabled && !this.mediaExecutionEnabled) throw new AppError(409, "CAPABILITY_DISABLED");
+    return this.mutation(p, "providers.manage", async (tx, c) => {
+      const row = await tx.providerConnection.findFirst({ where: { organizationId: c.organizationId, channelId, channel: { provider: "WHATSAPP_WEB" } } });
+      if (!row) throw new AppError(404, "NOT_FOUND");
+      if (data.mediaEnabled && !data.outboundEnabled) throw new AppError(400, "INVALID_CAPABILITY_POLICY");
+      await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: c.organizationId, channelId } }, data: { ...data, version: { increment: 1 } } });
+      await tx.auditEvent.create({ data: { organizationId: c.organizationId, actorUserId: c.userId, action: "WHATSAPP_WEB_CAPABILITIES_UPDATED", details: { channelId, ...data } } });
+      await this.resourceEvent(tx, c.organizationId, "provider.connection.updated", channelId);
+      return data;
+    });
+  }
+  async webChannels(p: Principal) {
+    const c = await this.context(p, "conversations.create"); this.require(c, "contacts.read");
+    return { items: (await this.db.channel.findMany({ where: { organizationId: c.organizationId, provider: "WHATSAPP_WEB" }, include: { webConnection: true } })).map(row => ({ id: row.id, name: "WhatsApp", outboundEnabled: this.outboundExecutionEnabled && row.webConnection?.outboundEnabled === true && row.status === "ENABLED" && row.webConnection.state === "CONNECTED" && !row.webConnection.errorCode, mediaEnabled: this.mediaExecutionEnabled && row.webConnection?.mediaEnabled === true })) };
+  }
+  async webConnectionReady(tx: DB, organizationId: string, channelId: string) {
+    const row = await tx.providerConnection.findFirst({ where: { organizationId, channelId, channel: { provider: "WHATSAPP_WEB", status: "ENABLED" } } });
+    if (await tx.providerCommand.count({ where: { organizationId, channelId, action: { in: ["disconnect", "logout"] }, status: { in: ["PENDING", "PROCESSING"] } } })) throw new AppError(409, "CONNECTION_STOP_AUTHORIZED");
+    if (!this.outboundExecutionEnabled || !row?.outboundEnabled) throw new AppError(409, "PROVIDER_SEND_UNAVAILABLE");
+    if (row.state !== "CONNECTED" || row.errorCode || !row.lastCheckedAt || row.lastCheckedAt.getTime() < Date.now() - 30000) throw new AppError(409, "PROVIDER_UNAVAILABLE");
+    return row;
+  }
+  async createWebConversation(p: Principal, data: { channelId: string; contactId?: string; phone?: string }) {
+    const initial = await this.context(p, ["conversations.create", "conversations.read", "contacts.read"]);
+    for (const permission of ["conversations.create", "conversations.read", "contacts.read"]) this.require(initial, permission);
+    await this.webConnectionReady(this.db, initial.organizationId, data.channelId);
+    if ((!data.contactId) === (!data.phone)) throw new AppError(400, "RECIPIENT_REQUIRED");
+    let destination: string;
+    if (data.contactId) {
+      const person = await this.db.contact.findFirst({ where: { organizationId: initial.organizationId, id: data.contactId }, include: { channelIdentities: { where: { channelId: data.channelId } } } });
+      if (!person) throw new AppError(404, "NOT_FOUND");
+      const known = person.channelIdentities.find(x => directJidSchema.safeParse(x.externalId).success);
+      if (known) destination = known.externalId;
+      else {
+        if (!internationalPhoneSchema.safeParse(person.primaryIdentifier).success) throw new AppError(409, "RECIPIENT_UNVERIFIED");
+        data = { ...data, phone: person.primaryIdentifier };
+        destination = "";
+      }
+    } else destination = "";
+    if (!destination) {
+      if (!data.contactId) this.require(initial, "contacts.write");
+      const phone = internationalPhoneSchema.safeParse(data.phone);
+      if (!phone.success) throw new AppError(400, "INVALID_PHONE");
+      if (!this.webProvider?.resolveRecipient) throw new AppError(503, "PROVIDER_UNAVAILABLE");
+      let result;
+      try { result = await this.webProvider.resolveRecipient({ organizationId: initial.organizationId, connectionId: data.channelId }, phone.data); } catch { throw new AppError(503, "RECIPIENT_UNKNOWN"); }
+      if (result.state !== "VALID" || !result.jid || !directJidSchema.safeParse(result.jid).success) throw new AppError(409, result.state === "NOT_FOUND" ? "RECIPIENT_NOT_FOUND" : "RECIPIENT_UNKNOWN");
+      // onWhatsApp must resolve the queried PN; a LID cannot invent a phone alias.
+      if (result.jid !== phone.data.slice(1) + "@s.whatsapp.net") throw new AppError(409, "RECIPIENT_UNKNOWN");
+      destination = result.jid;
+    }
+    return this.mutation(p, ["conversations.create", "conversations.read", "contacts.read"], async (tx, c) => {
+      for (const permission of ["conversations.create", "conversations.read", "contacts.read"]) this.require(c, permission);
+      if (c.organizationId !== initial.organizationId) throw new AppError(403, "ORGANIZATION_ACCESS_DENIED");
+      await this.webConnectionReady(tx, c.organizationId, data.channelId);
+      const identity = await tx.contactIdentity.findUnique({ where: { organizationId_channelId_externalId: { organizationId: c.organizationId, channelId: data.channelId, externalId: destination } } });
+      if (identity && data.contactId && identity.contactId !== data.contactId) throw new AppError(409, "IDENTITY_MAPPING_CONFLICT");
+      let contactId = identity?.contactId ?? data.contactId;
+      if (!contactId) {
+        this.require(c, "contacts.write");
+        const person = await createWebContact(tx, { organizationId: c.organizationId, connectionId: data.channelId }, { externalId: destination });
+        contactId = person.id;
+      } else if (!await tx.contact.findFirst({ where: { organizationId: c.organizationId, id: contactId } })) throw new AppError(404, "NOT_FOUND");
+      if (!identity) await tx.contactIdentity.create({ data: { organizationId: c.organizationId, channelId: data.channelId, contactId, externalId: destination } });
+      let row = await tx.conversation.findFirst({ where: { organizationId: c.organizationId, channelId: data.channelId, OR: [{ providerConversationId: destination }, { contactId }] }, include: { channel: { select: { provider: true, webConnection: { select: { outboundEnabled: true, mediaEnabled: true, state: true, errorCode: true, lastCheckedAt: true } } } }, contact: { select: contactPresentationSelect }, tags: true } });
+      if (row) { await this.conversation(c, row.id, tx); return { ...conversationDTO(row, c), reused: true }; }
+      row = await tx.conversation.create({ data: { organizationId: c.organizationId, channelId: data.channelId, providerConversationId: destination, contactId, assignedUserId: c.userId }, include: { channel: { select: { provider: true, webConnection: { select: { outboundEnabled: true, mediaEnabled: true, state: true, errorCode: true, lastCheckedAt: true } } } }, contact: { select: contactPresentationSelect }, tags: true } });
+      await this.audit(tx, c, "EXTERNAL_CONVERSATION_CREATED");
+      await this.resourceEvent(tx, c.organizationId, "conversation.created", row.id, row.id);
+      return { ...conversationDTO(row, c), reused: false };
+    });
+  }
   async createConversation(p: Principal, contactId: string, reuseExisting = false) {
     return this.mutation(p, "conversations.create", async (tx, c) => {
       if (
@@ -541,7 +628,7 @@ export class Chat {
     return this.mutation(p, "conversations.archive", async (tx, c) => {
       await this.conversation(c, id, tx);
       const r = await tx.conversation.update({
-        include: { tags: true, channel: { select: { provider: true } }, contact: { select: contactPresentationSelect } },
+        include: { tags: true, channel: { select: { provider: true, webConnection: { select: { outboundEnabled: true, mediaEnabled: true, state: true, errorCode: true, lastCheckedAt: true } } } }, contact: { select: contactPresentationSelect } },
         where: { organizationId_id: { organizationId: c.organizationId, id } },
         data: {
           status: archived ? "ARCHIVED" : "OPEN",
@@ -658,7 +745,7 @@ export class Chat {
           transfer ? (r.assignedUserId ?? undefined) : undefined,
         );
         const updated = await tx.conversation.update({
-          include: { tags: true, channel: { select: { provider: true } }, contact: { select: contactPresentationSelect } },
+          include: { tags: true, channel: { select: { provider: true, webConnection: { select: { outboundEnabled: true, mediaEnabled: true, state: true, errorCode: true, lastCheckedAt: true } } } }, contact: { select: contactPresentationSelect } },
           where: {
             organizationId_id: { organizationId: c.organizationId, id },
           },
@@ -740,10 +827,51 @@ export class Chat {
           : null,
     };
   }
+  async uploadMedia(p: Principal, conversationId: string, input: MediaUpload, source: AsyncIterable<Uint8Array>) {
+    const meta = mediaUploadSchema.safeParse(input);
+    if (!meta.success || !validMediaKind(meta.data.type, meta.data.mimeType) || meta.data.size > mediaLimit(meta.data.type)) throw new AppError(415, "MEDIA_SIZE_OR_TYPE_DENIED");
+    const c = await this.context(p, "messages.send"), conversation = await this.conversation(c, conversationId);
+    if (conversation.status === "ARCHIVED" || !conversation.channelId) throw new AppError(409, "MEDIA_UNAVAILABLE");
+    const connection = await this.webConnectionReady(this.db, c.organizationId, conversation.channelId);
+    if (!this.mediaExecutionEnabled || !connection.mediaEnabled || !this.webProvider?.uploadMedia) throw new AppError(409, "MEDIA_DISABLED");
+    // Quotas are per actor and organization; aborted uploads expire in Provider.
+    if (await this.db.media.count({ where: { organizationId: c.organizationId, expiresAt: { gt: new Date() }, messageId: null } }) >= 64) throw new AppError(429, "MEDIA_QUOTA_EXHAUSTED");
+    let result;
+    try { result = await this.webProvider.uploadMedia({ organizationId: c.organizationId, connectionId: conversation.channelId }, meta.data, source); } catch (error) { if (error instanceof WebProviderError && ["MEDIA_BUSY", "MEDIA_MEMORY_PRESSURE", "MEDIA_CACHE_LIMIT", "MEDIA_INTEGRITY_FAILED", "MEDIA_SIZE_MISMATCH", "MEDIA_TYPE_MISMATCH", "MEDIA_CODEC_INVALID", "MEDIA_CODEC_UNAVAILABLE", "MEDIA_TRANSFER_TIMEOUT"].includes(error.code)) throw new AppError(error.status, error.code); throw new AppError(503, "MEDIA_UPLOAD_FAILED"); }
+    if (result.mediaId !== meta.data.mediaId || result.type !== meta.data.type || !result.sha256 || result.size > mediaLimit(meta.data.type) || result.state !== "READY") throw new AppError(409, "MEDIA_INTEGRITY_FAILED");
+    return this.mutation(p, "messages.send", async (tx, current) => {
+      if (current.organizationId !== c.organizationId) throw new AppError(403, "ORGANIZATION_ACCESS_DENIED");
+      const thread = await this.conversation(current, conversationId, tx);
+      const row = await this.webConnectionReady(tx, current.organizationId, conversation.channelId!);
+      if (!row.mediaEnabled || thread.status === "ARCHIVED") throw new AppError(409, "MEDIA_DISABLED");
+      await tx.media.create({ data: { id: result.mediaId, organizationId: current.organizationId, channelId: conversation.channelId!, conversationId, actorUserId: current.userId, type: result.type, mimeType: result.mimeType, fileName: result.fileName, size: result.size, sha256: result.sha256!, expiresAt: new Date(Date.now() + 24 * 3600000) } });
+      await this.audit(tx, current, "MEDIA_UPLOADED"); return result;
+    });
+  }
+  async messageMedia(p: Principal, conversationId: string, messageId: string) {
+    const c = await this.context(p, "messages.read"), thread = await this.conversation(c, conversationId);
+    const floor = messageReadFloor(c, thread);
+    const message = floor === null ? null : await this.db.message.findFirst({ where: { id: messageId, organizationId: c.organizationId, conversationId, sequence: { gte: floor }, ...(thread.channel?.provider === "WHATSAPP_WEB" && !c.permissions.includes("conversations.supervise") && thread.visibility !== "FULL" ? { OR: [{ historical: false }, { historical: true, importedAt: { lte: thread.historyBoundaryAt ?? new Date(0) } }] } : {}) } });
+    const meta = mediaReferenceSchema.safeParse(message?.mediaMetadata);
+    if (!message?.channelId || !meta.success || meta.data.type === "DOCUMENT" || !mediaUploadSchema.shape.mimeType.safeParse(meta.data.mimeType).success || !validMediaKind(meta.data.type, meta.data.mimeType) || meta.data.size > mediaLimit(meta.data.type) || !this.mediaExecutionEnabled || !this.webProvider?.readMedia) throw new AppError(404, "MEDIA_UNAVAILABLE");
+    const connection = await this.db.providerConnection.findFirst({ where: { organizationId: c.organizationId, channelId: message.channelId, mediaEnabled: true } });
+    if (!connection) throw new AppError(404, "MEDIA_UNAVAILABLE");
+    let result;
+    try { result = await this.webProvider.readMedia({ organizationId: c.organizationId, connectionId: message.channelId }, meta.data.mediaId); } catch { throw new AppError(503, "MEDIA_UNAVAILABLE"); }
+    // Revalidate after demand fetch: organization/assignment may have changed.
+    try {
+      const current = await this.context(p, "messages.read");
+      if (current.organizationId !== c.organizationId) throw new AppError(403, "ORGANIZATION_ACCESS_DENIED");
+      const currentThread = await this.conversation(current, conversationId), currentFloor = messageReadFloor(current, currentThread);
+      if (currentFloor === null || message.sequence < currentFloor || message.historical && currentThread.visibility !== "FULL" && !current.permissions.includes("conversations.supervise") && message.importedAt > (currentThread.historyBoundaryAt ?? new Date(0))) throw new AppError(404, "MEDIA_UNAVAILABLE");
+      if (result.size !== meta.data.size || result.sha256 !== meta.data.sha256 || result.mimeType !== meta.data.mimeType) throw new AppError(409, "MEDIA_INTEGRITY_FAILED");
+      await this.audit(this.db, current, "MEDIA_VIEWED"); return { ...result, fileName: meta.data.fileName };
+    } catch (error) { result.stream.destroy(); throw error; }
+  }
   async send(
     p: Principal,
     id: string,
-    data: { body: string; clientMessageId: string },
+    data: { body: string; clientMessageId: string; mediaId?: string },
   ) {
     return this.mutation(p, "messages.send", async (tx, c) => {
       const r = await this.conversation(c, id, tx);
@@ -758,13 +886,25 @@ export class Chat {
         },
       });
       if (existing) {
-        if (existing.senderUserId !== c.userId || existing.body !== data.body)
+        if (existing.senderUserId !== c.userId || (existing.type === "TEXT" ? existing.body : existing.body ?? "") !== data.body || (existing.mediaMetadata && typeof existing.mediaMetadata === "object" && !Array.isArray(existing.mediaMetadata) ? existing.mediaMetadata.mediaId : undefined) !== data.mediaId)
           throw new AppError(409, "IDEMPOTENCY_CONFLICT");
         if (
           !c.permissions.includes("conversations.supervise") &&
           existing.sequence < r.visibleFromMessage
         )
           throw new AppError(409, "IDEMPOTENCY_CONFLICT");
+        if (existing.status === "FAILED" && existing.deliveryOutcome === "NOT_SENT" && r.channelId) {
+          await this.webConnectionReady(tx, c.organizationId, r.channelId);
+          if (r.status === "ARCHIVED") throw new AppError(409, "CONVERSATION_ARCHIVED");
+          const command = await tx.providerCommand.findFirst({ where: { organizationId: c.organizationId, channelId: r.channelId, action: "send", status: "FAILED", errorCode: "SEND_AUTHORIZATION_FAILED", payload: { path: "$.messageId", equals: existing.id } } });
+          const payload = command?.payload as { expiresAt?: string } | undefined;
+          if (!command || !payload?.expiresAt || Date.parse(payload.expiresAt) <= Date.now()) throw new AppError(409, "SEND_RETRY_UNAVAILABLE");
+          if (data.mediaId && !await tx.media.findFirst({ where: { id: data.mediaId, organizationId: c.organizationId, channelId: r.channelId, conversationId: id, actorUserId: c.userId, messageId: existing.id, expiresAt: { gt: new Date() } } })) throw new AppError(409, "MEDIA_UNAVAILABLE");
+          await tx.providerCommand.update({ where: { id: command.id }, data: { status: "PENDING", attempts: 0, errorCode: null, sessionId: p.session.id, nextAttemptAt: new Date() } });
+          const retry = await tx.message.update({ where: { id: existing.id }, data: { status: "PENDING", deliveryOutcome: null }, include: messageAuthors });
+          await this.resourceEvent(tx, c.organizationId, "message.updated", retry.id, id, retry.sequence);
+          await this.audit(tx, c, "MESSAGE_SEND_RETRY_REQUESTED"); return messageDTO(retry);
+        }
         return messageDTO(existing);
       }
       if (r.status === "ARCHIVED")
@@ -773,10 +913,30 @@ export class Chat {
         const channel = await tx.channel.findFirst({
           where: { id: r.channelId, organizationId: c.organizationId },
         });
-        if (channel?.provider === "WHATSAPP_WEB") throw new AppError(409, "PROVIDER_SEND_UNAVAILABLE");
+        if (channel?.provider === "WHATSAPP_WEB") {
+          await this.webConnectionReady(tx, c.organizationId, channel.id);
+          if (!directJidSchema.safeParse(r.providerConversationId).success) throw new AppError(409, "RECIPIENT_UNVERIFIED");
+          let media: import("zod").infer<typeof mediaReferenceSchema> | undefined;
+          if (data.mediaId) {
+            const record = await tx.media.findFirst({ where: { id: data.mediaId, organizationId: c.organizationId, channelId: channel.id, conversationId: id, actorUserId: c.userId, expiresAt: { gt: new Date() }, messageId: null } });
+            const connection = await this.webConnectionReady(tx, c.organizationId, channel.id);
+            if (!record || !this.mediaExecutionEnabled || !connection.mediaEnabled) throw new AppError(409, "MEDIA_UNAVAILABLE");
+            media = mediaReferenceSchema.parse({ mediaId: record.id, type: record.type, mimeType: record.mimeType, fileName: record.fileName, size: record.size, sha256: record.sha256, state: "READY" });
+          }
+          const providerMessageId = randomUUID().replaceAll("-", "").toUpperCase();
+          const message = await tx.message.create({ include: messageAuthors, data: { organizationId: c.organizationId, conversationId: id, channelId: channel.id, senderUserId: c.userId, clientMessageId: data.clientMessageId, providerMessageId, direction: "OUTBOUND", body: media && !data.body ? null : data.body, transmittedBody: data.body, status: "PENDING", ...(media ? { type: media.type, mediaMetadata: media } : {}) } });
+          if (media) await tx.media.update({ where: { id: media.mediaId }, data: { messageId: message.id } });
+          await tx.providerCommand.create({ data: { id: randomUUID(), organizationId: c.organizationId, channelId: channel.id, actorUserId: c.userId, sessionId: p.session.id, action: "send", payload: { messageId: message.id, expiresAt: new Date(Date.now() + 6 * 86400000).toISOString() } } });
+          await tx.conversation.update({ where: { organizationId_id: { organizationId: c.organizationId, id } }, data: { lastMessageAt: message.createdAt } });
+          await this.resourceEvent(tx, c.organizationId, "message.created", message.id, id, message.sequence);
+          await this.resourceEvent(tx, c.organizationId, "conversation.updated", id, id);
+          await this.audit(tx, c, "MESSAGE_SEND_QUEUED");
+          return messageDTO(message);
+        }
         if (!channel || channel.provider !== "DEMO" || channel.status !== "ENABLED")
           throw new AppError(409, "PROVIDER_DISABLED");
       }
+      if (data.mediaId) throw new AppError(409, "MEDIA_DISABLED");
       const providerReceipt = r.channelId
         ? await this.provider.sendText({
             organizationId: c.organizationId,

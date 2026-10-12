@@ -99,3 +99,11 @@ Contrato REST, resolvedor, concorrência/auditoria e controle realtime 4003 desc
 em [M2_1_RESOURCES_RBAC.md](M2_1_RESOURCES_RBAC.md). Nenhum módulo comercial ou
 integração Meta implementado. Diagnóstico anterior ao schema em
 [M2_1_RBAC_DIAGNOSIS.md](M2_1_RBAC_DIAGNOSIS.md).
+
+
+Consolidação WhatsApp Web B1–B4: revisão técnica PR25 aprovou saída texto,
+imagem/áudio/voz/vídeo e conversa por contato ou número novo exclusivamente
+neste adapter; [ADR](ADR_WHATSAPP_WEB_CONSOLIDATION.md). Gates técnicos e
+configuração por conexão não substituem RBAC nem concedem entitlements.
+Implementação em branches de revisão, não publicada/homologada; progresso
+canônico e plano B5 documentam os gates restantes.

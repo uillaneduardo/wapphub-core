@@ -1,3 +1,4 @@
+import { intentDigest, sendIntentSchema, type SendIntent, type SendResult } from "../../../contracts/provider-outbound.js";
 import { createHash, randomUUID } from "node:crypto";
 import { normalizeText, ProviderContractError } from "../../../contracts/provider.js";
 import { appendRecordEvent, envelope, EventJournal } from "./events.js";
@@ -8,7 +9,7 @@ import { historyView } from "./history-operation.js";
 import type { HistoryControl } from "../../../contracts/history.js";
 import { Vault, type Scope, type State } from "./vault.js";
 
-type Actor = { serial: Serial; generation: number; socket?: Transport; cancel?: () => void; deadline?: () => void; stable?: () => void; failureCode?: string; storageFailed?: boolean; recoveryStarts?: number; qr?: { value: string; expiresAt: number; revision: number } };
+type Actor = { serial: Serial; generation: number; socket?: Transport; cancel?: () => void; deadline?: () => void; stable?: () => void; failureCode?: string; storageFailed?: boolean; recoveryStarts?: number; controlled?: string; qr?: { value: string; expiresAt: number; revision: number } };
 type Scheduler = (callback: () => void, delay: number) => () => void;
 const defaultSchedule: Scheduler = (callback, delay) => { const timer = setTimeout(callback, delay); timer.unref(); return () => clearTimeout(timer); };
 const scopeKey = (scope: Scope) => `${scope.organizationId}:${scope.connectionId}`;
@@ -23,7 +24,7 @@ export class Sessions {
     private readonly schedule: Scheduler = defaultSchedule,
     private readonly now = Date.now,
     private readonly log: (code: string, fields?: { source: string; stage: string; count: number }) => void = () => undefined,
-    private readonly syncOptions: { enabled: boolean; historyEnabled: boolean; initialHistoryEnabled?: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean } = { enabled: false, historyEnabled: false },
+    private readonly syncOptions: { enabled: boolean; historyEnabled: boolean; initialHistoryEnabled?: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; outboundEnabled?: boolean } = { enabled: false, historyEnabled: false },
   ) {}
   private historyEnabled(scope: Scope) {
     const bootstrap = this.vault.get(scope)?.historyImports;
@@ -36,6 +37,17 @@ export class Sessions {
     if (!actor) { actor = { serial: new Serial(), generation: 0 }; this.actors.set(key, actor); }
     return actor;
   }
+  private linked(scope: Scope) {
+    try { const auth = JSON.parse(this.vault.get(scope)?.auth ?? "null"); return typeof auth?.me?.id === "string" && auth.me.id.length > 0 && !!auth.signedIdentityKey?.private && !!auth.signedIdentityKey?.public && !!auth.noiseKey?.private && !!auth.noiseKey?.public; } catch { return false; }
+  }
+  private recoveryEligible(scope: Scope) {
+    const record = this.vault.get(scope);
+    return !!record && !record.invalidated && this.linked(scope) && this.connectEnabled && !this.actor(scope).socket &&
+      ["FAILED", "DISCONNECTED"].includes(record.state) &&
+      !["SESSION_REVOKED", "SESSION_REPLACED", "BAD_SESSION"].includes(record.errorCode ?? "") &&
+      record.termination?.action !== "logout" && !["RUNNING", "AUTHENTICATED"].includes(record.recovery?.state ?? "") &&
+      [undefined, "RECONNECT_LIMIT", "CONNECTION_LOST", "PAIRING_TIMEOUT", "RECOVERY_TIMEOUT", "RECOVERY_INTERRUPTED", "EXISTING_AUTH_REQUIRED"].includes(record.errorCode);
+  }
   view(scope: Scope) {
     const record = this.vault.get(scope);
     if (!record) throw new ServiceError("SESSION_NOT_FOUND", 404);
@@ -45,7 +57,7 @@ export class Sessions {
     return { state: actor?.failureCode ? "FAILED" as const : record.state, revision: record.revision, qrRevision: record.qrRevision, attempts: record.attempts, errorCode: actor?.failureCode ?? record.errorCode, connectEnabled: this.connectEnabled,
       ...(record.historyOperation ? { history: historyView(record.historyOperation, (record.sync?.pending.filter((x) => x.operationId === record.historyOperation!.id).length ?? 0) + record.events.reduce((n, e) => n + (e.event.type === "sync.batch" && e.event.correlationId === record.historyOperation!.id ? e.event.data.items.length : 0), 0)) } : {}),
       ...(record.pairingPhase ? { pairingPhase: record.pairingPhase } : {}),
-      ...(sync ? { sync: { activeTransport: Boolean(actor?.socket), ...(record.processingFailure ? { processingFailure: record.processingFailure } : {}), historyEnabled: this.historyEnabled(scope), phase: record.events.some((entry) => entry.dead) || sync.failures || sync.limited || sync.diagnostics?.rejected ? "PARTIAL" : sync.complete && queued === 0 ? "PROCESSED" : sync.phase, queued, contacts: sync.contacts, conversations: sync.conversations, messages: sync.messages, failures: sync.failures + record.events.filter((entry) => entry.dead).length, limited: sync.limited, durationMs: sync.durationMs, ...(sync.diagnostics ? { diagnostics: sync.diagnostics } : {}) } } : {}) };
+      sync: { lifecycle: { linked: this.linked(scope), desired: record.desired, recoveryEligible: this.recoveryEligible(scope), ...(record.recovery ? { recovery: record.recovery } : {}), ...(record.termination ? { termination: record.termination } : {}) }, activeTransport: Boolean(actor?.socket), ...(record.processingFailure ? { processingFailure: record.processingFailure } : {}), historyEnabled: this.historyEnabled(scope), phase: record.events.some((entry) => entry.dead) || sync?.failures || sync?.limited || sync?.diagnostics?.rejected ? "PARTIAL" : sync?.complete && queued === 0 ? "PROCESSED" : sync?.phase ?? "DISABLED", queued, contacts: sync?.contacts ?? 0, conversations: sync?.conversations ?? 0, messages: sync?.messages ?? 0, failures: (sync?.failures ?? 0) + record.events.filter((entry) => entry.dead).length, limited: sync?.limited ?? false, durationMs: sync?.durationMs ?? 0, ...(sync?.diagnostics ? { diagnostics: sync.diagnostics } : {}) } };
   }
   qr(scope: Scope) {
     this.view(scope);
@@ -53,50 +65,93 @@ export class Sessions {
     if (!qr || qr.expiresAt <= this.now()) throw new ServiceError("QR_NOT_AVAILABLE", 404);
     return { qr: qr.value, revision: qr.revision, expiresAt: new Date(qr.expiresAt).toISOString() };
   }
+  async resolveRecipient(scope: Scope, phone: string) {
+    if (!this.syncOptions.outboundEnabled) throw new ServiceError("OUTBOUND_DISABLED", 403);
+    const actor = this.actor(scope);
+    if (this.view(scope).state !== "CONNECTED" || !actor.socket?.resolveRecipient) throw new ServiceError("OUTBOUND_UNAVAILABLE", 409);
+    const generation = actor.generation, result = await actor.socket.resolveRecipient(phone);
+    return actor.generation === generation && this.view(scope).state === "CONNECTED" ? result : { state: "UNKNOWN" as const };
+  }
+  async send(scope: Scope, input: SendIntent): Promise<SendResult> {
+    const intent = sendIntentSchema.parse(input), digest = intentDigest(intent), actor = this.actor(scope);
+    const reservation = await actor.serial.run(async () => {
+      const previous = this.vault.get(scope)?.sends?.find(x => x.id === intent.commandId);
+      if (previous) {
+        if (previous.digest !== digest) throw new ServiceError("IDEMPOTENCY_CONFLICT", 409);
+        return { outcome: previous.outcome, providerMessageId: previous.providerMessageId, ...(previous.errorCode ? { errorCode: previous.errorCode } : {}) };
+      }
+      if (!this.syncOptions.outboundEnabled) throw new ServiceError("OUTBOUND_DISABLED", 403);
+      if (Date.parse(intent.expiresAt) <= this.now() || Date.parse(intent.expiresAt) > this.now() + 7 * 86400000) throw new ServiceError("INTENT_EXPIRED", 409);
+      if (this.view(scope).state !== "CONNECTED" || !actor.socket?.send) throw new ServiceError("OUTBOUND_UNAVAILABLE", 409);
+      await this.vault.update(scope, record => {
+        record.sends ??= [];
+        // Expired callers are rejected above: eviction cannot cause retransmission.
+        record.sends = record.sends.filter(x => Date.parse(x.expiresAt) > this.now());
+        if (record.sends.length >= 1024) throw new ServiceError("SEND_RETENTION_LIMIT", 429);
+        record.sends.push({ id: intent.commandId, digest, providerMessageId: intent.providerMessageId, ...(intent.media ? { mediaId: intent.media.mediaId } : {}), outcome: "UNKNOWN", expiresAt: intent.expiresAt });
+      }); // uncertainty is durable BEFORE calling the external transport
+      return { socket: actor.socket, generation: actor.generation };
+    });
+    if ("outcome" in reservation) return reservation;
+    let outcome: SendResult["outcome"] = "UNKNOWN";
+    if (actor.generation === reservation.generation && !this.stopping) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([reservation.socket.send!(intent), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new ServiceError("SEND_RESULT_UNKNOWN", 503)), 15000); timer.unref(); })]);
+        outcome = "DISPATCHED";
+      } catch { this.log("SEND_RESULT_UNKNOWN"); }
+      finally { clearTimeout(timer); }
+    }
+    await this.vault.update(scope, record => { const receipt = record.sends!.find(x => x.id === intent.commandId)!; receipt.outcome = outcome; });
+    return { outcome, providerMessageId: intent.providerMessageId };
+  }
+
   async create(scope: Scope) { await this.vault.update(scope, () => undefined); return this.view(scope); }
-  async command(scope: Scope, action: "connect" | "refresh" | "disconnect" | "logout", commandId: string) {
+  async command(scope: Scope, action: "connect" | "refresh" | "recover" | "disconnect" | "logout", commandId: string, controlVersion?: number) {
     this.view(scope);
     const actor = this.actor(scope);
     return actor.serial.run(async () => {
       if (this.stopping) throw new ServiceError("SERVICE_STOPPING", 503);
-      if (this.syncOptions.linkedRecoveryOnly && action !== "connect") throw new ServiceError("LINKED_RECOVERY_ONLY", 403);
-      if (["connect", "refresh"].includes(action) && !this.connectEnabled) throw new ServiceError("CONNECTIONS_DISABLED", 403);
-      const digest = createHash("sha256").update(action).digest("hex");
-      const record = this.vault.get(scope);
-      if (!record) throw new ServiceError("SESSION_NOT_FOUND", 404);
-      const previous = record.commands.find((command) => command.id === commandId);
-      if (previous) {
-        if (previous.digest !== digest) throw new ServiceError("IDEMPOTENCY_CONFLICT");
-        return this.view(scope);
-      }
+      const digest = createHash("sha256").update(controlVersion === undefined ? action : JSON.stringify([action, controlVersion])).digest("hex"), record = this.vault.get(scope)!;
+      const previous = record.commands.find(command => command.id === commandId);
+      if (previous) { if (previous.digest !== digest) throw new ServiceError("IDEMPOTENCY_CONFLICT"); return this.view(scope); }
+      if (record.commands.length >= 256 && !["disconnect", "logout"].includes(action)) throw new ServiceError("SESSION_COMMAND_LIMIT", 429);
+      if (controlVersion !== undefined && controlVersion <= (record.controlVersion ?? 0) || controlVersion === undefined && record.controlVersion !== undefined) throw new ServiceError("STALE_CONTROL_COMMAND", 409);
+      if (["connect", "refresh", "recover"].includes(action) && !this.connectEnabled) throw new ServiceError("CONNECTIONS_DISABLED", 403);
+      if (this.syncOptions.linkedRecoveryOnly && action === "refresh") throw new ServiceError("LINKED_RECOVERY_ONLY", 403);
+      if (action === "recover" && !this.recoveryEligible(scope)) throw new ServiceError("RECOVERY_NOT_ELIGIBLE", 409);
+      if (action === "connect" && (record.invalidated || record.termination?.action === "logout" || ["SESSION_REVOKED", "SESSION_REPLACED", "BAD_SESSION"].includes(record.errorCode ?? "") || this.linked(scope) && ((record.recoveryFailures ?? (record.state === "CONNECTED" ? 0 : record.attempts)) >= 5 || record.recovery && record.recovery.state !== "SUCCEEDED"))) throw new ServiceError("CONTROLLED_RECOVERY_REQUIRED", 409);
       if (action === "refresh" && (record.pairingPhase === "AUTHENTICATING" || !["CONNECTING", "QR_REQUIRED"].includes(record.state))) throw new ServiceError("INVALID_SESSION_STATE");
-      // Persist intent before network activity; a restart can safely resume it.
-      await this.vault.update(scope, (current) => {
-        current.commands.push({ id: commandId, digest });
-        if (current.commands.length > 256) current.commands.shift();
+      // Every authorization/stop is durable before any external activity.
+      await this.vault.update(scope, current => {
+        current.commands.push({ id: commandId, digest }); if (current.commands.length > 256) current.commands.shift();
+        if (controlVersion !== undefined) current.controlVersion = controlVersion;
         current.desired = action === "connect" || action === "refresh";
-        if (action === "logout") { delete current.auth; current.keys = {}; }
-        if (!this.syncOptions.linkedRecoveryOnly && ((action === "connect" && !actor.socket) || action === "refresh")) { current.attempts = 0; current.recoveryFailures = 0; }
+        if (["connect", "refresh"].includes(action) && !this.linked(scope)) current.recoveryFailures = 0; // new unlinked pairing episode; lifetime attempts remain intact
+        if (action === "recover") current.recovery = { commandId, state: "RUNNING", startedAt: new Date(this.now()).toISOString() };
+        if (action === "disconnect" || action === "logout") {
+          if (["RUNNING", "AUTHENTICATED"].includes(current.recovery?.state ?? "")) { current.recovery!.state = "INTERRUPTED"; current.recovery!.finishedAt = new Date(this.now()).toISOString(); current.recovery!.errorCode = "RECOVERY_INTERRUPTED"; }
+          if (action === "logout" || current.termination?.action !== "logout") current.termination = { commandId, action, remote: action === "logout" ? "PENDING" : "NOT_REQUESTED", requestedAt: new Date(this.now()).toISOString() };
+        } else if (action !== "recover" || current.termination?.action === "disconnect") delete current.termination;
       });
-      if (action === "connect" || action === "refresh") {
+      if (action === "connect" || action === "refresh" || action === "recover") {
         if (action === "refresh") this.close(actor);
+        if (action === "recover") actor.controlled = commandId;
         if (!actor.socket) { actor.cancel?.(); await this.start(scope, actor); }
       } else {
         const socket = actor.socket;
-        if (action === "logout") {
-          actor.generation++; actor.cancel?.(); actor.deadline?.(); actor.qr = undefined;
-          // Local revocation is authoritative even if the external logout fails.
-          if (socket) {
-            let timeout: ReturnType<typeof setTimeout> | undefined;
-            await Promise.race([socket.logout(), new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new ServiceError("LOGOUT_REMOTE_FAILED")), 5000); timeout.unref(); })]).catch(() => this.log("LOGOUT_REMOTE_FAILED"));
-            clearTimeout(timeout);
-          }
+        // Fence callbacks and all scheduled starts before a possible remote logout.
+        actor.generation++; actor.cancel?.(); actor.deadline?.(); actor.stable?.(); actor.qr = undefined;
+        let remote: "CONFIRMED" | "UNCONFIRMED" = "UNCONFIRMED", errorCode = "LOGOUT_TRANSPORT_UNAVAILABLE";
+        if (action === "logout" && socket) {
+          let timeout: ReturnType<typeof setTimeout> | undefined;
+          try { const result = await Promise.race([socket.logout(), new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new ServiceError("LOGOUT_RESULT_UNKNOWN")), 5000); })]); remote = result === "CONFIRMED" ? "CONFIRMED" : "UNCONFIRMED"; errorCode = "LOGOUT_RESULT_UNKNOWN"; }
+          catch { errorCode = "LOGOUT_REMOTE_FAILED"; this.log(errorCode); } finally { clearTimeout(timeout); }
         }
-        this.close(actor);
-        // A credential callback queued before logout may have committed between
-        // persisted intent and SDK disable. Clear again after disabling callbacks.
-        if (action === "logout") await this.vault.update(scope, (current) => { delete current.auth; current.keys = {}; });
-        await this.transition(scope, action === "logout" ? "LOGGED_OUT" : "DISCONNECTED");
+        this.close(actor); actor.controlled = undefined;
+        await this.vault.update(scope, current => { if (action === "logout") { current.termination!.remote = remote; if (remote === "CONFIRMED") current.invalidated = "SESSION_REVOKED"; } current.termination!.finishedAt = new Date(this.now()).toISOString(); if (action === "logout" && remote !== "CONFIRMED") current.termination!.errorCode = errorCode; });
+        // Retain encrypted credentials for diagnosis; a logout intent prevents reuse.
+        await this.transition(scope, action === "logout" && remote === "CONFIRMED" ? "LOGGED_OUT" : "DISCONNECTED", action === "logout" && remote !== "CONFIRMED" ? errorCode : ["SESSION_REVOKED", "SESSION_REPLACED", "BAD_SESSION"].includes(record.errorCode ?? "") ? record.errorCode : undefined);
       }
       return this.view(scope);
     });
@@ -152,17 +207,20 @@ export class Sessions {
     this.log(state);
   }
   private async start(scope: Scope, actor: Actor) {
-    if (this.stopping || !this.connectEnabled || !this.vault.get(scope)?.desired) return;
+    const initial = this.vault.get(scope), controlled = actor.controlled === initial?.recovery?.commandId && initial?.recovery?.state === "RUNNING";
+    if (this.stopping || !this.connectEnabled || !initial || !initial.desired && !controlled || initial.termination?.action === "logout") return;
+    if (initial.invalidated || ["SESSION_REVOKED", "SESSION_REPLACED", "BAD_SESSION"].includes(initial.errorCode ?? "")) return;
+    if (!controlled && (initial.recoveryFailures ?? (initial.state === "CONNECTED" ? 0 : initial.attempts)) >= 5) { await this.transition(scope, "FAILED", "RECONNECT_LIMIT"); return; }
     this.close(actor);
-    if (this.syncOptions.linkedRecoveryOnly) {
+    if (this.syncOptions.linkedRecoveryOnly || controlled) {
       const record = this.vault.get(scope); let linked = false;
       if (record?.state === "FAILED" && ["SESSION_REVOKED", "SESSION_REPLACED"].includes(record.errorCode ?? "")) return;
       try { const auth = JSON.parse(record?.auth ?? "null"); linked = typeof auth?.me?.id === "string" && auth.me.id.length > 0; } catch { /* never log credentials */ }
       if (!linked) { await this.transition(scope, "FAILED", "EXISTING_AUTH_REQUIRED"); return; }
-      if ((actor.recoveryStarts ?? 0) >= 3) { await this.transition(scope, "FAILED", "RECONNECT_LIMIT"); return; }
+      if (!controlled && (actor.recoveryStarts ?? 0) >= 3) { await this.transition(scope, "FAILED", "RECONNECT_LIMIT"); return; }
       actor.recoveryStarts = (actor.recoveryStarts ?? 0) + 1;
     }
-    const generation = actor.generation;
+    const generation = actor.generation, startedAt = this.now();
     const attempts = await this.vault.update(scope, (record) => {
       record.attempts++; // historical starts remain available for diagnostics
       // Legacy CONNECTED is evidence of an authenticated success, not five
@@ -172,14 +230,15 @@ export class Sessions {
       record.recoveryFailures++;
       return record.recoveryFailures;
     });
-    if (attempts > 5) {
+    if (!controlled && attempts > 5) {
       if (this.syncOptions.linkedRecoveryOnly) { await this.transition(scope, "FAILED", "RECONNECT_LIMIT"); return; }
       await this.vault.update(scope, (record) => { record.desired = false; });
       await this.transition(scope, "FAILED", "RECONNECT_LIMIT"); return;
     }
     await this.transition(scope, attempts === 1 ? "CONNECTING" : "RECONNECTING", undefined, true);
     try {
-      actor.socket = await this.factory(scope, {
+      let constructionCancel: (() => void) | undefined, timedOut = false;
+      const construction = this.factory(scope, {
         connection: (update) => this.enqueue(scope, actor, generation, () => this.connection(scope, actor, update)),
         failure: () => this.enqueue(scope, actor, generation, async () => { throw new ServiceError("AUTH_PERSISTENCE_FAILED"); }),
         text: (message) => this.enqueue(scope, actor, generation, async () => {
@@ -194,6 +253,10 @@ export class Sessions {
         receipt: (id, status, chatId) => this.enqueue(scope, actor, generation, async () => {
           await this.journal.append(scope, { ...envelope(scope, "message.updated", id, status + (chatId ?? "")), data: { providerMessageId: id, status, ...(chatId ? { providerConversationId: chatId } : {}) } });
         }),
+        bootstrapPage: async (items, digest, next) => {
+          if (actor.generation !== generation || this.stopping) throw new ServiceError("HISTORY_TRANSPORT_UNAVAILABLE", 409);
+          await actor.serial.run(async () => { await this.journal.stage(scope, items, true, true, false, 0, false, undefined, undefined, undefined, { digest, next }); });
+        },
         sync: (items, historical, completed, failures, limited, observation) => {
           if (!this.syncOptions.enabled) return;
           return this.enqueue(scope, actor, generation, async () => {
@@ -201,13 +264,22 @@ export class Sessions {
             if (observation) for (const [code, count] of Object.entries(observation.reasons)) this.log(`SYNC_${code}`, { source: observation.source, stage: "NORMALIZATION", count });
           });
         },
-      });
+      }).then(socket => { if (timedOut || this.stopping || actor.generation !== generation) { socket.close(); throw new ServiceError("RECOVERY_INTERRUPTED", 409); } return socket; });
+      try { actor.socket = await Promise.race([construction, new Promise<never>((_, reject) => { constructionCancel = this.schedule(() => { timedOut = true; reject(new ServiceError(controlled ? "RECOVERY_TIMEOUT" : "PAIRING_TIMEOUT")); }, 120_000); })]); }
+      finally { constructionCancel?.(); }
       actor.deadline = this.schedule(() => this.enqueue(scope, actor, generation, async () => {
         this.close(actor);
         if (!this.syncOptions.linkedRecoveryOnly) await this.vault.update(scope, (record) => { record.desired = false; });
-        await this.transition(scope, "FAILED", "PAIRING_TIMEOUT");
-      }), 120_000);
-    } catch { await this.connection(scope, actor, { state: "close", code: 503 }); }
+        if (controlled) { await this.finishRecovery(scope, "FAILED", "RECOVERY_TIMEOUT"); actor.controlled = undefined; }
+        await this.transition(scope, "FAILED", controlled ? "RECOVERY_TIMEOUT" : "PAIRING_TIMEOUT");
+      }), Math.max(0, 120_000 - (this.now() - startedAt)));
+    } catch (error) {
+      const code = error instanceof ServiceError ? error.code : error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      if (["RECOVERY_TIMEOUT", "PAIRING_TIMEOUT"].includes(code) || controlled && !["EAI_AGAIN", "ETIMEDOUT", "ECONNRESET", "ECONNREFUSED"].includes(code)) {
+        this.close(actor); const failure = ["RECOVERY_TIMEOUT", "PAIRING_TIMEOUT"].includes(code) ? code : "RECOVERY_START_FAILED";
+        await this.vault.update(scope, record => { record.desired = false; }); await this.finishRecovery(scope, "FAILED", failure); actor.controlled = undefined; await this.transition(scope, "FAILED", failure);
+      } else await this.connection(scope, actor, { state: "close", code: 503 });
+    }
   }
   private async connection(scope: Scope, actor: Actor, update: ConnectionUpdate) {
     if (update.authenticating && update.state !== "open") {
@@ -218,7 +290,7 @@ export class Sessions {
       });
     }
     if (update.qr) {
-      if (this.syncOptions.linkedRecoveryOnly) { this.close(actor); await this.transition(scope, "FAILED", "EXISTING_AUTH_REQUIRED"); return; }
+      if (this.syncOptions.linkedRecoveryOnly || actor.controlled) { this.close(actor); await this.finishRecovery(scope, "FAILED", "EXISTING_AUTH_REQUIRED"); actor.controlled = undefined; await this.transition(scope, "FAILED", "EXISTING_AUTH_REQUIRED"); return; }
       if (Buffer.byteLength(update.qr) > 8192) throw new ServiceError("INVALID_QR");
       const revision = await this.vault.update(scope, (record) => { record.qrRevision++; return record.qrRevision; });
       actor.qr = { value: update.qr, expiresAt: this.now() + 20_000, revision };
@@ -229,28 +301,32 @@ export class Sessions {
       await this.vault.update(scope, (record) => { if (record.processingFailure && !record.processingFailure.recoveredAt) record.processingFailure.recoveredAt = new Date(this.now()).toISOString(); });
       actor.failureCode = undefined; actor.storageFailed = false;
       this.failedStorage = [...this.actors.values()].some((entry) => Boolean(entry.storageFailed));
+      await this.vault.update(scope, record => { record.lastAuthenticatedAt = new Date(this.now()).toISOString(); if (actor.controlled && record.recovery?.commandId === actor.controlled) record.recovery.state = "AUTHENTICATED"; });
       await this.transition(scope, "CONNECTED");
       {
         const generation = actor.generation;
         actor.stable?.();
         actor.stable = this.schedule(() => { void this.enqueue(scope, actor, generation, async () => {
           if (!actor.socket || this.vault.get(scope)?.state !== "CONNECTED") return;
-          await this.vault.update(scope, (record) => { record.recoveryFailures = 0; });
-          actor.recoveryStarts = 0;
+          await this.vault.update(scope, (record) => { record.recoveryFailures = 0; if (actor.controlled && record.recovery?.commandId === actor.controlled) { record.recovery.state = "SUCCEEDED"; record.recovery.finishedAt = new Date(this.now()).toISOString(); record.desired = true; } });
+          actor.controlled = undefined; actor.recoveryStarts = 0;
         }); }, 30_000);
       }
     }
     if (update.state !== "close") return;
+    const controlled = !!actor.controlled;
+    await this.vault.update(scope, record => { record.lastDisconnect = { occurredAt: new Date(this.now()).toISOString(), ...(update.code !== undefined ? { code: update.code } : {}) }; });
     this.close(actor);
-    const record = this.vault.get(scope);
-    if (!record?.desired) return;
+    const record = this.vault.get(scope)!;
+    if (!record.desired && !controlled) return;
     if ([401, 403, 411, 440, 500].includes(update.code ?? 0)) {
-      if (this.syncOptions.linkedRecoveryOnly) { await this.transition(scope, "FAILED", update.code === 440 ? "SESSION_REPLACED" : "SESSION_REVOKED"); return; }
-      await this.vault.update(scope, (current) => {
-        current.desired = false;
-        if (update.code === 401 || update.code === 500) { delete current.auth; current.keys = {}; }
-      });
-      await this.transition(scope, update.code === 401 ? "LOGGED_OUT" : "FAILED", update.code === 440 ? "SESSION_REPLACED" : "SESSION_REVOKED");
+      const errorCode = update.code === 440 ? "SESSION_REPLACED" : update.code === 500 ? "BAD_SESSION" : "SESSION_REVOKED";
+      await this.vault.update(scope, current => { current.desired = false; current.invalidated = errorCode; });
+      await this.finishRecovery(scope, "FAILED", errorCode); actor.controlled = undefined;
+      await this.transition(scope, update.code === 401 && !this.syncOptions.linkedRecoveryOnly ? "LOGGED_OUT" : "FAILED", errorCode);
+    } else if (controlled) {
+      await this.finishRecovery(scope, "FAILED", "CONNECTION_LOST"); actor.controlled = undefined;
+      await this.transition(scope, "FAILED", "CONNECTION_LOST");
     } else if ((record.recoveryFailures ?? 5) >= 5 || this.syncOptions.linkedRecoveryOnly && (actor.recoveryStarts ?? 0) >= 3) {
       if (this.syncOptions.linkedRecoveryOnly) { await this.transition(scope, "FAILED", "RECONNECT_LIMIT"); return; }
       await this.vault.update(scope, (current) => { current.desired = false; });
@@ -262,12 +338,17 @@ export class Sessions {
       actor.cancel = this.schedule(() => this.enqueue(scope, actor, generation, () => this.start(scope, actor)), Math.min(30_000, 1000 * 2 ** (failures - 1)) + Math.floor(Math.random() * 250));
     }
   }
+  private async finishRecovery(scope: Scope, state: "FAILED" | "INTERRUPTED", errorCode: string) {
+    await this.vault.update(scope, record => { if (["RUNNING", "AUTHENTICATED"].includes(record.recovery?.state ?? "")) { record.recovery!.state = state; record.recovery!.finishedAt = new Date(this.now()).toISOString(); record.recovery!.errorCode = errorCode; record.desired = false; } });
+  }
   async recover() {
     for (const record of this.vault.all()) {
       const scope = { organizationId: record.organizationId, connectionId: record.connectionId };
       const actor = this.actor(scope);
       if (this.syncOptions.enabled) await this.journal.stage(scope, [], false, this.historyEnabled(scope));
-      if (record.desired && this.connectEnabled) await actor.serial.run(() => this.start(scope, actor));
+      if (["RUNNING", "AUTHENTICATED"].includes(record.recovery?.state ?? "")) { await this.finishRecovery(scope, "INTERRUPTED", "RECOVERY_INTERRUPTED"); await this.transition(scope, "FAILED", "RECOVERY_INTERRUPTED"); }
+      else if (record.termination?.remote === "PENDING") { await this.vault.update(scope, current => { current.desired = false; current.termination!.remote = "UNCONFIRMED"; current.termination!.errorCode = "LOGOUT_RESULT_UNKNOWN"; current.termination!.finishedAt = new Date(this.now()).toISOString(); }); await this.transition(scope, "DISCONNECTED", "LOGOUT_RESULT_UNKNOWN"); }
+      else if (record.desired && this.connectEnabled) await actor.serial.run(() => this.start(scope, actor));
       else if (!["DISCONNECTED", "LOGGED_OUT", "FAILED"].includes(record.state)) await this.transition(scope, "DISCONNECTED");
     }
   }

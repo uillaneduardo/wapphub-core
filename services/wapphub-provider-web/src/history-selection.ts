@@ -7,35 +7,60 @@ import { ServiceError } from "./errors.js";
 
 /** Inspect wire records before protobuf object materialization. Unknown aggregate
  * lists and group participants are deliberately outside this adapter's scope. */
-function fields(bytes: Uint8Array) {
+function* fields(bytes: Uint8Array): Generator<{ field: number; value?: Uint8Array; numeric?: number; raw: Uint8Array }> {
   let offset = 0;
   const number = () => { let n = 0, factor = 1, steps = 0; while (offset < bytes.length && steps++ < 10) { const b = bytes[offset++]!; n += (b & 127) * factor; if (!(b & 128)) return n; factor *= 128; } throw new ServiceError("HISTORY_OBJECT_LIMIT"); };
-  const result: { field: number; value?: Uint8Array; numeric?: number; raw: Uint8Array }[] = [];
+  let count = 0;
   while (offset < bytes.length) {
     const start = offset, tag = number(), wire = tag & 7; let value: Uint8Array | undefined, numeric: number | undefined;
     if (wire === 0) numeric = number();
     else if (wire === 2) { const size = number(); if (!Number.isSafeInteger(size) || offset + size > bytes.length) throw new ServiceError("HISTORY_OBJECT_LIMIT"); value = bytes.subarray(offset, offset + size); offset += size; }
     else if (wire === 1 || wire === 5) offset += wire === 1 ? 8 : 4;
     else throw new ServiceError("HISTORY_OBJECT_LIMIT");
-    if (offset > bytes.length || result.length >= 20000) throw new ServiceError("HISTORY_OBJECT_LIMIT");
-    result.push({ field: Math.floor(tag / 8), value, numeric, raw: bytes.subarray(start, offset) });
+    if (offset > bytes.length || count++ >= 20000) throw new ServiceError("HISTORY_OBJECT_LIMIT");
+    yield { field: Math.floor(tag / 8), value, numeric, raw: bytes.subarray(start, offset) };
   }
-  return result;
 }
 function framed(field: number, payload: Uint8Array) {
   const prefix = [field * 8 + 2]; let n = payload.length;
   do { prefix.push((n & 127) | (n > 127 ? 128 : 0)); n = Math.floor(n / 128); } while (n);
   return Buffer.concat([Buffer.from(prefix), payload]);
 }
-export function boundHistoryObjects(bytes: Uint8Array, window?: { from: string; to: string }) {
+export type HistoryPage = { cursor: number; next?: number; done?: boolean };
+/** Page the already delivered wire data before materializing protobuf objects.
+ * Each page holds <=100 normalized objects; durable cursor counts wire records.
+ * The file byte bound is independent of the number of known conversations. */
+export function boundHistoryPage(bytes: Uint8Array, window: { from: string; to: string }, page: HistoryPage) {
+  const out: Uint8Array[] = []; let ordinal = 0, selected = 0;
+  const admits = () => { const index = ordinal++; if (index < page.cursor || selected >= 100) return false; selected++; return true; };
+  for (const f of fields(bytes)) {
+    if (f.field === 2 && f.value) {
+      const metadata: Uint8Array[] = [], messages: Uint8Array[] = [];
+      const include = admits();
+      for (const c of fields(f.value)) {
+        if (c.field === 2 && c.value) {
+          const web = [...fields(c.value)].find(x => x.field === 1)?.value;
+          const timestamp = web ? [...fields(web)].find(x => x.field === 3)?.numeric : undefined;
+          if (!timestamp || timestamp * 1000 < Date.parse(window.from) || timestamp * 1000 > Date.parse(window.to)) continue;
+          if (admits()) messages.push(c.raw);
+        } else if ([1, 5, 6, 12, 13, 16, 38, 39, 42, 43, 49].includes(c.field)) metadata.push(c.raw);
+      }
+      if (include || messages.length) out.push(framed(2, Buffer.concat([...metadata, ...messages])));
+    } else if ((f.field === 7 || f.field === 15) && admits() || [1, 5, 6].includes(f.field)) out.push(f.raw);
+  }
+  page.next = page.cursor + selected; page.done = page.next >= ordinal;
+  return Buffer.concat(out);
+}
+export function boundHistoryObjects(bytes: Uint8Array, window?: { from: string; to: string }, page?: HistoryPage) {
+  if (page && window) return boundHistoryPage(bytes, window, page);
   const out: Uint8Array[] = []; let conversations = 0, messages = 0, contacts = 0, mappings = 0;
   for (const f of fields(bytes)) {
     if (f.field === 2 && f.value && conversations++ < 500) {
       const parts: Uint8Array[] = [];
       for (const c of fields(f.value)) {
         if (c.field === 2 && c.value) {
-          const web = fields(c.value).find((x) => x.field === 1)?.value;
-          const timestamp = web ? fields(web).find((x) => x.field === 3)?.numeric : undefined;
+          const web = [...fields(c.value)].find((x) => x.field === 1)?.value;
+          const timestamp = web ? [...fields(web)].find((x) => x.field === 3)?.numeric : undefined;
           if (messages >= 1000 || window && (!timestamp || timestamp * 1000 < Date.parse(window.from) || timestamp * 1000 > Date.parse(window.to))) continue;
           messages++; parts.push(c.raw);
         } else if ([1, 5, 6, 12, 13, 16, 38, 39, 42, 43, 49].includes(c.field)) parts.push(c.raw);

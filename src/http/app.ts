@@ -132,6 +132,7 @@ export async function buildApp(
       loginRateLimitKey(request, config.trustedCloudflaredIPs),
   });
   await app.register(swagger, {
+    transform: ({ schema, url }) => ({ url, schema: url === "/api/v1/conversations/:id/media" ? { ...schema, body: { type: "string", format: "binary" } } : schema }),
     openapi: {
       info: { title: "WappHub Core", version: "1.0.0" },
       components: {
@@ -195,13 +196,14 @@ export async function buildApp(
     new DemoProvider(),
     new MessageIngestionService(),
   );
+  chat.webProvider = webProvider ?? await configuredWebProvider(config);
   const gateway = new RealtimeGateway(foundation, chat, redis);
   app.addHook("preClose", async () => gateway.close());
   await chatRoutes(app, foundation, chat, sessionCookie);
   await permissionRoutes(app, foundation, chat, new Permissions(db, chat, config), sessionCookie);
   await providerDiagnosticsRoutes(app, foundation, new ProviderDiagnostics(db, chat), sessionCookie);
   await webHistoryRoutes(app, foundation, new WebHistory(db, chat, config.PROVIDER_HISTORY_EXECUTION_ENABLED), sessionCookie);
-  await webProviderRoutes(app, foundation, new WebConnections(db, chat, webProvider ?? await configuredWebProvider(config)), chat, sessionCookie);
+  await webProviderRoutes(app, foundation, new WebConnections(db, chat, chat.webProvider), chat, sessionCookie);
   await gateway.routes(app, config, sessionCookie);
   const authenticate = (req: { cookies: Record<string, string | undefined> }) =>
     foundation.authenticate(req.cookies[sessionCookie]);

@@ -58,14 +58,14 @@ test("transient failures reconnect with exponential backoff and stop after five 
 });
 test("pairing deadline terminates an abandoned QR session", async (t) => {
   const f = await fixture(t); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID());
-  f.timers[0]!.run(); await f.sessions.settle(f.scope);
+  f.timers.find(timer => !timer.canceled)!.run(); await f.sessions.settle(f.scope);
   assert.equal(f.sessions.view(f.scope).errorCode, "PAIRING_TIMEOUT"); assert.equal(f.vault.get(f.scope)?.desired, false);
 });
-test("logout revokes local credentials and is idempotent", async (t) => {
+test("logout without a remote acknowledgement preserves credentials and is idempotent", async (t) => {
   const f = await fixture(t); await f.sessions.create(f.scope); await f.vault.update(f.scope, (record) => { record.auth = "TEST_AUTH"; });
   await f.sessions.command(f.scope, "connect", randomUUID()); const id = randomUUID();
   await f.sessions.command(f.scope, "logout", id); await f.sessions.command(f.scope, "logout", id);
-  assert.equal(f.stats().logouts, 1); assert.equal(f.vault.get(f.scope)?.auth, undefined); assert.equal(f.sessions.view(f.scope).state, "LOGGED_OUT");
+  assert.equal(f.stats().logouts, 1); assert.equal(f.vault.get(f.scope)?.auth, "TEST_AUTH"); assert.equal(f.sessions.view(f.scope).state, "DISCONNECTED"); assert.equal(f.vault.get(f.scope)?.termination?.remote, "UNCONFIRMED");
 });
 test("restart restores desired sessions and retains retry budget", async (t) => {
   const f = await fixture(t); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID());
@@ -149,8 +149,8 @@ for (const code of [401, 500, 440]) test(`linked recovery rejects ${code} withou
  await f.vault.update(f.scope, (r) => { r.auth = auth; r.keys = { synthetic: "KEY" }; r.desired = true; });
  const sessions = new Sessions(f.vault, f.journal, f.factory, true, undefined, undefined, undefined, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true }); t.after(() => sessions.shutdown());
  await sessions.recover(); await f.callbacks[0]!.connection({ state: "close", code }); await sessions.settle(f.scope);
- assert.equal(sessions.view(f.scope).state, "FAILED"); assert.equal(f.vault.get(f.scope)?.auth, auth); assert.deepEqual(f.vault.get(f.scope)?.keys, { synthetic: "KEY" }); assert.equal(f.vault.get(f.scope)?.desired, true); assert.equal(f.stats().logouts, 0); assert.equal(f.stats().starts, 1);
- await assert.rejects(sessions.command(f.scope, "logout", randomUUID()), /LINKED_RECOVERY_ONLY/);
+ assert.equal(sessions.view(f.scope).state, "FAILED"); assert.equal(f.vault.get(f.scope)?.auth, auth); assert.deepEqual(f.vault.get(f.scope)?.keys, { synthetic: "KEY" }); assert.equal(f.vault.get(f.scope)?.desired, false); assert.equal(f.stats().logouts, 0); assert.equal(f.stats().starts, 1);
+ await sessions.command(f.scope, "logout", randomUUID()); assert.equal(f.vault.get(f.scope)?.termination?.remote, "UNCONFIRMED"); assert.equal(f.vault.get(f.scope)?.auth, auth);
 });
 test("linked recovery refuses missing auth and suppresses QR without rotating persisted identity", async (t) => {
  const f = await fixture(t); await f.vault.update(f.scope, (r) => { r.desired = true; });
@@ -163,7 +163,7 @@ test("linked recovery refuses missing auth and suppresses QR without rotating pe
 test("linked recovery allows at most three transport attempts per process and preserves desired auth", async (t) => {
  const f = await fixture(t); const auth = JSON.stringify({ registered: true, me: { id: "synthetic@lid" } });
  await f.vault.update(f.scope, (r) => { r.auth = auth; r.desired = true; });
- const timers: (() => void)[] = []; const sessions = new Sessions(f.vault, f.journal, f.factory, true, (cb, delay) => { if (delay < 120000) timers.push(cb); return () => undefined; }, undefined, undefined, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true }); t.after(() => sessions.shutdown());
+ const timers: (() => void)[] = []; const sessions = new Sessions(f.vault, f.journal, f.factory, true, (cb, delay) => { if (delay <= 30_250) timers.push(cb); return () => undefined; }, undefined, undefined, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true }); t.after(() => sessions.shutdown());
  await sessions.recover();
  for (let i = 0; i < 3; i++) { await f.callbacks[i]!.connection({ state: "close", code: 503 }); if (i < 2) { timers.shift()!(); await sessions.settle(f.scope); } }
  assert.equal(f.stats().starts, 3); assert.equal(sessions.view(f.scope).errorCode, "RECONNECT_LIMIT"); assert.equal(timers.length, 0); assert.equal(f.vault.get(f.scope)?.auth, auth); assert.equal(f.vault.get(f.scope)?.desired, true);

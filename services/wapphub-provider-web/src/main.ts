@@ -5,6 +5,7 @@ import { InternalAuth } from "./auth.js";
 import { baileysFactory } from "./baileys.js";
 import { EventJournal } from "./events.js";
 import { createHttp } from "./http.js";
+import { ProviderMedia } from "./media.js";
 import { Sessions } from "./sessions.js";
 import { Vault } from "./vault.js";
 
@@ -23,10 +24,10 @@ async function start() {
   const auth = new InternalAuth(await secret(process.env.INTERNAL_KEY_FILE ?? "/run/secrets/internal_key"), join(directory, "nonces"));
   await auth.initialize();
   const journal = new EventJournal(vault);
-  const syncOptions = { initialHistoryEnabled: process.env.PROVIDER_INITIAL_HISTORY_ENABLED !== "false", scopedHistoryAuthorization: process.env.PROVIDER_HISTORY_SCOPED_AUTHORIZATION === "true", historyExecutionEnabled: process.env.PROVIDER_HISTORY_EXECUTION_ENABLED === "true", enabled: process.env.PROVIDER_SYNC_ENABLED !== "false", historyEnabled: process.env.PROVIDER_HISTORY_ENABLED === "true", approvedScope: process.env.PROVIDER_HISTORY_APPROVED_SCOPE, linkedRecoveryOnly: process.env.PROVIDER_LINKED_RECOVERY_ONLY === "true" };
+  const syncOptions = { mediaEnabled: process.env.PROVIDER_MEDIA_ENABLED === "true", outboundEnabled: process.env.PROVIDER_OUTBOUND_ENABLED === "true", initialHistoryEnabled: process.env.PROVIDER_INITIAL_HISTORY_ENABLED !== "false", scopedHistoryAuthorization: process.env.PROVIDER_HISTORY_SCOPED_AUTHORIZATION === "true", historyExecutionEnabled: process.env.PROVIDER_HISTORY_EXECUTION_ENABLED === "true", enabled: process.env.PROVIDER_SYNC_ENABLED !== "false", historyEnabled: process.env.PROVIDER_HISTORY_ENABLED === "true", approvedScope: process.env.PROVIDER_HISTORY_APPROVED_SCOPE, linkedRecoveryOnly: process.env.PROVIDER_LINKED_RECOVERY_ONLY === "true" };
   const sessions = new Sessions(vault, journal, baileysFactory(vault, undefined, syncOptions), process.env.ALLOW_SESSION_CONNECT === "true", undefined, undefined, log, syncOptions);
   await sessions.recover();
-  const app = createHttp(sessions, journal, auth, log);
+  const app = createHttp(sessions, journal, auth, log, new ProviderMedia(vault, syncOptions.mediaEnabled));
   await app.listen({ host: "0.0.0.0", port: 3000 });
   log("SERVICE_READY");
   let stopping = false;

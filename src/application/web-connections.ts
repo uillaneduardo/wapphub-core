@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient, ProviderConnection, ProviderCommand } from "@prisma/client";
-import type { ProviderSession } from "../../contracts/provider-internal.js";
+import { lifecycleSchema, type ProviderSession } from "../../contracts/provider-internal.js";
 import type { Principal } from "./foundation.js";
 import type { Chat } from "./chat.js";
 import type { WebProviderPort } from "../integrations/web-provider-client.js";
@@ -8,13 +8,14 @@ import { WebProviderError } from "../integrations/web-provider-client.js";
 import { AppError } from "../domain/errors.js";
 import { historyRecord } from "./web-history.js";
 import { syncProgress } from "./web-sync.js";
-export type ConnectionAction = "connect" | "refresh" | "disconnect";
-export type CommandInput = { commandId: string; action: ConnectionAction; expectedVersion: number };
+export type ConnectionAction = "connect" | "refresh" | "recover" | "disconnect" | "logout";
+export type CommandInput = { commandId: string; action: ConnectionAction; expectedVersion: number; confirmed?: boolean };
 const pending = { in: ["PENDING", "PROCESSING"] };
 export function connectionDTO(record: ProviderConnection, command?: ProviderCommand | null) {
   const state = record.state;
   const provider = record.providerSync && typeof record.providerSync === "object" && !Array.isArray(record.providerSync) ? { ...record.providerSync } : null;
-  if (provider) { delete provider.processingFailure; delete provider.activeTransport; }
+  const lifecycle = lifecycleSchema.safeParse(provider?.lifecycle);
+  if (provider) { delete provider.lifecycle; delete provider.processingFailure; delete provider.activeTransport; }
   const { failedBatches, lastBatch: _lastBatch, occurrences: _occurrences, diagnosticEvictions: _evictions, ...progress } = syncProgress(record.syncProgress);
   void _lastBatch; void _occurrences; void _evictions; // Private diagnostic fields require a separate permission.
   return { id: record.channelId, state,
@@ -25,16 +26,19 @@ export function connectionDTO(record: ProviderConnection, command?: ProviderComm
     pairingPhase: record.pairingPhase ?? null,
     sync: { ...progress, pendingFailures: Object.keys(failedBatches).length, provider },
     operation: command ? { id: command.id, action: command.action, status: command.status, errorCode: command.errorCode } : null,
-    sendingEnabled: false, mediaEnabled: false,
+    sendingEnabled: record.outboundEnabled, mediaEnabled: record.mediaEnabled, lifecycle: lifecycle.success ? lifecycle.data : null,
   };
 }
 export class WebConnections {
   constructor(private readonly db: PrismaClient, private readonly chat: Chat, readonly client?: WebProviderPort) {}
+  private dto(record: ProviderConnection, command?: ProviderCommand | null) {
+    return { ...connectionDTO(record, command), sendingEnabled: this.chat.outboundExecutionEnabled && record.outboundEnabled, mediaEnabled: this.chat.mediaExecutionEnabled && record.mediaEnabled };
+  }
   private enabled() { if (!this.client) throw new AppError(503, "PROVIDER_NOT_ENABLED"); }
   async read(p: Principal) {
     const c = await this.chat.context(p, "providers.manage"); this.enabled();
-    const record = await this.db.providerConnection.findFirst({ where: { organizationId: c.organizationId, channel: { provider: "WHATSAPP_WEB" } }, include: { commands: { orderBy: { createdAt: "desc" }, take: 1 } } });
-    return { connection: record ? connectionDTO(record, record.commands[0]) : null };
+    const record = await this.db.providerConnection.findFirst({ where: { organizationId: c.organizationId, channel: { provider: "WHATSAPP_WEB" } }, include: { commands: { where: { action: { not: "send" } }, orderBy: { createdAt: "desc" }, take: 1 } } });
+    return { connection: record ? this.dto(record, record.commands[0]) : null };
   }
   async create(p: Principal, commandId: string) {
     await this.chat.context(p, "providers.manage"); this.enabled();
@@ -42,14 +46,14 @@ export class WebConnections {
       const channel = await tx.channel.upsert({ where: { organizationId_provider: { organizationId: c.organizationId, provider: "WHATSAPP_WEB" } }, create: { organizationId: c.organizationId, provider: "WHATSAPP_WEB", status: "DISABLED" }, update: {} });
       let record = await tx.providerConnection.findUnique({ where: { organizationId_channelId: { organizationId: c.organizationId, channelId: channel.id } } });
       if (record) {
-        const last = await tx.providerCommand.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id }, orderBy: { createdAt: "desc" } });
-        return connectionDTO(record, last);
+        const last = await tx.providerCommand.findFirst({ where: { organizationId: c.organizationId, channelId: channel.id, action: { not: "send" } }, orderBy: { createdAt: "desc" } });
+        return this.dto(record, last);
       }
       record = await tx.providerConnection.create({ data: { organizationId: c.organizationId, channelId: channel.id } });
       const command = await tx.providerCommand.create({ data: { id: commandId, organizationId: c.organizationId, channelId: channel.id, actorUserId: c.userId, sessionId: p.session.id, action: "create" } });
       await tx.auditEvent.create({ data: { organizationId: c.organizationId, actorUserId: c.userId, action: "WHATSAPP_WEB_CONNECTION_CREATED", details: { channelId: channel.id, commandId } } });
       await this.chat.resourceEvent(tx, c.organizationId, "provider.connection.updated", channel.id);
-      return connectionDTO(record, command);
+      return this.dto(record, command);
     });
   }
   async command(p: Principal, id: string, input: CommandInput) {
@@ -60,17 +64,26 @@ export class WebConnections {
       const existing = await tx.providerCommand.findFirst({ where: { id: input.commandId, organizationId: c.organizationId, channelId: id } });
       if (existing) {
         if (existing.action !== input.action || existing.actorUserId !== c.userId) throw new AppError(409, "IDEMPOTENCY_CONFLICT");
-        return connectionDTO(record, existing);
+        return this.dto(record, existing);
       }
       if (record.version !== input.expectedVersion) throw new AppError(409, "CONNECTION_VERSION_CONFLICT");
-      if (await tx.providerCommand.count({ where: { organizationId: c.organizationId, channelId: id, status: pending } })) throw new AppError(409, "CONNECTION_OPERATION_PENDING");
+      const stopping = ["disconnect", "logout"].includes(input.action);
+      if (["recover", "logout"].includes(input.action) && input.confirmed !== true) throw new AppError(400, "EXPLICIT_CONFIRMATION_REQUIRED");
+      if (!stopping && await tx.providerCommand.count({ where: { organizationId: c.organizationId, channelId: id, status: pending } })) throw new AppError(409, "CONNECTION_OPERATION_PENDING");
       if (input.action === "refresh" && (record.pairingPhase === "AUTHENTICATING" || !["QR_REQUIRED", "CONNECTING"].includes(record.state))) throw new AppError(409, "INVALID_SESSION_STATE");
       if (input.action === "connect" && record.state === "CONNECTED") throw new AppError(409, "CONNECTION_ALREADY_CONNECTED");
-      const command = await tx.providerCommand.create({ data: { id: input.commandId, organizationId: c.organizationId, channelId: id, actorUserId: c.userId, sessionId: p.session.id, action: input.action } });
-      const updated = await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: c.organizationId, channelId: id } }, data: { version: { increment: 1 } } });
+      if (input.action === "recover" && (!["FAILED", "DISCONNECTED"].includes(record.state) || ["SESSION_REVOKED", "SESSION_REPLACED", "BAD_SESSION"].includes(record.errorCode ?? ""))) throw new AppError(409, "RECOVERY_NOT_ELIGIBLE");
+      if (["connect", "refresh"].includes(input.action) && ["SESSION_REVOKED", "SESSION_REPLACED", "BAD_SESSION", "RECONNECT_LIMIT"].includes(record.errorCode ?? "")) throw new AppError(409, "CONTROLLED_RECOVERY_REQUIRED");
+      if (stopping) {
+        await tx.providerCommand.updateMany({ where: { organizationId: c.organizationId, channelId: id, status: pending, action: { in: ["connect", "refresh", "recover", "disconnect", "logout", "history_prepare", "history_start", "history_resume", "history_reconcile"] } }, data: { status: "FAILED", errorCode: "CONNECTION_STOP_AUTHORIZED" } });
+        const op = historyRecord(record.historyOperation); if (op?.authorization) { op.authorization.state = "PAUSED"; await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: c.organizationId, channelId: id } }, data: { historyOperation: op } }); }
+        await tx.channel.update({ where: { organizationId_id: { organizationId: c.organizationId, id } }, data: { status: "DISABLED" } });
+      }
+      const command = await tx.providerCommand.create({ data: { id: input.commandId, organizationId: c.organizationId, channelId: id, actorUserId: c.userId, sessionId: p.session.id, action: input.action, payload: { controlVersion: record.version + 1 } } });
+      const updated = await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: c.organizationId, channelId: id } }, data: { version: { increment: 1 }, ...(stopping ? { outboundEnabled: false, mediaEnabled: false } : {}) } });
       await tx.auditEvent.create({ data: { organizationId: c.organizationId, actorUserId: c.userId, action: `WHATSAPP_WEB_${input.action.toUpperCase()}_REQUESTED`, details: { channelId: id, commandId: input.commandId } } });
       await this.chat.resourceEvent(tx, c.organizationId, "provider.connection.updated", id);
-      return connectionDTO(updated, command);
+      return this.dto(updated, command);
     });
   }
   async qr(p: Principal, id: string) {

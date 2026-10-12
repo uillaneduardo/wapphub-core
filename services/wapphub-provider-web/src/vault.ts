@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { z } from "zod";
 import { parseProviderEvent, type ProviderEvent, type SyncItem } from "../../../contracts/provider.js";
 import type { HistoryOperation } from "./history-operation.js";
-import type { ProviderSync } from "../../../contracts/provider-internal.js";
+import type { ProviderSync, SessionLifecycle } from "../../../contracts/provider-internal.js";
 import { ServiceError } from "./errors.js";
+import { PrivateFiles } from "./private-files.js";
 import { Serial } from "./serial.js";
 
 export const scopeSchema = z.strictObject({ organizationId: z.uuid(), connectionId: z.uuid() });
@@ -16,12 +17,20 @@ export type Session = Scope & {
   version: 1; desired: boolean; state: State; revision: number; qrRevision: number;
   attempts: number; errorCode?: string; auth?: string; keys: Record<string, string>;
   recoveryFailures?: number;
+  controlVersion?: number;
+  recovery?: SessionLifecycle["recovery"];
+  termination?: SessionLifecycle["termination"];
+  lastDisconnect?: { occurredAt: string; code?: number };
+  lastAuthenticatedAt?: string;
+  invalidated?: "SESSION_REVOKED" | "SESSION_REPLACED" | "BAD_SESSION";
+  media?: { id: string; reference?: string; type: "IMAGE" | "AUDIO" | "VOICE" | "VIDEO"; mimeType: string; fileName: string; size: number; sha256: string; expiresAt: number; seconds?: number }[];
+  sends?: { id: string; digest: string; providerMessageId: string; mediaId?: string; outcome: "DISPATCHED" | "UNKNOWN" | "NOT_SENT"; expiresAt: string; errorCode?: string }[];
   events: Delivery[]; dedup: string[]; commands: { id: string; digest: string }[];
   pairingPhase?: string;
   processingFailure?: NonNullable<ProviderSync["processingFailure"]>;
   historyOperation?: HistoryOperation;
-  historyImports?: { downloads: number; decodedBytes: number; seen: string[]; initialPending?: boolean; pending?: { digest: string; reference: string }[] };
-  sync?: ProviderSync & { pending: { item: SyncItem; historical: boolean; operationId?: string }[]; complete: boolean; startedAt: number; historyContacts: number; historyConversations: number; historyMessages: number; historyIdentities?: string[][] };
+  historyImports?: { downloads: number; decodedBytes: number; seen: string[]; initialPending?: boolean; pending?: { digest: string; reference: string; cursor?: number; decoded?: boolean; nextAttemptAt?: number; failures?: number; from?: string; to?: string }[] };
+  sync?: ProviderSync & { pending: { item: SyncItem; historical: boolean; operationId?: string; bootstrap?: boolean }[]; complete: boolean; startedAt: number; historyContacts: number; historyConversations: number; historyMessages: number; historyIdentities?: string[][] };
 };
 const filename = (scope: Scope) => createHash("sha256").update(JSON.stringify([scope.organizationId, scope.connectionId])).digest("hex");
 const MAX_RECORD_BYTES = 8 * 1024 * 1024;
@@ -37,6 +46,8 @@ export class Vault {
   constructor(readonly directory: string, private readonly key: Buffer) {
     if (key.length !== 32) throw new ServiceError("INVALID_ENCRYPTION_KEY", 503);
   }
+  private fileCache?: PrivateFiles;
+  privateFiles() { return this.fileCache ??= new PrivateFiles(join(this.directory, "files"), this.key); }
   async initialize() {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     const files = await readdir(this.directory);

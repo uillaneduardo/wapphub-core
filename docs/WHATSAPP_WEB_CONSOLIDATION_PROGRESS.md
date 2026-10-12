@@ -1,8 +1,8 @@
 # WappHub — acompanhamento canônico de consolidação
 
-**Criado:** 2026-10-11. **Estado global:** `EXECUCAO_B1_B4`. **Próxima ação:** B1 P0, seguido de B2/B3/B4 integrados. Aprovação técnica do PR25 recebida; B5/B6 não autorizadas.
+**Criado:** 2026-10-11. **Estado global:** `B5_PRONTO_PARA_RETOMADA` (correções técnicas validadas; não publicado). Autorização explícita para integrar e publicar B5 recebida em 2026-10-12; B6 continua sob responsabilidade de homologação do usuário.
 
-Diagnóstico A0/A1: [WHATSAPP_WEB_CONSOLIDATION_AUDIT.md](WHATSAPP_WEB_CONSOLIDATION_AUDIT.md). Auditoria concluída não significa código integralmente aprovado: Provider remoto apresenta duas falhas locais em78testes e CI main falho; defeitos e riscos estão documentados para correção após aprovação.
+Diagnóstico A0/A1: [WHATSAPP_WEB_CONSOLIDATION_AUDIT.md](WHATSAPP_WEB_CONSOLIDATION_AUDIT.md). A auditoria registrou falhas no remoto main então inspecionado; os P0 foram corrigidos e a CI das branches B está verde. Main e produção permanecem distintos das branches de revisão.
 
 ## Referências mandatórias
 - Fluxo e gates: [WHATSAPP_WEB_CONSOLIDATION_EXECUTION.md](WHATSAPP_WEB_CONSOLIDATION_EXECUTION.md)
@@ -23,12 +23,12 @@ A cada execução, reler este documento, comparar SHA local/remoto/produção e 
 | --- | --- | --- | --- |
 | A0 — Contexto e baseline | VALIDADO_TECNICAMENTE | git-inventory.json, baseline-services/domain.json, session-state.json; local/remoto/publicado distintos | Baseline preservado; conferir novamente ao retomar |
 | A1 — Auditoria Core/Provider/Baileys/Chat | VALIDADO_TECNICAMENTE (auditoria, com falhas encontradas) | AUDIT; inventário SDK/código e probes; Core127/127, Provider76/78, Chat287/287; CI verificado | Corrigir lacunas somente após aprovação |
-| A2 — Plano arquitetural/produto | VALIDADO_TECNICAMENTE (proposta documental; aprovação pendente) | PROPOSAL; matriz existente/lacuna/teste/risco, diagrama, capabilities, limites, contratos, ADRs e rollback | Aguardar aprovação única do usuário |
-| B1 — Provider e captura/reconexão | VALIDADO_TECNICAMENTE (local; CI pendente) | testes sintéticos SDK e contratos, sessão preservada | Após gate A2 |
-| B2 — Core/Worker e persistência | PENDENTE | tenant/RBAC/ingestão/dedup/paginação/outbox | Após gate A2 |
-| B3 — Envio/recebimento, nova conversa, mídia e Chat | PENDENTE | texto e mídia, contato existente e número não cadastrado, status/autoria, UI | Após gate A2 |
-| B4 — Regressão/performance/segurança | PENDENTE | testes Core/Provider/Chat, CI, recursos, segurança | Após B1–B3 |
-| B5 — Publicação controlada | BLOQUEADO_POR_APROVACAO | backups/restauração/rollback, imagens, smokes, sessão | Exigir autorização de deploy |
+| A2 — Plano arquitetural/produto | APROVADO_TECNICAMENTE (PR25/revisão do usuário) | PROPOSAL; matriz existente/lacuna/teste/risco, diagrama, capabilities, limites, contratos, ADRs e rollback | B1–B4 autorizadas; B5 exige autorização específica |
+| B1 — Provider e captura/reconexão | VALIDADO_TECNICAMENTE (local e CI verde) | testes sintéticos SDK e contratos, sessão preservada | Revisão dos PRs, sem merge/deploy |
+| B2 — Core/Worker e persistência | VALIDADO_TECNICAMENTE (local e CI) | Core131/131, Provider90/90; PR27; migrations12/OpenAPI/drift | Revisão PR27; B5 depende de autorização |
+| B3 — Envio/recebimento, nova conversa, mídia e Chat | VALIDADO_TECNICAMENTE (local e CI; sintético) | PR27 + ChatPR19; Chat294/294; runtime multimídia sem rede | Homologação real/visual após B5 autorizado |
+| B4 — Regressão/performance/segurança | VALIDADO_TECNICAMENTE | Todas CI verdes; limites Docker/bytes/cache; negativas e regressões | [Plano B5](WHATSAPP_WEB_CONSOLIDATION_B5.md), sem execução |
+| B5 — Publicação controlada | B5_BLOQUEADO | recovery da sessão FAILED/attempts=5; teste HTTP binário MEDIA_BUSY | corrigir teste e demonstrar recovery seguro sem reset/pareamento |
 | B6 — Homologação final | BLOQUEADO_POR_APROVACAO | roteiro e feedback do usuário no navegador | Aguardar homologação humana |
 
 ## Requisitos de negócio aceitos para projeto — verificar implementação
@@ -134,3 +134,126 @@ Estado: VALIDADO_TECNICAMENTE localmente; CI pendente. Captura dinâmica preserv
 Provider82/82, lint/typecheck/build aprovados; Core128/128, lint/typecheck/build/Prisma/OpenAPI/drift e11 migrations isoladas aprovados. Logs provider-*-b1*.log/core-*-b1.log em 20261011-consolidation-b1-b4. Nenhuma operação produtiva. Commit/PR P0 serão registrados antes de B2.
 
 Risco B5: CP47 antigo não interpreta recoveryFailures e attempts5 já impede seu restart; rollback deve usar imagem compatível com P0, sem editar/restaurar Signal. Próxima ação: PR B1/CI e B2 integrado, sem merge/deploy.
+
+### 2026-10-11T20:56:13.365935+00:00 — B2 — início da consolidação Core/Worker
+
+Estado: EM_ANDAMENTO. B1 commit eb5e667c277ba9d26b105c7b686933cbc3dacdf7, PR https://github.com/uillaneduardo/wapphub-core/pull/26, base documental PR25 sem merge. Branch feat/consolidation-b2-b4 deriva de B1. Reutilizar ProviderCommand, Inbox, journal, sync.batch e vault; flags novas fechadas por padrão e autorização por conexão. Nenhuma publicação ou operação real. Próxima ação: intents duráveis, identidade, captura progressiva e contratos aditivos.
+
+### 2026-10-11T21:08:57.568850+00:00 — B3 — início integrado com B2
+
+Estado: EM_ANDAMENTO. B1 CI Core/Provider success: actions/runs/38174170784 e38174170771, PR26 sem merge. B2 em implementação/testes: migração aditiva em schema isolado (12 migrations), flags false, outbox send, UNKNOWN, identidade compartilhada, paginação bootstrap, mídia privada. ADR_WHATSAPP_WEB_CONSOLIDATION.md registra vídeo aprovado. B3 começa conexão da API com componentes existentes do Chat; B2 não é declarado concluído por typecheck ou mocks. Sem navegador, produção, envio ou solicitação histórica real.
+
+### 2026-10-11T21:40:24.889493+00:00 — B4 — início das regressões integradas e revisão de segurança
+
+Estado: EM_ANDAMENTO. B2/B3 código conectado em branches isoladas; encerramento técnico depende das suites finais. Provider87/87 e Chat290/290 em passes preliminares; novos testes elevam cobertura. Runtime Docker isolado --network none: imagem/áudio/voz/vídeo, conversãoWebM→Opus, streamingHMAC, criptografia e SDK prepareWAMessageMedia com uploader sintético;5 envios sintéticos/0reais. Logs media-runtime.log/provider-test-b23.log/chat-test-b3-final.log.
+
+Correções durante regressão sem enfraquecer testes: OpenAPI aditivo; fixture de Provider novo usa revision própria, não revision antiga de outro produtor; texto de conflito interno mantido; serial da sessão não fica presa à rede; Worker drena journal durante envio. Bootstrap com correlação scoped independente do grant evita gastar piloto20. Nenhum serviço produtivo alterado; homologação gráfica não executada. Próxima ação: suites finais/CI, revisão de diffs e PRs B2–B4/Chat, documentação B5.
+
+### 2026-10-11T21:54:40.849093+00:00 — B2 — implementação integrada e validação local
+
+Estado: VALIDADO_TECNICAMENTE localmente; CI consolidada exigida em B4. Core131/131, lint/typecheck/build/OpenAPI/Prisma/drift e12 migrations isoladas aprovados (core-checks-b4.json). Provider87/87 mais6/6 de concorrência em passes anteriores; suite final incorpora MIME parametrizado e vínculo de mídia ao echo. OutboxSQL existente, intenção antes da rede, autoriaSQL/PENDING, idempotência/UNKNOWN sem retry cego, consumo do journal duranteenvio, identidade compartilhada e metadata esparsa preservada.
+
+Bootstrap:100registros de wire/até300SyncItems por página, cursor/staging atômicos, arquivo entregue em cacheAES-GCM, janela persistida/backpressure;620conversas/1240mensagens sintéticas sem nova solicitação. Correlação scoped independente do grantON_DEMAND20. Migrations aditivas deliveryOutcome/flagsfalse/Media metadata. Nenhum código, migration, comando ou imagem aplicado à produção. Commit/PR consolidados serão registrados em B4.
+
+### 2026-10-11T22:16:33.316180+00:00 — B3 — atendimento integrado e validação local
+
+Estado: VALIDADO_TECNICAMENTE localmente; CI consolidada pendente em B4. Texto/intenção SQL, contato existente ou númeroE.164 novo, onWhatsApp explícito, idempotência/autor/recibos, UNKNOWN sem retransmitir, imagem/áudio/voz/vídeo e players sob demanda conectados do Chat ao Core/Provider. Flags técnicasfalse e booleans por conexãofalse; autorização auditada viaUI não envia. Reutilização componentes/design tokens, Demo, realtime e posição de leitura; sem browser.
+
+Provider90/90 (provider-test-b4-final.log); imagem Docker somente local de teste, ID8b7ce4d29ec2816468dd8dc738d481208f64c181a08567afd1ee7209923c5211. media-runtime-final.log: IMAGE/AUDIO/VOICE/VIDEO, conversãoWebM, preparaçãoSDK/upload/downloadHMAC sintéticos,5sends/0reais,--network none. Compose smoke isolado saudável/connectionsEnabledfalse. Chat294/294 em chat-test-b4-final.log, lint/typecheck/build verdes; repetição sobCPU reproduziu flake de preview/logout no AppShell, teste isolado verde sem alteração de expectativa/timeout; CI e confirmação da suite completa exigidas. Sem novas dependênciasnpm/lockfiles;FFmpeg sónaimagem.
+
+Core integração amplia prova para retry explícito de autorização revogada antes daRPC, reusandoMsg/comando; âncoras rejeitamPENDING/UNKNOWN/enviointernosemprotocoltimestamp. SQLtrigger apenasbancoteste e callbackRedisfalho provam recuperação sem novoSDKcall. Implantação produtiva e homologação funcional/visual permanecem não executadas. Próxima ação: commits/PRs, aguardar todasasCI, finalizarB4 e planoB5.
+
+### 2026-10-11T22:19:29.129616+00:00 — B4 — PRs e correção da configuração de CI
+
+Estado: EM_ANDAMENTO. Core/Provider c117b20eec991a30f5b8745ea84654ea1f4685b9 PR27 https://github.com/uillaneduardo/wapphub-core/pull/27 (basePR26); Chat3afd2fffa074887dfd3ff4fbb676cc666fa3d1dd PR19 https://github.com/uillaneduardo/wapphub-chat/pull/19 (base34acd1f). Nenhum merge/deploy.
+
+Core131/131 e todos10checks0 no schema isolado release (core-checks-b4release.json), Chat294/294 confirmado (chat-test-release-confirm.log); teste legado AppShell isolado tambémverde. CIChat38179832791success. CICore38179831434falha typecheck: job instalava apenasnode_modulesCore, novos fixtures/HTTPtypeimportreferenciamBaileys Provider (TS2307). Corrigido workflow para npmci tambémdoadapter, lockfilesinalterados; nãoexcluir fontes/testesnemrelaxartipos. CIProvider38179831431emexecução.
+
+final-preservation.json: IDs/imagens/StartedAt dos6serviçosidênticos baseline, healthy,1socketativo,RSS180MB;checkoutsoperacionaislimpos. Próximaação: CI dosSHAscorrigidos, fecharB4/documentarB5.
+
+### 2026-10-11T22:23:22.474236+00:00 — B4 — encerramento técnico integrado
+
+Estado: VALIDADO_TECNICAMENTE. Ambiente: branches de revisão, serviços sintéticos isolados e conferência read-only de produção. Sem merge, deploy, alteração da sessão produtiva, migration produtiva, pareamento, mensagens reais ou solicitações históricas reais.
+
+Commits funcionais: Core/Provider B1 eb5e667c277ba9d26b105c7b686933cbc3dacdf7 (PR26); B2–B4 c117b20eec991a30f5b8745ea84654ea1f4685b9 e configuração CI c86b07ca208e57d118e1928757f3baba2790bb54 (PR27, base PR26). Chat 3afd2fffa074887dfd3ff4fbb676cc666fa3d1dd (PR19, base main34acd1f). PR25 continua documental, aprovado tecnicamente e sem merge; nenhum PR integrado nesta execução.
+
+CI **success** do SHA funcional c86b07c:
+- Core: https://github.com/uillaneduardo/wapphub-core/actions/runs/38179967004
+- Provider: https://github.com/uillaneduardo/wapphub-core/actions/runs/38179967011
+- Chat SHA3afd2ff: https://github.com/uillaneduardo/wapphub-chat/actions/runs/38179832791
+
+Local final: Core131/131, Provider90/90, Chat294/294; lint/typecheck/build verdes. Doze migrations, Prisma/drift/OpenAPI em banco isolado; runtime real da imagem com SDK/uploader sintéticos e sem rede: cinco envios sintéticos/zero reais, imagem/áudio/voz/vídeo e WebM→Opus. Compose smoke apenas projeto isolado. Falha inicial CI de dependências do adapter corrigida sem excluir testes; flake legado AppShell sob carga registrado, suite final e CI Chat passaram sem alterar expectativas/timeouts.
+
+Evidências: ~/homelab/deploy-records/wapphub-provider-web/20261011-consolidation-b1-b4/{TESTES.md,IMPLEMENTACAO.md,ci-validated-functional.json,core-checks-b4release.json,core-test-b4release.log,provider-test-b4-final.log,chat-test-release-confirm.log,media-runtime-final.log,provider-compose-smoke-final.log,final-preservation.json,final-domain-readonly.json}. Relatório e manifest final incluem o SHA documental de encerramento após commit.
+
+Produção: seis serviços healthy com IDs/imagens/StartedAt idênticos ao baseline; Core/Source CONNECTED, um socket ativo, attempts históricos5, grant ENABLED e produtor PAUSED; requests=1 preexistente, historicalMessages=0. Quatorze falhas legadas, novas falhas0. Checkouts operacionais Coredb85dac/Chatf13752f limpos; imagens publicadas continuam CP47. Imagem construída é exclusivamente local de teste, não publicada.
+
+Limites/riscos remanescentes: disponibilidade histórica/bytes depende do WhatsApp; não declarar histórico integral ou entrega real. Cache/ref expiram e possuem quotas; codecs aceitos limitados. Recursos do homelab exigem observar backlog/RSS/disk em B5. Bundle Chat509kB/gzip161kB mantém aviso Vite. Reconexão real do código novo e layouts/gravação/players dependem de B5/B6. Rollback deve interpretar recoveryFailures/receipts/cursors; CP47 antigo não é presumido seguro. Grant histórico existente precisa permanecer sem novas requests durante publicação.
+
+Próxima ação segura: revisão dos PRs e [plano B5](WHATSAPP_WEB_CONSOLIDATION_B5.md) mediante autorização específica; backups/restauração isolada/imagens/deploy produtivos ainda não executados. B6 pelo usuário após publicação autorizada. Documento de implementação consolidado: [IMPLEMENTATION](WHATSAPP_WEB_CONSOLIDATION_IMPLEMENTATION.md). Nenhuma alteração funcional após c86b07c; este encerramento apenas registra evidências/documentação.
+
+### 2026-10-12 — B5 — início autorizado e baseline
+
+Estado: `EM_ANDAMENTO`. A autorização explícita do usuário substitui as notas históricas deste plano que diziam que B5 ainda dependia de autorização. Nenhum merge, migration, backup produtivo, reinício ou interação WhatsApp foi executado neste gate.
+
+Revisão PR27 (uillaneduardo, 2026-10-12T04:39:24Z) registrada: exige integração PR25→26→27 e Chat19 com CI final; teste HTTP binário ponta a ponta no Core; validação do recovery Vault `attempts=5`; backup/restauração isolada e migration aditiva; flags novas fechadas; B6 humana. Comentário íntegro no PR27; sem threads inline.
+
+Checkouts limpos e remotos alinhados antes da execução: Core branch `feat/consolidation-b2-b4` SHA `1db2828aa49ce1aefb43038168901e01dea012cc`, ancestry B1 `eb5e667`, PR27; Chat branch `feat/consolidation-b3-chat` SHA `3afd2fffa074887dfd3ff4fbb676cc666fa3d1dd`, PR19. PR25/26/27/19 abertos; bases encadeadas conforme esperado. CI anterior verde: Core `38180232903`, Provider `38180232953`, Chat `38179832791`; são SHAs de branch e a CI final-main ainda precisa ser confirmada.
+
+Baseline Docker 2026-10-12T04:40Z: API `88989f6c…`, Worker `1823611e…`, Provider `77b03629…`, Chat `8d7e2f85…`, DB `65750f14…` e Redis `1ec5cdfb…`, todos healthy. Imagens continuam Core/Worker/Provider `cp47-bb356c7` e Chat `cp47-6cd6898`; App/Worker iniciados 2026-10-11T10:23:59Z, Provider 10:24:11Z e Chat 10:24:22Z; DB/Redis sem reinício desde 2026-10-07. Recursos: 7.1 GiB RAM, 3.8 GiB disponível, swap 4 GiB (2.2 usados), disco root 14 GiB disponíveis. Sessão e contadores serão rechecados read-only imediatamente antes de qualquer restart. Último baseline sanitizado confirmado: CONNECTED/socket ativo, `attempts=5`, grant ENABLED, operação PAUSED/HISTORY_BYTE_LIMIT, 1 solicitação remota histórica preexistente, 0 mensagens históricas, 14 falhas legadas/0 novas. Flags de histórico serão mantidas fechadas antes/depois da publicação; grant e Vault não serão alterados para autorizar novas requests.
+
+Próximo gate: cobrir o upload com integração HTTP Core→cliente assinado→Provider totalmente sintética e revisar compatibilidade/backup sem rede antes de qualquer merge/deploy. Se a capacidade de preservar a sessão não for demonstrável, Provider não será reiniciado.
+
+### 2026-10-12T04:59Z — B5 — gate de sessão e upload ponta a ponta
+
+O teste existente foi ampliado para percorrer a rota `application/octet-stream` do Fastify Core, validação de sessão/Origin/CSRF/RBAC/tenant, `WebProviderClient` com HMAC e endpoint HTTP real sintético do Provider até `ProviderMedia`/PrivateFiles. Valida sucesso sintético, Content-Type inválido, limite de bytes, hash incorreto, MIME incompatível, ausência de sessão/CSRF, Origin incorreto, usuário sem permissão, organização diferente, stream interrompido e ausência de `.part` órfão. Um evento live foi adicionado ao journal durante upload bloqueado e permaneceu disponível. O `ffprobe` usado neste contrato foi um stub local sintético; conversão/codec real permanece comprovada apenas no smoke Docker isolado B4. Core lint/typecheck verdes e suíte completa **131/131**, inclusive a integração HTTP, em schema/Redis isolados `wapphub_b5upload_*_test`; nenhum serviço produtivo foi chamado. Ajuste no teste apenas contorna o RSS high-water causado por outro fixture de carga compartilhado; o gate produtivo de 384 MiB continua sem override.
+
+Baseline read-only mais recente, `2026-10-12T04:59:16.568Z`: containers/processos ainda não foram alterados; Provider HTTP `ready=true`, mas conexão Core e Provider `FAILED`, `activeTransport=false`, contador `attempts=5`. O grant e operação estão ambos `PAUSED` com `HISTORY_BYTE_LIMIT`; 1 solicitação remota histórica preexistente, 0 mensagens históricas, 172 mensagens totais, 1.796 comandos `history_*` COMPLETED (reconciliações internas), 0 comandos pendentes, 429 envelopes ProviderInbox persistidos e falhas de diagnóstico 14 legadas/0 novas. Flags atuais Core `PROVIDER_HISTORY_EXECUTION_ENABLED=true`; o gate de deployment continuará fechado. Sem logout, reset, QR, consulta, fetch, envio ou alteração do Vault. A imagem CP47 não pode ser reiniciada com segurança: o caso testado B1 é Vault `CONNECTED/attempts=5`; o estado real atual é `FAILED/attempts=5`, para o qual B1 deliberadamente não cria orçamento novo. Este é bloqueio técnico para qualquer restart/publicação do Provider.
+
+Correção à primeira leitura do baseline neste documento: a snapshot anterior CP4.7 de 04:34Z registrava conexão CONNECTED/grant ENABLED; a leitura de 04:59Z demonstra mudança posterior para FAILED/grant PAUSED. A leitura posterior é o estado prevalecente e será registrada na entrega. O código de erro/cause da sessão não foi incluído ainda; buscar somente diagnóstico sanitizado e logs de produção antes de decidir publicação, sem acionar recuperação.
+
+Próximo: concluir revisão dos diffs/CI e backup/migration em ambiente isolado. Não fazer restart do Provider enquanto o estado permanecer FAILED/esgotado; deploy B5 integral depende de recuperar a pré-condição de segurança sem novo pareamento ou reset manual.
+
+
+### 2026-10-12T05:21Z — B5 — bloqueio de segurança e validação
+
+Estado global: `B5_BLOQUEADO`. Nenhum merge de PR27/Chat19, backup produtivo, migration em produção, build/publicação de imagem, restart, deploy, envio, upload real ou solicitação histórica real foi executado. PR25 e PR26 foram integrados ao `main` com merges `d55aa668d7840049fae4e63586b7dcfd3cf32ccc` e `dd8719324387e097ef45769ad94df9b04bd39e5e`. PR27 permanece aberto na revisão da branch `feat/consolidation-b2-b4`; SHA remoto consultado `137c036479cb942a6cfbe2b5a0601b5f1403c283` tinha checks `validate` e `provider-web` verdes, mas os ajustes locais posteriores no teste HTTP ainda não foram enviados nem cobertos por CI. PR19 permanece aberto, sem integração final.
+
+O baseline read-only continua sendo o estado mais recente de 04:59:16Z: seis containers healthy e imagens CP4.7; API/Core e Provider reportam conexão `FAILED/RECONNECT_LIMIT`, `attempts=5`, `activeTransport=false`. B1 cobre legado `CONNECTED/attempts=5`, mas intencionalmente não inicia novo orçamento para `FAILED/attempts=5`. Reiniciar o Provider nesse estado não tem garantia técnica suficiente de preservação da sessão vinculada; o deploy foi interrompido antes de qualquer reinício. Contagem histórica permanece 1 solicitação remota preexistente, 0 mensagens históricas; grant/operação PAUSED/HISTORY_BYTE_LIMIT, sem nova atividade remota.
+
+Migração `20261011210000_consolidation_outbound` e as 12 migrations foram aplicadas a schema exclusivamente sintético `wapphub_m1_test`, sem restore de produção. O teste completo correto da branch somou 132 testes: 131 passaram e o novo percurso HTTP binário falhou; após reordenar o fixture, regressão CP4.7 passou. Repetição da suíte `web-provider.test.ts`: 42/43, upload retorna `MEDIA_BUSY` repetidamente. Portanto o percurso HTTP completo ainda não está validado e o teste permanece modificado apenas localmente. CI para SHA remoto anterior: 2/2 checks verdes; não representa este estado local. Não registrar `docs/STATUS.md` como publicado.
+
+Recursos read-only rechecados 05:02Z: API 59.22 MiB, Worker 55.95 MiB, Provider 137.6/512 MiB, Chat 4.852 MiB, MariaDB 58.28 MiB, Redis 1.84 MiB; todos seis healthy. Nenhuma mudança em container, Compose, banco produtivo, Vault, volume ou sessão. Nenhum backup foi criado porque a validação de restore operacional não pôde preceder um deploy não seguro; nenhum snapshot Signal foi restaurado.
+
+Evidências e pendências: relatório em `~/homelab/deploy-records/wapphub-provider-web/20261012-consolidation-b5/`. Próximo passo técnico é corrigir e passar o teste de upload com CI final antes de integrar PR27 e PR19. O gate de Provider exige diagnóstico/recovery seguro para `FAILED/attempts=5` sem logout, alteração de contador, QR ou novo pareamento; então repetir backup/restauração isolada, validar migration em restore, verificar flags/grant e executar publicação controlada. Estado não equivale a B6; navegador permanece para homologação do usuário após deploy autorizado.
+
+
+### 2026-10-12T05:41:51.064868+00:00 — correção integrada dos bloqueios B5 e P0 de encerramento
+
+Estado: EM_ANDAMENTO; B5 permanece bloqueado para publicação. Retomadas branches existentes Core feat/consolidation-b2-b4 (137c036) e Chat feat/consolidation-b3-chat (3afd2ff), PR27/19 abertos; main Core dd87193 já integra PR25/26. Preservados docs/teste HTTP locais não commitados. Autorização desta rodada cobre correção/testes/CI/PRs, não deploy, recovery real, logout, QR, envio, histórico remoto ou migration produtiva. STATUS permanece intacto.
+
+Leitura sem escrita da produção 05:40Z: FAILED/RECONNECT_LIMIT, desired=true, attempts=5, recoveryFailures ausente, Vault AES-GCM autenticado (0600), credenciais vinculadas com pares identity/noise presentes, 847 entradas Signal todas JSON válidas (16 strings e 831 objetos). registered=false não prova revogação. Logs mostram RECONNECTING→CONNECTED em 2026-10-11T10:24:16.243Z, FAILED em 2026-10-12T00:31:46.350Z; códigos numéricos antigos não foram persistidos. Imagem CP4.7 usa attempts cumulativos para o limite e não os zera em open: a falha posterior encerrou o ciclo já no teto; causa de transporte não reconstruível, sem evidência de revogação/corrupção. Nenhum OOM/restart registrado.
+
+P0 adicional confirmado: Core traduz disconnect em logout; Sessions bloqueia encerramento linkedRecoveryOnly e remove auth/keys antes do resultado remoto; Chat desabilita em ERROR e promete revogação. Correção planejada reutiliza outbox/receipts/Vault: parada reversível, desvinculação com resultado remoto explícito, recovery administrativo de uma tentativa sem QR/retry cego e fence durável contra comandos antigos. MEDIA_BUSY será distinguido entre pressão RSS e lock, com teste HTTP em fixture independente e cleanup/cancel comprovados.
+
+### 2026-10-12T06:33:35.957499+00:00 — correções B5 — gates locais encerrados; CI pendente
+
+Estado global mantido `B5_BLOQUEADO` até CI dos heads novos. Sem reexecutar B1–B4; preservado teste HTTP e documentos pendentes. Core133/133; Provider117/117; Chat300/300; HTTP isolado1/1; lint/typecheck/build verdes. Novo contrato lifecycle/recover/logout/confirmation/controlVersion, Core RBAC/outbox e Worker, Vault aditivo, adapter IQ ACK e Chat conectados. P0 gerenciamento de vínculo integra critérios de retomada, inclusive FAILED, ausência de socket, timeout, corrida com reconexão, duplicatas e restart.
+
+Causa de RECONNECT_LIMIT: CP4.7 acumula attempts de partidas e não zera orçamento após open; última conexão autenticada comprovada em 2026-10-11T10:24:16.243Z, FAILED em 2026-10-12T00:31:46.350Z. Código numérico do close não foi persistido; causa de transporte indeterminada, sem evidência de revogação/corrupção. Vault GCM/estrutura válidos, 847 entradas Signal parseáveis, auth existente; desired=true, attempts5, recoveryFailures ausente. Não há socket. Histórico requests1/messages0/PAUSED/HISTORY_BYTE_LIMIT.
+
+MEDIA_BUSY reproduzido por RSS443.039.744>402.653.184, sem transferência concorrente. Erro agora MEDIA_MEMORY_PRESSURE; fixture HTTP isolado, nenhum override do limite. Bloqueio global1 mantido; streams/codecs/cache cancelados e finalizados antes da liberação. Teste integral e isolado exercitam cadeia HTTP/sessão/CSRF/Origin/HMAC/cache, cancelamento, upload posterior e live concorrente.
+
+Prisma/schema12/migration12/OpenAPI/drift validados apenas em test DB; zero drift novo, cinco diferenças legadas M1 mantidas. Chat300 passou na confirmação integral sem mudar asserções/timeouts; execução inicial299/300 falhou em AppShell realtime legado sob compilação concorrente. Provider passou117 após corrigir scheduler do teste para capturar apenas backoff<=30.250ms em vez de confundir deadline com backoff. Diagnóstico RSS não é suíte de aceite: foi reprodutor de falha; as suítes finais são as reportadas acima. Fixtures diagnósticos interrompidos foram limpos apenas no banco _test; container de teste antigo pendurado finalizado, containers produtivos preservados.
+
+Evidências serão preservadas em `20261012-consolidation-b5/correcoes-20261012/`; próximos passos: commits nas branches existentes, atualização PR27/19 e CI final. STATUS permanece o publicado; nenhum merge/deploy/recovery real/logout/QR/Signal/fetch/envio/upload/migration/restore produtivo ou B6. Risco: WhatsApp pode rejeitar sessão estruturalmente íntegra; só tentativa real explicitamente autorizada+estabilidade poderá comprovar recuperação.
+
+### 2026-10-12T06:38:51.406442+00:00 — correções B5 — B5_PRONTO_PARA_RETOMADA
+
+Os três critérios P0 foram implementados e validados localmente e em CI, incluindo recuperação limitada, parada/desvinculação e upload HTTP. Funcional Core/Provider `d197f292a6442b408e50c7b6fc917126d4ec0e63`, head de evidências locais `6892dfeda8e154844537025590dda44f87c24964`; Chat `90ca77bfd9172222bcecd3f6a300d7095706e5eb`. CI verde Core133/133 [38213173469](https://github.com/uillaneduardo/wapphub-core/actions/runs/38213173469), Provider117/117 [38213173461](https://github.com/uillaneduardo/wapphub-core/actions/runs/38213173461), Chat300/300 [38213173602](https://github.com/uillaneduardo/wapphub-chat/actions/runs/38213173602), incluindo lint/typecheck/build e gates específicos dos workflows. Estes workflows pull_request validam também o merge sintético com main, sem integrar PRs reais. O commit documental deste encerramento será conferido novamente em CI antes de entregar.
+
+PRs [Core27](https://github.com/uillaneduardo/wapphub-core/pull/27) e [Chat19](https://github.com/uillaneduardo/wapphub-chat/pull/19) permanecem abertos, mergeable, sem merge nesta rodada. Main Core `dd8719324387e097ef45769ad94df9b04bd39e5e` e Chat `34acd1fd212663b1685b45517e8a7fb548ddb871` não foram alterados. ALTERAÇÕES locais anteriores preservadas e incorporadas nas branches; STATUS permanece idêntico ao início desta rodada.
+
+Conferência final read-only2026-10-12T06:35–06:36Z:6containers healthy, mesmos IDs/StartedAt/revisions, restart0/OOMfalse; CP4.7 permanece publicado. Sessão FAILED/RECONNECT_LIMIT,attempts5,desiredtrue,recoveryFailures ausente,auth/847keys íntegros,socketfalse. Hash cifrado do Vault `b4a11fc800b596d8aa2d4483ea7021a1b9f458babbf46f9c7f75005ed647e63a` idêntico ao início,0600/621596bytes. Journal0/comandos pendentes0; grant/operaçãoPAUSED/HISTORY_BYTE_LIMIT,requests1/messages0;14falhas legadas e0novas. Flags técnicas históricas Core/Provider continuamtrue, Provider HISTORY_ENABLED=false e scope controltrue; o grant pausado foi preservado, sem converter em nova autorização. Outbound/media unset (defaultsfalse). SQL produtivo11migrations;12somente em test DB, sem migration produtiva.
+
+Estado B5_PRONTO_PARA_RETOMADA refere-se à prontidão técnica das correções; **não significa sessão recuperada nem B5 publicado**. Causa numérica de transporte permanece indeterminada por ausência de registro legado. Próxima execução exige autorização de retomada B5, revisão/integração dos heads finais, baseline/backups/restauração isolada/migration12/rollback compatível e publicação controlada. Nenhuma tentativa real sem confirmação administrativa explícita; open+30s estáveis são condição de êxito, sem reset/QR/autoloop. Nenhum deploy/restart/backup/restore/migration produtivos, recovery/logout/Signal/pareamento, envio/upload/fetch remoto ou B6 nesta rodada. Evidências e riscos em `20261012-consolidation-b5/correcoes-20261012/RELATORIO.md`; [plano B5 atualizado](WHATSAPP_WEB_CONSOLIDATION_B5.md).

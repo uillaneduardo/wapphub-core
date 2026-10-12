@@ -1,3 +1,11 @@
+import { Readable } from "node:stream";
+import { createHash } from "node:crypto";
+import { bootstrapCorrelationId } from "../contracts/provider-internal.js";
+import { Sessions } from "../services/wapphub-provider-web/src/sessions.js";
+import { createHttp } from "../services/wapphub-provider-web/src/http.js";
+import { InternalAuth } from "../services/wapphub-provider-web/src/auth.js";
+import { WebProviderClient } from "../src/integrations/web-provider-client.js";
+import type { TransportCallbacks } from "../services/wapphub-provider-web/src/transport.js";
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -36,7 +44,7 @@ class FakeProvider implements WebProviderPort {
   async ready() { return !this.fail && !this.unready; }
   async create(scope: ProviderScope) { this.calls.push("create"); if (!this.views.has(scope.connectionId)) this.views.set(scope.connectionId, { state: "DISCONNECTED", revision: 0, qrRevision: 0, attempts: 0, connectEnabled: true }); return this.session(scope); }
   async session(scope: ProviderScope) { if (this.fail) throw new WebProviderError("PROVIDER_UNAVAILABLE"); const view = this.views.get(scope.connectionId); if (!view) throw new WebProviderError("SESSION_NOT_FOUND", 404); return view; }
-  async command(scope: ProviderScope, action: InternalAction) { this.calls.push(action); const old = await this.session(scope); const view: ProviderSession = { ...old, state: action === "logout" ? "LOGGED_OUT" : "CONNECTING", revision: old.revision + 1 }; this.views.set(scope.connectionId, view); return view; }
+  async command(scope: ProviderScope, action: InternalAction) { this.calls.push(action); const old = await this.session(scope); const view: ProviderSession = { ...old, state: action === "logout" ? "LOGGED_OUT" : action === "disconnect" ? "DISCONNECTED" : "CONNECTING", revision: old.revision + 1 }; this.views.set(scope.connectionId, view); return view; }
   async history(scope: ProviderScope, control: import("../contracts/history.js").HistoryControl) {
     this.calls.push(`history_${control.action}`); const view = await this.session(scope);
     if (control.action === "prepare") { const spec = control.spec!; view.history = { id: spec.id, state: "PREPARED", from: spec.from, to: spec.to, limits: spec.limits, contacts: 0, conversations: 0, messages: 0, requests: 0, duplicates: 0, failures: 0, limited: false, queued: 0 }; }
@@ -91,6 +99,7 @@ after(async () => {
   await db.internalNote.deleteMany({ where });
   await db.conversationAssignmentHistory.deleteMany({ where });
   await db.conversationTag.deleteMany({ where });
+  await db.media.deleteMany({ where });
   await db.message.deleteMany({ where });
   await db.conversation.deleteMany({ where });
   await db.tag.deleteMany({ where });
@@ -145,8 +154,8 @@ test("refresh is explicit and cannot disrupt an already connected session", asyn
   await command("refresh"); await worker.runConnection(scope()); assert.equal((await current()).uiState, "CONNECTING"); await state("CONNECTED", 4, 2);
   await command("refresh", randomUUID(), undefined, 409); assert.equal((await current()).uiState, "CONNECTED"); assert.equal((await current()).sendingEnabled, false);
 });
-test("disconnect revokes the provider link and records the administrative action", async () => {
-  await command("disconnect"); await worker.runConnection(scope()); assert.equal((await current()).state, "LOGGED_OUT"); assert.equal((await current()).uiState, "DISCONNECTED"); assert.ok(provider.calls.includes("logout"));
+test("disconnect stops the local provider transport and records the administrative action", async () => {
+  await command("disconnect"); await worker.runConnection(scope()); assert.equal((await current()).state, "DISCONNECTED"); assert.equal((await current()).uiState, "DISCONNECTED"); assert.ok(provider.calls.includes("disconnect"));
   assert.ok(await db.auditEvent.count({ where: { organizationId: orgA, action: "WHATSAPP_WEB_DISCONNECT_REQUESTED" } }));
 });
 test("Worker rechecks revoked permissions before executing an explicit command", async () => {
@@ -366,6 +375,7 @@ test("CP4 contact-only replay/realtime requires contacts.read and cannot disclos
   const until = Date.now() + 4000; while (!frames.some((frame) => frame.includes("sync.checkpoint")) && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 20));
   ws.close(); assert.ok(frames.some((frame) => frame.includes("contacts.updated"))); assert.ok(!frames.join("").includes("message.created")); assert.ok(!frames.join("").includes("conversation.history.updated"));
 });
+
 test("CP4 synthetic load measures bounded SQL batches, live latency and deduplicated replay", async () => {
   const cpu = process.cpuUsage(), started = performance.now(); let peakRss = process.memoryUsage().rss, liveLatencyMs = 0;
   const batches = Array.from({ length: 50 }, (_, batch) => syncBatch(Array.from({ length: 20 }, (_, index) => syncMessage(`load-${index % 10}@lid`, `cp4-load-${batch}-${index}`, new Date(Date.now() - 86400000 + batch * 20 + index).toISOString()))));
@@ -542,6 +552,11 @@ test("CP4.7 anchor discovery selects oldest eligible in-window message rather th
  const recent = new Date(Date.now() - 86400000);
  try {
   await db.message.createMany({ data: [{ providerMessageId: "outside", createdAt: new Date(Date.now() - 31 * 86400000) }, { providerMessageId: "eligible", createdAt: recent }].map((m) => ({ ...m, organizationId, channelId: localChannel.id, conversationId: thread.id, direction: "INBOUND", body: "synthetic reference" })) });
+  await db.message.createMany({ data: [
+   { providerMessageId: "not-dispatched", status: "PENDING" as const, deliveryOutcome: null, senderUserId: null },
+   { providerMessageId: "uncertain", status: "SENT" as const, deliveryOutcome: "UNKNOWN", senderUserId: null },
+   { providerMessageId: "no-protocol-time", status: "SENT" as const, deliveryOutcome: null, senderUserId: owner.userId },
+  ].map((m) => ({ ...m, organizationId, channelId: localChannel.id, conversationId: thread.id, direction: "OUTBOUND", body: "synthetic unsafe anchor", createdAt: new Date(Date.now() - 2 * 86400000) })) });
   const anchors = await db.$transaction((tx) => selectHistoryAnchors(tx, { organizationId, connectionId: localChannel.id }, new Date(Date.now() - 30 * 86400000).toISOString()));
   assert.deepEqual(anchors, [{ chatId: "anchor-isolated@lid", messageId: "eligible", fromMe: false, timestamp: recent.getTime() }]);
  } finally {
@@ -612,4 +627,151 @@ test("B1 paused reader-policy failure preserves diagnostics without generating r
     view.history = previousHistory;
     await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { historyOperation: previous.historyOperation ?? Prisma.JsonNull } });
   }
+});
+
+test("B2/B3 HTTP Core -> SQL outbox -> signed Provider -> durable journal -> SQL receipts and live ingress; no blind resend", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "wapphub-b23-synthetic-")), key = randomBytes(32), vault = new Vault(join(directory, "sessions"), key); await vault.initialize();
+  const journal = new EventJournal(vault), internalKey = randomBytes(32), auth = new InternalAuth(internalKey, join(directory, "nonces")); await auth.initialize();
+  let callbacks!: TransportCallbacks, sends = 0, resolves = 0, unknown = false; let resolveHook: (() => Promise<void>) | undefined; let releaseSlow: (() => void) | undefined;
+  const sessions = new Sessions(vault, journal, async (_scope, cb) => { callbacks = cb; return { close() {}, logout: async () => undefined, resolveRecipient: async phone => { resolves++; await resolveHook?.(); return phone === "+5581999999999" ? { state: "VALID", jid: "5581999999999@s.whatsapp.net" } : { state: "UNKNOWN" }; }, send: async intent => { sends++; if (intent.body === "Synthetic slow") await new Promise<void>(resolve => { releaseSlow = resolve; }); if (unknown) throw new Error("synthetic uncertainty"); callbacks.receipt(intent.providerMessageId, "READ", intent.destination); } }; }, true, () => () => undefined, Date.now, () => undefined, { enabled: false, historyEnabled: false, outboundEnabled: true });
+  const source = createHttp(sessions, journal, auth), sourceUrl = await source.listen({ host: "127.0.0.1", port: 0 }), client = new WebProviderClient(sourceUrl, internalKey);
+  const activeConfig = { ...config, PROVIDER_OUTBOUND_ENABLED: true, PROVIDER_MEDIA_ENABLED: true };
+  const activeApp = await buildApp(activeConfig, db, redis, false, undefined, client);
+  const activeChat = new Chat(db, activeConfig, async () => { throw new Error("synthetic Redis wake unavailable"); }, new DemoProvider(), new MessageIngestionService()), activeWorker = new WebProviderWorker(db, activeChat, client);
+  const original = await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } });
+  const inject = async (a: Auth, method: "GET" | "POST" | "PUT", path: string, payload?: unknown, expected = 200) => { const response = await activeApp.inject({ method, url: "/api/v1" + path, headers: { origin, cookie: a.cookie, "x-csrf-token": a.csrf }, ...(payload === undefined ? {} : { payload: payload as object }) }); assert.equal(response.statusCode, expected, response.body); return response; };
+  try {
+    await sessions.create(scope()); await sessions.command(scope(), "connect", randomUUID()); callbacks.connection({ state: "open" }); await sessions.settle(scope());
+    await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { state: "CONNECTED", errorCode: null, lastCheckedAt: new Date(), historyOperation: Prisma.DbNull, providerRevision: 0, outboundEnabled: false, mediaEnabled: false } });
+    await db.channel.update({ where: { organizationId_id: { organizationId: orgA, id: channelId } }, data: { status: "ENABLED" } });
+    const opening = { channelId, phone: "+5581999999999" };
+    await inject(owner, "POST", "/conversations/external", opening, 409); assert.equal(resolves, 0); assert.equal(sends, 0);
+    await inject(denied, "PUT", `${route}/${channelId}/capabilities`, { outboundEnabled: true, mediaEnabled: true }, 403);
+    await inject(other, "PUT", `${route}/${channelId}/capabilities`, { outboundEnabled: true, mediaEnabled: true }, 404);
+    const missingCsrf = await activeApp.inject({ method: "PUT", url: "/api/v1" + `${route}/${channelId}/capabilities`, headers: { origin, cookie: owner.cookie }, payload: { outboundEnabled: true, mediaEnabled: true } }); assert.equal(missingCsrf.statusCode, 403);
+    await inject(owner, "PUT", `${route}/${channelId}/capabilities`, { outboundEnabled: true, mediaEnabled: true });
+    await inject(denied, "POST", "/conversations/external", opening, 403);
+    await inject(owner, "POST", "/conversations/external", { channelId, phone: "81999999999" }, 400);
+    await inject(owner, "POST", "/conversations/external", { channelId, phone: "+5581888888888" }, 409); assert.equal(sends, 0);
+    resolveHook = async () => { await db.session.update({ where: { id: owner.sessionId }, data: { currentOrganizationId: orgB } }); };
+    await inject(owner, "POST", "/conversations/external", opening, 401); assert.equal(sends, 0);
+    resolveHook = undefined; await db.session.update({ where: { id: owner.sessionId }, data: { currentOrganizationId: orgA } });
+    const opened = (await inject(owner, "POST", "/conversations/external", opening)).json(); assert.equal(opened.outboundEnabled, true); assert.equal(sends, 0); assert.equal(opened.assignedUserId, owner.userId);
+    assert.equal((await inject(owner, "POST", "/conversations/external", { channelId, contactId: opened.contactId })).json().id, opened.id);
+    const body = { body: "  Synthetic original\n😀  ", clientMessageId: randomUUID() };
+    const queued = (await inject(owner, "POST", `/conversations/${opened.id}/messages`, body)).json(); assert.equal(queued.status, "PENDING"); assert.equal(queued.senderUserId, owner.userId); assert.equal(sends, 0);
+    assert.equal((await inject(owner, "POST", `/conversations/${opened.id}/messages`, body)).json().id, queued.id);
+    await inject(owner, "POST", `/conversations/${opened.id}/messages`, { ...body, body: "changed" }, 409);
+    await inject(other, "POST", `/conversations/${opened.id}/messages`, body, 403);
+    const persisted = await db.message.findUniqueOrThrow({ where: { id: queued.id } }); assert.equal(persisted.body, body.body);
+    assert.equal(await db.providerCommand.count({ where: { organizationId: orgA, channelId, action: "send", payload: { path: "$.messageId", equals: queued.id } } }), 1);
+    await activeWorker.runConnection(scope()); await sessions.settle(scope()); await activeWorker.runConnection(scope());
+    assert.equal(sends, 1); const confirmed = await db.message.findUniqueOrThrow({ where: { id: queued.id } }); assert.equal(confirmed.status, "READ"); assert.equal(confirmed.senderUserId, owner.userId); assert.equal(confirmed.deliveryOutcome, null);
+    callbacks.text({ id: "b23-live", chatId: "5581999999999@s.whatsapp.net", body: "Synthetic live", fromMe: false, timestamp: Date.now() }); await sessions.settle(scope()); await activeWorker.runConnection(scope());
+    const received = await db.message.findFirstOrThrow({ where: { organizationId: orgA, channelId, providerMessageId: "b23-live" } }); assert.equal(received.conversationId, opened.id); assert.equal(received.senderUserId, null); assert.equal(received.senderContactId, opened.contactId);
+    callbacks.text({ id: persisted.providerMessageId!, chatId: "5581999999999@s.whatsapp.net", body: body.body, fromMe: true, timestamp: Date.now() }); await sessions.settle(scope()); await activeWorker.runConnection(scope());
+    const echoed = await db.message.findUniqueOrThrow({ where: { id: queued.id } }); assert.equal(echoed.senderUserId, owner.userId); assert.equal(echoed.createdAt.toISOString(), persisted.createdAt.toISOString()); assert.ok(echoed.providerOccurredAt);
+    const slow = (await inject(owner, "POST", `/conversations/${opened.id}/messages`, { body: "Synthetic slow", clientMessageId: randomUUID() })).json();
+    const inflight = activeWorker.runConnection(scope());
+    for (let i = 0; i < 100 && !releaseSlow; i++) await new Promise(resolve => setTimeout(resolve, 10)); assert.ok(releaseSlow);
+    callbacks.text({ id: "b4-live-during-send", chatId: "5581999999999@s.whatsapp.net", body: "Synthetic concurrent live", fromMe: false, timestamp: Date.now() }); await sessions.settle(scope());
+    let observed = false; for (let i = 0; i < 100; i++) { if (await db.message.count({ where: { organizationId: orgA, channelId, providerMessageId: "b4-live-during-send" } })) { observed = true; break; } await new Promise(resolve => setTimeout(resolve, 20)); }
+    assert.equal(observed, true); assert.equal((await db.message.findUniqueOrThrow({ where: { id: slow.id } })).status, "PENDING"); releaseSlow(); await inflight; assert.equal(sends, 2);
+    // SQL failure after the Provider has transmitted: intent survives, receipt
+    // wins after recovery, and a PROCESSING replay never calls transport twice.
+    const sqlFailure = (await inject(owner, "POST", `/conversations/${opened.id}/messages`, { body: "Synthetic SQL recovery", clientMessageId: randomUUID() })).json();
+    await db.$executeRawUnsafe("CREATE TRIGGER b23_synthetic_outbox BEFORE UPDATE ON ProviderCommand FOR EACH ROW BEGIN IF NEW.action='send' AND NEW.status='COMPLETED' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic failure'; END IF; END");
+    try { await activeWorker.runConnection(scope()); assert.equal(sends, 3); } finally { await db.$executeRawUnsafe("DROP TRIGGER b23_synthetic_outbox"); }
+    await sessions.settle(scope()); await activeWorker.runConnection(scope()); assert.equal(sends, 3); assert.equal((await db.message.findUniqueOrThrow({ where: { id: sqlFailure.id } })).status, "READ");
+    unknown = true; const uncertain = (await inject(owner, "POST", `/conversations/${opened.id}/messages`, { body: "Synthetic uncertain", clientMessageId: randomUUID() })).json(); await activeWorker.runConnection(scope()); assert.equal(sends, 4);
+    assert.equal((await db.message.findUniqueOrThrow({ where: { id: uncertain.id } })).deliveryOutcome, "UNKNOWN"); await activeWorker.runConnection(scope()); assert.equal(sends, 4);
+    const ownerMembership = await db.membership.findFirstOrThrow({ where: { organizationId: orgA, userId: owner.userId } }), sendPermission = await db.permission.findUniqueOrThrow({ where: { code: "messages.send" } });
+    const retryBody = { body: "Synthetic revoked before transmission", clientMessageId: randomUUID() }, rejected = (await inject(owner, "POST", `/conversations/${opened.id}/messages`, retryBody)).json();
+    await db.membershipPermissionOverride.create({ data: { organizationId: orgA, membershipId: ownerMembership.id, permissionId: sendPermission.id, effect: "REVOKE" } });
+    await activeWorker.runConnection(scope()); assert.equal(sends, 4); assert.equal((await db.message.findUniqueOrThrow({ where: { id: rejected.id } })).deliveryOutcome, "NOT_SENT");
+    await db.membershipPermissionOverride.deleteMany({ where: { organizationId: orgA, membershipId: ownerMembership.id, permissionId: sendPermission.id } });
+    const retried = (await inject(owner, "POST", `/conversations/${opened.id}/messages`, retryBody)).json(); assert.equal(retried.id, rejected.id); assert.equal(retried.status, "PENDING"); unknown = false; await activeWorker.runConnection(scope()); await sessions.settle(scope()); await activeWorker.runConnection(scope()); assert.equal(sends, 5);
+
+    await inject(owner, "PUT", `${route}/${channelId}/capabilities`, { outboundEnabled: false, mediaEnabled: false });
+    await inject(owner, "POST", `/conversations/${opened.id}/messages`, { body: "blocked", clientMessageId: randomUUID() }, 409); assert.equal(sends, 5);
+    const history = vault.get(scope())?.historyOperation; assert.equal(history, undefined);
+  } finally {
+    releaseSlow?.(); await activeApp.close(); await sessions.shutdown(); await source.close(); await rm(directory, { recursive: true, force: true });
+    await db.session.update({ where: { id: owner.sessionId }, data: { currentOrganizationId: orgA } });
+    await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { outboundEnabled: original.outboundEnabled, mediaEnabled: original.mediaEnabled, historyOperation: original.historyOperation ?? Prisma.DbNull, state: original.state, providerRevision: original.providerRevision, errorCode: original.errorCode, lastCheckedAt: original.lastCheckedAt, leaseToken: null, leaseUntil: null } });
+  }
+});
+
+test("B3 demand media revalidates tenant/visibility and keeps authenticated bytes separate from metadata", async () => {
+  const payload = Buffer.from("synthetic image bytes"), hash = createHash("sha256").update(payload).digest("hex"), id = randomUUID(); let downloads = 0;
+  const mediaProvider: WebProviderPort = { ...provider, ready: () => provider.ready(), create: s => provider.create(s), session: s => provider.session(s), command: (s,a) => provider.command(s,a), qr: () => provider.qr(), pull: s => provider.pull(s), ack: (s,id) => provider.ack(s,id), nack: (s,id) => provider.nack(s,id), uploadMedia: async (s, meta, source) => { assert.equal(s.organizationId, orgA); const chunks: Buffer[] = []; for await (const chunk of source) chunks.push(Buffer.from(chunk)); const bytes = Buffer.concat(chunks); assert.deepEqual(bytes, payload); assert.equal(meta.sha256, hash); return { ...meta, state: "READY" }; }, send: async (_s, intent) => { assert.equal(intent.media?.type, "IMAGE"); return { outcome: "DISPATCHED", providerMessageId: intent.providerMessageId }; }, readMedia: async s => { assert.equal(s.organizationId, orgA); downloads++; return { stream: Readable.from([payload]), size: payload.length, sha256: hash, mimeType: "image/png" }; } };
+  const activeConfig = { ...config, PROVIDER_OUTBOUND_ENABLED: true, PROVIDER_MEDIA_ENABLED: true }, mediaApp = await buildApp(activeConfig, db, redis, false, undefined, mediaProvider);
+  const thread = await db.conversation.findFirstOrThrow({ where: { organizationId: orgA, channelId, providerConversationId: "5581999999999@s.whatsapp.net" } });
+  const meta = { mediaId: id, type: "IMAGE", mimeType: "image/png", fileName: "synthetic.png", size: payload.length, sha256: hash, state: "PENDING" };
+  const message = await db.message.create({ data: { organizationId: orgA, channelId, conversationId: thread.id, type: "IMAGE", direction: "INBOUND", body: null, mediaMetadata: meta } });
+  const url = `/api/v1/conversations/${thread.id}/messages/${message.id}/media`;
+  await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { mediaEnabled: true, outboundEnabled: true, state: "CONNECTED", lastCheckedAt: new Date(), errorCode: null } });
+  try {
+    const uploadId = randomUUID(), query = new URLSearchParams({ mediaId: uploadId, type: "IMAGE", mimeType: "image/png", fileName: "synthetic.png", size: String(payload.length), sha256: hash }), uploadUrl = `/api/v1/conversations/${thread.id}/media?${query}`;
+    const noCsrf = await mediaApp.inject({ method: "POST", url: uploadUrl, payload, headers: { cookie: owner.cookie, origin, "content-type": "application/octet-stream" } }); assert.equal(noCsrf.statusCode, 403);
+    const uploaded = await mediaApp.inject({ method: "POST", url: uploadUrl, payload, headers: { cookie: owner.cookie, origin, "content-type": "application/octet-stream", "x-csrf-token": owner.csrf } }); assert.equal(uploaded.statusCode, 200, uploaded.body);
+    const uploadRow = await db.media.findUniqueOrThrow({ where: { id: uploadId } }); assert.equal(uploadRow.organizationId, orgA); assert.equal(uploadRow.actorUserId, owner.userId);
+    const accepted = await mediaApp.inject({ method: "POST", url: `/api/v1/conversations/${thread.id}/messages`, payload: { body: "", mediaId: uploadId, clientMessageId: randomUUID() }, headers: { cookie: owner.cookie, origin, "x-csrf-token": owner.csrf } }); assert.equal(accepted.statusCode, 200, accepted.body); const sent = accepted.json(); assert.equal(sent.type, "IMAGE"); assert.equal(sent.status, "PENDING");
+    const mediaChat = new Chat(db, activeConfig, async () => undefined, new DemoProvider(), new MessageIngestionService()); await new WebProviderWorker(db, mediaChat, mediaProvider).runConnection(scope()); assert.equal((await db.media.findUniqueOrThrow({ where: { id: uploadId } })).messageId, sent.id);
+    const foreign = await mediaApp.inject({ url, headers: { cookie: other.cookie, origin } }); assert.equal(foreign.statusCode, 403); assert.equal(downloads, 0);
+    const response = await mediaApp.inject({ url, headers: { cookie: owner.cookie, origin } }); assert.equal(response.statusCode, 200, response.body); assert.deepEqual(response.rawPayload, payload); assert.equal(response.headers["cache-control"], "no-store, private"); assert.equal(downloads, 1);
+    const partial = await mediaApp.inject({ url, headers: { cookie: owner.cookie, origin, range: "bytes=1-5" } }); assert.equal(partial.statusCode, 206); assert.deepEqual(partial.rawPayload, payload.subarray(1,6)); assert.equal(partial.headers["content-range"], `bytes 1-5/${payload.length}`); assert.equal(downloads, 2);
+    const invalidRange = await mediaApp.inject({ url, headers: { cookie: owner.cookie, origin, range: "bytes=999-1000" } }); assert.equal(invalidRange.statusCode, 416); assert.equal(downloads, 3);
+    await db.conversation.update({ where: { organizationId_id: { organizationId: orgA, id: thread.id } }, data: { assignedUserId: denied.userId, visibility: "NONE", visibleFromMessage: message.sequence + 1n } });
+    const membership = await db.membership.findFirstOrThrow({ where: { organizationId: orgA, userId: denied.userId } }), permission = await db.permission.findUniqueOrThrow({ where: { code: "messages.read" } });
+    await db.membershipPermissionOverride.create({ data: { organizationId: orgA, membershipId: membership.id, permissionId: permission.id, effect: "GRANT" } });
+    const hidden = await mediaApp.inject({ url, headers: { cookie: denied.cookie, origin } }); assert.equal(hidden.statusCode, 404); assert.equal(downloads, 3);
+    await db.membershipPermissionOverride.deleteMany({ where: { membershipId: membership.id } });
+    await db.conversation.update({ where: { organizationId_id: { organizationId: orgA, id: thread.id } }, data: { assignedUserId: owner.userId, visibility: "FULL", visibleFromMessage: 0n } });
+  } finally { await mediaApp.close(); await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { mediaEnabled: false, outboundEnabled: false } }); }
+});
+
+test("B4 delivered bootstrap uses scoped correlation without spending or replacing an ON_DEMAND grant", async () => {
+  const before = await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } });
+  const granted = before.historyOperation, calls = provider.calls.length;
+  const batch = syncBatch([{ kind: "conversation", identity: { externalId: "b4-bootstrap-metadata@lid", name: "Synthetic metadata only" }, metadata: { archived: true } }]);
+  batch.correlationId = bootstrapCorrelationId(scope());
+  await leased(token => ingestion.apply(scope(), batch, token));
+  const after = await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } });
+  assert.deepEqual(after.historyOperation, granted); assert.equal(provider.calls.length, calls);
+  const thread = await db.conversation.findFirstOrThrow({ where: { organizationId: orgA, channelId, providerConversationId: "b4-bootstrap-metadata@lid" } });
+  assert.equal(thread.status, "OPEN"); assert.equal(await db.message.count({ where: { conversationId: thread.id } }), 0);
+});
+
+test("B5 lifecycle HTTP/outbox/Worker/HMAC authorizes one recovery, fences stops and reports unconfirmed unlink", async () => {
+ const directory = await mkdtemp(join(tmpdir(), "b5-lifecycle-")), vaultKey = randomBytes(32), vault = new Vault(join(directory, "sessions"), vaultKey); await vault.initialize();
+ const journal = new EventJournal(vault), key = randomBytes(32), auth = new InternalAuth(key, join(directory, "nonces")); await auth.initialize();
+ const creds = JSON.stringify({ me: { id: "synthetic@lid" }, signedIdentityKey: { private: "synthetic", public: "synthetic" }, noiseKey: { private: "synthetic", public: "synthetic" } });
+ await vault.update(scope(), r => { r.auth = creds; r.state = "FAILED"; r.errorCode = "RECONNECT_LIMIT"; r.attempts = 5; r.desired = true; });
+ let starts = 0; const callbacks: TransportCallbacks[] = [], timers: { run: () => void; delay: number; canceled: boolean }[] = [];
+ const sessions = new Sessions(vault, journal, async (_scope, cb) => { starts++; callbacks.push(cb); assert.equal(vault.get(scope())?.recovery?.state, "RUNNING"); return { close() {}, logout: async () => "CONFIRMED" }; }, true, (run, delay) => { const t = { run, delay, canceled: false }; timers.push(t); return () => { t.canceled = true; }; }, Date.now, undefined, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true });
+ const source = createHttp(sessions, journal, auth), url = await source.listen({ host: "127.0.0.1", port: 0 }), client = new WebProviderClient(url, key), api = await buildApp(config, db, redis, false, undefined, client), activeWorker = new WebProviderWorker(db, chat, client);
+ const original = await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } }), originalChannel = await db.channel.findUniqueOrThrow({ where: { organizationId_id: { organizationId: orgA, id: channelId } } }), ids: string[] = [];
+ const read = async () => (await api.inject({ method: "GET", url: `/api/v1${route}`, headers: { origin, cookie: owner.cookie } })).json().connection;
+ const submit = async (action: "recover" | "disconnect" | "logout", values = {}, a = owner, status = 200) => { const commandId = randomUUID(); ids.push(commandId); const response = await api.inject({ method: "POST", url: `/api/v1${route}/${channelId}/commands`, headers: { origin, cookie: a.cookie, "x-csrf-token": a.csrf }, payload: { action, commandId, expectedVersion: (await read()).version, ...values } }); assert.equal(response.statusCode, status, response.body); return commandId; };
+ try {
+  await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { providerRevision: 0, state: "FAILED", errorCode: "RECONNECT_LIMIT", providerSync: Prisma.DbNull } });
+  await activeWorker.runConnection(scope()); assert.equal(starts, 0); assert.equal((await read()).lifecycle.recoveryEligible, true);
+  await submit("recover", {}, owner, 400); await submit("recover", { confirmed: true }, denied, 403); await submit("recover", { confirmed: true }, other, 404);
+  const noCsrf = await api.inject({ method: "POST", url: `/api/v1${route}/${channelId}/commands`, headers: { origin, cookie: owner.cookie }, payload: { action: "recover", confirmed: true, commandId: randomUUID(), expectedVersion: (await read()).version } }); assert.equal(noCsrf.statusCode, 403);
+  const badOrigin = await api.inject({ method: "POST", url: `/api/v1${route}/${channelId}/commands`, headers: { origin: "https://untrusted.invalid", cookie: owner.cookie, "x-csrf-token": owner.csrf }, payload: { action: "recover", confirmed: true, commandId: randomUUID(), expectedVersion: (await read()).version } }); assert.equal(badOrigin.statusCode, 403);
+  const id = await submit("recover", { confirmed: true }); await activeWorker.runConnection(scope()); assert.equal(starts, 1); assert.equal((await read()).lifecycle.recovery.state, "RUNNING");
+  await api.inject({ method: "POST", url: `/api/v1${route}/${channelId}/commands`, headers: { origin, cookie: owner.cookie, "x-csrf-token": owner.csrf }, payload: { action: "recover", confirmed: true, commandId: id, expectedVersion: 1 } }); await activeWorker.runConnection(scope()); assert.equal(starts, 1);
+  callbacks[0]!.connection({ state: "close", code: 503 }); await sessions.settle(scope()); await activeWorker.runConnection(scope()); assert.equal((await read()).lifecycle.recovery.state, "FAILED");
+  const cancelled = await submit("recover", { confirmed: true }); await submit("disconnect"); await activeWorker.runConnection(scope()); assert.equal(starts, 1); assert.equal((await read()).state, "DISCONNECTED"); assert.equal((await read()).lifecycle.termination.remote, "NOT_REQUESTED"); assert.equal((await db.providerCommand.findUniqueOrThrow({ where: { id: cancelled } })).errorCode, "CONNECTION_STOP_AUTHORIZED");
+  await assert.rejects(client.command(scope(), "connect", randomUUID(), 1), /STALE_CONTROL_COMMAND/); await sessions.recover(); assert.equal(starts, 1);
+  await submit("recover", { confirmed: true }); await activeWorker.runConnection(scope()); assert.equal(starts, 2); callbacks[1]!.connection({ state: "open" }); await sessions.settle(scope()); await activeWorker.runConnection(scope()); assert.equal((await read()).lifecycle.recovery.state, "AUTHENTICATED");
+  timers.find(t => !t.canceled && t.delay === 30000)!.run(); await sessions.settle(scope()); await activeWorker.runConnection(scope()); assert.equal((await read()).lifecycle.recovery.state, "SUCCEEDED"); assert.equal(vault.get(scope())?.attempts, 7);
+  await submit("disconnect"); await activeWorker.runConnection(scope()); await submit("logout", {}, owner, 400); await submit("logout", { confirmed: true }); await activeWorker.runConnection(scope()); const stopped = await read(); assert.equal(stopped.state, "DISCONNECTED"); assert.equal(stopped.lifecycle.termination.remote, "UNCONFIRMED"); assert.equal(stopped.lifecycle.termination.errorCode, "LOGOUT_TRANSPORT_UNAVAILABLE"); assert.equal(vault.get(scope())?.auth, creds); assert.equal(stopped.sendingEnabled, false);
+  await sessions.shutdown(); const restoredVault = new Vault(vault.directory, vaultKey); await restoredVault.initialize(); // no network is involved in the persisted intent check
+  assert.equal(restoredVault.get(scope())?.desired, false); assert.equal(starts, 2);
+ } finally {
+  await api.close(); await sessions.shutdown(); await source.close(); await db.providerCommand.deleteMany({ where: { organizationId: orgA, id: { in: ids } } });
+  await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { state: original.state, errorCode: original.errorCode, providerRevision: original.providerRevision, pairingPhase: original.pairingPhase, version: original.version, providerSync: original.providerSync ?? Prisma.DbNull, historyOperation: original.historyOperation ?? Prisma.DbNull, outboundEnabled: original.outboundEnabled, mediaEnabled: original.mediaEnabled } }); await db.channel.update({ where: { organizationId_id: { organizationId: orgA, id: channelId } }, data: { status: originalChannel.status } }); await rm(directory, { recursive: true, force: true });
+ }
 });

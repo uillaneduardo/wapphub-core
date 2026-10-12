@@ -77,3 +77,28 @@ em scripts/provider-normalization-bench.ts; evidência externa em deploy-records
 Auditoria, riscos, infraestrutura, migrations futuras e rollback:
 [WHATSAPP_WEB_AUDIT.md](WHATSAPP_WEB_AUDIT.md). Etapas seguintes aguardam resolução
 da versão Baileys (RC7 mantida versus requisito de estável;6.x sem manutenção).
+
+
+## Extensões da consolidação B2–B4 (branches de revisão)
+
+O envelope canônico `sync.batch` não mudou. Ingressão clássica preserva seu Inbox
+original e delega persistência ao mesmo WebSync. Bootstrap já entregue usa
+correlação determinística scoped, separada de ON_DEMAND; não é autorização remota.
+
+Contratos aditivos SDK-independentes: `contracts/provider-outbound.ts` (resolução
+E.164 VALID/NOT_FOUND/UNKNOWN, intentId/providerMessageId reservados pelo Core,
+DISPATCHED/UNKNOWN/NOT_SENT) e `contracts/provider-media.ts` (manifest/hashes/limites).
+ProviderCommand existente é o outbox, Message SQL registra ator/status, Vault
+registra resultado antes do SDK. ID/HTTP sucesso não confirma entrega. Source
+não recebe decisão de RBAC nem inventa autor. SDK/rede não fazem parte do Core.
+
+Rotas internas assinadas acrescentam recipients/resolve, messages e media por ID.
+Bytes somente em upload explícito/download autenticado sob demanda; manifest
+HMAC/hash/tamanho, cache AES-GCM/TTL/quotas. Frontend usa Core, sem referência
+privada/URL/chave do Provider. Outbound/media dependem de gates técnicos false
+por padrão e configuração tenant-scoped autorizada. Contrato REST oficial em
+openapi.json; detalhes e limites em
+[IMPLEMENTATION](WHATSAPP_WEB_CONSOLIDATION_IMPLEMENTATION.md).
+
+Código/testes em revisão; nenhum deploy ou prova de disponibilidade WhatsApp real
+nesta etapa. [Plano B5](WHATSAPP_WEB_CONSOLIDATION_B5.md).

@@ -473,6 +473,11 @@ test("OpenAPI preserves every foundation and M1 route and adds M2.1 permissions 
     "/app/bootstrap",
   ];
   const chatPaths = [
+    "/channels",
+    "/conversations/external",
+    "/conversations/{id}/media",
+    "/conversations/{id}/messages/{messageId}/media",
+    "/providers/whatsapp-web/connections/{id}/capabilities",
     "/contacts",
     "/contacts/realtime/events",
     "/contacts/{id}",
@@ -520,6 +525,9 @@ test("OpenAPI preserves every foundation and M1 route and adds M2.1 permissions 
   assert.ok(doc.paths["/api/v1/providers/demo"].put.security[0].csrf);
   assert.ok(doc.paths["/api/v1/providers/whatsapp-web/connections/{id}/commands"].post.security[0].csrf);
   assert.ok(doc.paths["/api/v1/providers/whatsapp-web/connections/{id}/qr"].get.security[0].webSession);
+  for (const [path, method] of [["/conversations/external", "post"], ["/conversations/{id}/media", "post"], ["/providers/whatsapp-web/connections/{id}/capabilities", "put"]] as const) assert.ok(doc.paths["/api/v1" + path][method].security[0].csrf);
+  assert.equal(doc.paths["/api/v1/conversations/{id}/media"].post.requestBody.content["application/octet-stream"].schema.format, "binary");
+  assert.equal(doc.paths["/api/v1/conversations/{id}/messages/{messageId}/media"].get.responses["200"].content["image/jpeg"].schema.format, "binary");
   assert.doesNotMatch(
     JSON.stringify(doc),
     /MetaIntegration|subscriptions/,
