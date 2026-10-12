@@ -82,3 +82,8 @@ Estado PUBLICADO — AGUARDANDO_RECUPERACAO_DA_SESSAO. Próxima ação humana: *
 Rollback preparado/configurado, não executado: Provider `b5-safe-8dbd7fb` (mesmo digest final compatível) com gates/connect false; CP4.7 Provider proibido como reversão automática. Core/Chat antigos somente com Web desabilitado no Core para impedir sua tradução antiga disconnect→logout. Migração12 permanece instalada; não restaurar snapshot antigo de auth/Signal em volume vivo. Esta estratégia é estabilização, não alegação de retorno binário Provider ao CP4.7.
 
 Relatório atual completo no homelab: 20261012-consolidation-b5/RELATORIO.md, DEPLOY.md, TESTES.md, BACKUPS.md, ROLLBACK.md, HOMOLOGACAO.md; manifest e smokes em retomada-publicacao/. Sem recuperação real/B6 realizada.
+
+
+## Piloto isolado QA — publicação técnica12/10/2026
+
+Estado QA_PRONTO_PARA_VINCULACAO, sem concluir B5/B6 para a sessão antigaFAILED/RECONNECT_LIMIT/attempts10. Chat qa-text-7ae2018 publicado; Core/Worker/Providerp0link-e6aa1c6 não reiniciados. CLI administrativo CorePR34 cria QA/Owner/canal e registro criptografado ocioso com IDs estáveis e auditoria, sem QR. Backup/restauração isolada/CI134/126/326 e smokes aprovados, schema12 inalterado. Capability de texto somente (ChatPR25) disponível ao Owner depois do vínculo; ambas as conexões ainda false para envio/mídia, gates históricosfalse. Rollback apenas Chatp0link-49bc91d, sem apagamento de QA/Signal ou downgrade. Fluxo humano, identidades pendentes de Supervisor/Agent, imagens e evidências no progresso canônico e20261012-qa-real-pilot/HOMOLOGACAO.md. Dados antigos não copiados; auth/Signal/recibos/história aposentados preservados. Sem operações reais de WhatsApp pelo Codex.

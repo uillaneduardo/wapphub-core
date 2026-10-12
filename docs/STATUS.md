@@ -1,3 +1,13 @@
+# Piloto WappHub QA — preparado e publicado em12/10/2026
+
+**QA_PRONTO_PARA_VINCULACAO.** Organização QA ACTIVE isolada, Owner existente com Membership oficial, canal WHATSAPP_WEB e sessão criptografada próprios. Zero contatos/conversas/mensagens copiados. Backend confirma pairingEligible=true, DISCONNECTED, attempts0, transporte inativo; QR somente por gesto administrativo. Supervisor/Agent aguardam identidades/e-mails reais; nenhum login/senha/convite fictício.
+
+Chat publicado `wapphub-chat:qa-text-7ae2018`, [PR25](https://github.com/uillaneduardo/wapphub-chat/pull/25), com **Autorizar envio de texto** sem habilitar mídia. Core [PR34](https://github.com/uillaneduardo/wapphub-core/pull/34) disponibiliza CLI administrativo idempotente/Prisma/RBAC/auditoria; executado em imagem transitória `qa-admin-236b1ff`. API/Worker/Provider produtivos continuam `p0link-e6aa1c6`, sem mudança funcional de runtime/restart; DB/Redis/demais apps preservados e schema12 inalterado.
+
+Core134/134, Provider126/126, Chat326/326 e CI dos heads/mains/lint/typecheck/build/Prisma/OpenAPI/drift aprovados. Backups DB/Vault/configuração e restauração isolada verificados. Seishealthy/readiness/smokes de leitura/Redis/realtime, backlog0; capabilitiesfalse nas duas conexões, gates históricosfalse. Sessão antiga agora FAILED/RECONNECT_LIMIT/attempts10, sem transporte; auth/Signal aposentados/história e dados internos preservados. Histórico1→1solicitações/0→0mensagens. Nenhum QR/recover/logout/prepare_link/consulta/envio/upload/histórico real pelo executor.
+
+Homologação QR→CONNECTED→texto no celular exclusivamente pelo usuário no notebook; não HOMOLOGADO nem B5 concluído para conta antiga. [Progresso canônico](WHATSAPP_WEB_CONSOLIDATION_PROGRESS.md); relatórios/evidências em20261012-qa-real-pilot/. Registros abaixo são históricos.
+
 # P0 vínculo — publicação técnica12/10/2026,18:50UTC
 
 **INTERFACE_CORRIGIDA_PUBLICADA — AGUARDANDO_VINCULACAO_HUMANA.** Core/Worker/Provider`p0link-e6aa1c6`, Chat`p0link-49bc91d`, PRs[Core32](https://github.com/uillaneduardo/wapphub-core/pull/32)/[Chat23](https://github.com/uillaneduardo/wapphub-chat/pull/23), CI133/126/325 verde. Janela256 suporta comandos administrativos com fencing; erro específico/permanente, metadados de operação e reconciliação REST limitada/Verificar novamente/declaração humana por checkbox publicados. Backup/restauração isolada/migration12/Prisma/OpenAPI/imagens/smokes aprovados. Seishealthy; DB/Redis/outras aplicações preservados.
