@@ -1,6 +1,6 @@
 # Gerenciamento simplificado do vínculo WhatsApp
 
-Implementação autorizada em12/10/2026; publicação/homologação dependem dos gates registrados no progresso canônico.
+Publicado em 12/10/2026 às14:55UTC: Core/Worker/Providerc90099b e Chatdd731cb. CI133/125/322 e smokes aprovados. Homologação humana pendente, sessão parada/logoutUNCONFIRMED; ver progresso canônico.
 
 ## Fluxo e contratos existentes
 

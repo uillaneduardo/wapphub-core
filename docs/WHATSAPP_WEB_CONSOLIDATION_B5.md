@@ -1,6 +1,14 @@
+# Atualização de gerenciamento — 12/10/2026, 14:55 UTC
+
+**INTERFACE_WHATSAPP_PUBLICADA — AGUARDANDO_HOMOLOGACAO.** Core/Worker/Providerc90099b e Chatdd731cb publicados após CI133/125/322, backup/restauração e smokes. Não concluir homologação B6: sessão atual DISCONNECTED/logoutUNCONFIRMED após ação do usuário anterior à execução; auth/Signal/attempts5 intactos, sem socket. Nova vinculação requer declaração administrativa de remoção pelo celular; recovery não é elegível neste estado.
+
+Não houve novo grant histórico, solicitação remota, recovery, logout ou QR acionado pelo Codex. Atendimento preexistente autorizado preservado; nova preparação desabilita capacidades até reautorização humana. Nenhuma migration nova; rollback Provider deve compreender pairingAuthorization/retiredSessions e conservar todos os fencing/recibos. [Contrato atualizado](WHATSAPP_WEB_LINK_MANAGEMENT.md), [progresso/evidências](WHATSAPP_WEB_CONSOLIDATION_PROGRESS.md). Relatórios em20261012-whatsapp-link-simplification/. A autorização desta entrega não permite executar controles reais para homologar.
+
+Os planos/relatórios abaixo preservam a execução B5 anterior.
+
 # B5 — integração e publicação controlada
 
-**Estado atual: `PUBLICADO — AGUARDANDO_RECUPERACAO_DA_SESSAO` (2026-10-12).** Retomada autorizou merges/publicação técnica, mas proibiu recuperação real, logout, QR, envio/consulta/upload e histórico remoto. Core/Worker/Provider8dbd7fb e Chat6e92234 publicados; migration12, backups/restauração isolada, CI e smokes aprovados. A sessão FAILED/RECONNECT_LIMIT/attempts5 permanece sem socket e elegível para uma tentativa administrativa no Chat. B5 não está concluído; B6 continua pendente. Os registros datados abaixo preservam as execuções anteriores, sem substituir este estado vigente.
+**Estado da publicação anterior: `PUBLICADO — AGUARDANDO_RECUPERACAO_DA_SESSAO` (2026-10-12).** Retomada autorizou merges/publicação técnica, mas proibiu recuperação real, logout, QR, envio/consulta/upload e histórico remoto. Core/Worker/Provider8dbd7fb e Chat6e92234 publicados; migration12, backups/restauração isolada, CI e smokes aprovados. A sessão FAILED/RECONNECT_LIMIT/attempts5 permanece sem socket e elegível para uma tentativa administrativa no Chat. B5 não está concluído; B6 continua pendente. Os registros datados abaixo preservam as execuções anteriores, sem substituir este estado vigente.
 
 B1–B4 produziram branches/PRs e validação técnica; o usuário autorizou B5 nesta execução. B6 é homologação humana. Fonte canônica: [PROGRESS](WHATSAPP_WEB_CONSOLIDATION_PROGRESS.md); escopo final: [IMPLEMENTATION](WHATSAPP_WEB_CONSOLIDATION_IMPLEMENTATION.md).
 
