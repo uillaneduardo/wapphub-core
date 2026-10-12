@@ -1,3 +1,9 @@
+# P0 vínculo — publicação técnica12/10/2026,18:50UTC
+
+**INTERFACE_CORRIGIDA_PUBLICADA — AGUARDANDO_VINCULACAO_HUMANA.** Core/Worker/Provider`p0link-e6aa1c6`, Chat`p0link-49bc91d`, PRs[Core32](https://github.com/uillaneduardo/wapphub-core/pull/32)/[Chat23](https://github.com/uillaneduardo/wapphub-chat/pull/23), CI133/126/325 verde. Janela256 suporta comandos administrativos com fencing; erro específico/permanente, metadados de operação e reconciliação REST limitada/Verificar novamente/declaração humana por checkbox publicados. Backup/restauração isolada/migration12/Prisma/OpenAPI/imagens/smokes aprovados. Seishealthy; DB/Redis/outras aplicações preservados.
+
+WhatsApp permaneceDISCONNECTED/logoutUNCONFIRMED/attempts5/sem transporte. Credenciais, Signal, recibos, histórico e dados internos intactos; nenhuma operação real QR/logout/recover/preparação/envio/upload/histórico acionada pelo Codex. Vinculação elegível somente com confirmação humana de remoção no celular; recovery não elegível. Envio/mídia por conexãofalse, gates históricosfalse, requests1→1/históricos0→0. Nenhuma migration nova. B5 não concluído/B6 pendente. [Progresso](WHATSAPP_WEB_CONSOLIDATION_PROGRESS.md), [contrato](WHATSAPP_WEB_LINK_MANAGEMENT.md); relatórios20261012-p0-link-reconciliation/. Registros abaixo são históricos.
+
 # Atualização de gerenciamento — 12/10/2026, 14:55 UTC
 
 **INTERFACE_WHATSAPP_PUBLICADA — AGUARDANDO_HOMOLOGACAO.** Core/Worker/Providerc90099b e Chatdd731cb publicados após CI133/125/322, backup/restauração e smokes. Não concluir homologação B6: sessão atual DISCONNECTED/logoutUNCONFIRMED após ação do usuário anterior à execução; auth/Signal/attempts5 intactos, sem socket. Nova vinculação requer declaração administrativa de remoção pelo celular; recovery não é elegível neste estado.
