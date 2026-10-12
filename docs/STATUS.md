@@ -1,3 +1,13 @@
+# Estado vigente — consolidação WhatsApp Web B5 (12/10/2026)
+
+**PUBLICADO — AGUARDANDO_RECUPERACAO_DA_SESSAO.** Core/API/Worker e Provider8dbd7fb, Chat6e92234 publicados, migration12 aditiva aplicada após backup/restauração isolada verificados. Seis serviços healthy/ready, mas a conta permanece FAILED/RECONNECT_LIMIT/attempts5 e sem socket. B5 não concluído; B6 não homologado.
+
+Recuperação administrativa, parada local e desvinculação distintas, atendimento por contato/E.164 e multimídia estão publicados tecnicamente. Envio/mídia permanecemfalse por conexão; histórico remoto pausado e execution gatesfalse. Backend confirma elegibilidade de **Recuperar vínculo existente**, com uma tentativa após confirmação humana no Chat. Nenhuma recuperação real, logout, QR, consulta/envio/upload/fetch real nesta publicação. Auth/Signal/history e dados administrativos preservados.
+
+Core133/133, Provider117/117, Chat300/300 e CI dos SHAs de runtime verdes; schema/drift/OpenAPI/backup/restore/imagens/smokes aprovados. Homologação funcional/visual exige conexão e será feita pelo usuário no notebook. [Progresso canônico](WHATSAPP_WEB_CONSOLIDATION_PROGRESS.md) · [deploy e recuperação](WHATSAPP_WEB_CONSOLIDATION_B5.md).
+
+Os registros abaixo são históricos e não descrevem a disponibilidade atual da conta.
+
 # Estado vigente — WhatsApp Web CP4 (11/10/2026)
 
 Sincronização contínua publicada e funcionalmente homologada pelo usuário: recebimento realtime, persistência, deduplicação, saída pelo celular, identificação visual e diagnóstico aprovados. Latência observada aproximadamente1 segundo, sem promessa de SLA. [Aceite formal](WHATSAPP_WEB_CP4_ACCEPTANCE.md).
