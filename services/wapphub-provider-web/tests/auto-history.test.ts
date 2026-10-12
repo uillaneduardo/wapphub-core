@@ -7,7 +7,7 @@ import { HistoryImporter } from "../src/history-operation.js";
 import { Vault } from "../src/vault.js";
 import { normalizeSyncMessage } from "../src/sync-normalization.js";
 import type { HistorySpec } from "../../../contracts/history.js";
-const spec = (messages = 20): HistorySpec => ({ id: randomUUID(), from: new Date(Date.now() - 30 * 86400000).toISOString(), to: new Date().toISOString(), limits: { contacts: 500, conversations: 500, messages }, anchors: [{ chatId: "anchor@lid", messageId: "known", fromMe: false, timestamp: Date.now() }] });
+const spec = (messages = 20): HistorySpec => { const now = Date.now(); return ({ id: randomUUID(), from: new Date(now - 30 * 86400000).toISOString(), to: new Date(now).toISOString(), limits: { contacts: 500, conversations: 500, messages }, anchors: [{ chatId: "anchor@lid", messageId: "known", fromMe: false, timestamp: now }] }); };
 async function until(check: () => boolean) { for (let i = 0; i < 400; i++) { if (check()) return; await delay(10); } assert.fail("bounded synthetic wait expired"); }
 
 test("CP4.7 grants require exact scope, no-progress response and reconciliation preserve one bounded budget", async (t) => {
