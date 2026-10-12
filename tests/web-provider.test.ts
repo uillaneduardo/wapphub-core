@@ -21,8 +21,9 @@ import { MessageIngestionService } from "../src/application/message-ingestion.js
 import { WebHistory, selectHistoryAnchors } from "../src/application/web-history.js";
 import { HistoryImporter } from "../services/wapphub-provider-web/src/history-operation.js";
 import { Vault } from "../services/wapphub-provider-web/src/vault.js";
+import { ProviderMedia } from "../services/wapphub-provider-web/src/media.js";
 import { EventJournal } from "../services/wapphub-provider-web/src/events.js";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -633,7 +634,7 @@ test("B2/B3 HTTP Core -> SQL outbox -> signed Provider -> durable journal -> SQL
   const journal = new EventJournal(vault), internalKey = randomBytes(32), auth = new InternalAuth(internalKey, join(directory, "nonces")); await auth.initialize();
   let callbacks!: TransportCallbacks, sends = 0, resolves = 0, unknown = false; let resolveHook: (() => Promise<void>) | undefined; let releaseSlow: (() => void) | undefined;
   const sessions = new Sessions(vault, journal, async (_scope, cb) => { callbacks = cb; return { close() {}, logout: async () => undefined, resolveRecipient: async phone => { resolves++; await resolveHook?.(); return phone === "+5581999999999" ? { state: "VALID", jid: "5581999999999@s.whatsapp.net" } : { state: "UNKNOWN" }; }, send: async intent => { sends++; if (intent.body === "Synthetic slow") await new Promise<void>(resolve => { releaseSlow = resolve; }); if (unknown) throw new Error("synthetic uncertainty"); callbacks.receipt(intent.providerMessageId, "READ", intent.destination); } }; }, true, () => () => undefined, Date.now, () => undefined, { enabled: false, historyEnabled: false, outboundEnabled: true });
-  const source = createHttp(sessions, journal, auth), sourceUrl = await source.listen({ host: "127.0.0.1", port: 0 }), client = new WebProviderClient(sourceUrl, internalKey);
+  const providerCodes: string[] = [], source = createHttp(sessions, journal, auth, code => providerCodes.push(code), new ProviderMedia(vault, true)), sourceUrl = await source.listen({ host: "127.0.0.1", port: 0 }), client = new WebProviderClient(sourceUrl, internalKey);
   const activeConfig = { ...config, PROVIDER_OUTBOUND_ENABLED: true, PROVIDER_MEDIA_ENABLED: true };
   const activeApp = await buildApp(activeConfig, db, redis, false, undefined, client);
   const activeChat = new Chat(db, activeConfig, async () => { throw new Error("synthetic Redis wake unavailable"); }, new DemoProvider(), new MessageIngestionService()), activeWorker = new WebProviderWorker(db, activeChat, client);
@@ -690,6 +691,47 @@ test("B2/B3 HTTP Core -> SQL outbox -> signed Provider -> durable journal -> SQL
     await activeWorker.runConnection(scope()); assert.equal(sends, 4); assert.equal((await db.message.findUniqueOrThrow({ where: { id: rejected.id } })).deliveryOutcome, "NOT_SENT");
     await db.membershipPermissionOverride.deleteMany({ where: { organizationId: orgA, membershipId: ownerMembership.id, permissionId: sendPermission.id } });
     const retried = (await inject(owner, "POST", `/conversations/${opened.id}/messages`, retryBody)).json(); assert.equal(retried.id, rejected.id); assert.equal(retried.status, "PENDING"); unknown = false; await activeWorker.runConnection(scope()); await sessions.settle(scope()); await activeWorker.runConnection(scope()); assert.equal(sends, 5);
+
+    // Full synthetic binary path: session + Origin + CSRF + Core octet-stream
+    // parser + signed service request + Provider private encrypted cache.
+    const probeDir = join(directory, "probe-bin"); await mkdir(probeDir, { mode: 0o700 });
+    const probe = join(probeDir, "ffprobe"); await writeFile(probe, "#!/bin/sh\ncat >/dev/null\nprintf '%s' '{\"streams\":[{\"codec_type\":\"video\",\"codec_name\":\"png\"}],\"format\":{\"duration\":\"0\"}}'\n", { mode: 0o700 }); await chmod(probe, 0o700);
+    const oldPath = process.env.PATH!, memoryUsageDescriptor = Object.getOwnPropertyDescriptor(process, "memoryUsage")!; process.env.PATH = `${probeDir}:${oldPath}`;
+    // Prior SQL load fixtures can leave a high-water RSS in the shared Node
+    // test process; isolate this route contract from the production 384MiB
+    // backpressure threshold, which is exercised in the Provider image smoke.
+    Object.defineProperty(process, "memoryUsage", { configurable: true, value: () => ({ ...memoryUsageDescriptor.value.call(process), rss: 0 }) });
+    const imageBytes = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.from("synthetic-image")]), imageHash = createHash("sha256").update(imageBytes).digest("hex");
+    const makeMeta = (overrides: Partial<{ mediaId: string; type: string; mimeType: string; fileName: string; size: number; sha256: string }> = {}) => ({ mediaId: randomUUID(), type: "IMAGE", mimeType: "image/png", fileName: "synthetic.png", size: imageBytes.length, sha256: imageHash, ...overrides });
+    const uploadPath = (meta: ReturnType<typeof makeMeta>) => `/conversations/${opened.id}/media?${new URLSearchParams({ mediaId: meta.mediaId, type: meta.type, mimeType: meta.mimeType, fileName: meta.fileName, size: String(meta.size), sha256: meta.sha256 })}`;
+    const upload = (a: Auth, meta: ReturnType<typeof makeMeta>, payload: Readable | Buffer = imageBytes, headers: Record<string, string> = {}) => activeApp.inject({ method: "POST", url: "/api/v1" + uploadPath(meta), payload, headers: { "content-type": "application/octet-stream", origin, cookie: a.cookie, "x-csrf-token": a.csrf, ...headers } });
+    try {
+      await inject(owner, "PUT", `${route}/${channelId}/capabilities`, { outboundEnabled: true, mediaEnabled: true });
+      assert.equal((await activeApp.inject({ method: "POST", url: "/api/v1" + uploadPath(makeMeta()), payload: imageBytes, headers: { origin, "content-type": "application/octet-stream" } })).statusCode, 401);
+      assert.equal((await upload(owner, makeMeta(), imageBytes, { "x-csrf-token": "" })).statusCode, 403);
+      assert.equal((await activeApp.inject({ method: "POST", url: "/api/v1" + uploadPath(makeMeta()), payload: imageBytes, headers: { cookie: owner.cookie, "x-csrf-token": owner.csrf, origin: "https://untrusted.invalid", "content-type": "application/octet-stream" } })).statusCode, 403);
+      assert.equal((await upload(denied, makeMeta())).statusCode, 403);
+      assert.ok((await upload(other, makeMeta())).statusCode >= 400);
+      assert.ok((await activeApp.inject({ method: "POST", url: "/api/v1" + uploadPath(makeMeta()), payload: imageBytes, headers: { origin, cookie: owner.cookie, "x-csrf-token": owner.csrf, "content-type": "application/json" } })).statusCode >= 400);
+      const oversizedPayload = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(8 * 1024 * 1024 + 1 - 8)]), oversizedHash = createHash("sha256").update(oversizedPayload).digest("hex");
+      assert.equal((await upload(owner, makeMeta({ size: oversizedPayload.length, sha256: oversizedHash }), oversizedPayload)).statusCode, 415);
+      assert.ok((await upload(owner, makeMeta({ sha256: "0".repeat(64) }))).statusCode >= 400);
+      assert.ok((await upload(owner, makeMeta({ mimeType: "image/jpeg", fileName: "synthetic.jpg" }))).statusCode >= 400);
+      assert.ok(!(await readdir(join(vault.directory, "files"))).some(name => name.endsWith(".part")));
+
+      let continueUpload!: () => void, uploadStarted!: () => void; const started = new Promise<void>(resolve => { uploadStarted = resolve; }), releaseUpload = new Promise<void>(resolve => { continueUpload = resolve; });
+      const slowStream = Readable.from((async function* () { yield imageBytes.subarray(0, 12); uploadStarted(); await releaseUpload; yield imageBytes.subarray(12); })());
+      const pendingUpload = upload(owner, makeMeta(), slowStream); await started;
+      callbacks.text({ id: "b5-live-during-upload", chatId: "5581999999999@s.whatsapp.net", body: "Synthetic live during upload", fromMe: false, timestamp: Date.now() }); await sessions.settle(scope());
+      assert.ok((await journal.pull(scope(), 20)).some(item => item.event.type === "message.received")); continueUpload();
+      const acceptedUpload = await pendingUpload; assert.equal(acceptedUpload.statusCode, 200, `${acceptedUpload.body}; provider=${providerCodes.join(",")}`);
+      const cached = await readdir(join(vault.directory, "files")); assert.ok(cached.some(name => name.endsWith(".cache"))); assert.ok(!cached.some(name => name.endsWith(".part")));
+
+      const interruptedMeta = makeMeta(); let partialReachedProvider = false;
+      const interrupted = Readable.from((async function* () { yield imageBytes.subarray(0, 12); for (let i = 0; i < 100; i++) { if ((await readdir(join(vault.directory, "files"))).some(name => name.endsWith(".part"))) { partialReachedProvider = true; break; } await new Promise(resolve => setTimeout(resolve, 10)); } throw new Error("synthetic client interruption"); })());
+      try { await upload(owner, interruptedMeta, interrupted); } catch { /* Fastify closes the synthetic request after the partial client stream breaks. */ }
+      await new Promise(resolve => setTimeout(resolve, 50)); const afterInterrupt = await readdir(join(vault.directory, "files")); assert.equal(partialReachedProvider, true); assert.ok(!afterInterrupt.some(name => name.endsWith(".part")));
+    } finally { process.env.PATH = oldPath; Object.defineProperty(process, "memoryUsage", memoryUsageDescriptor); }
     await inject(owner, "PUT", `${route}/${channelId}/capabilities`, { outboundEnabled: false, mediaEnabled: false });
     await inject(owner, "POST", `/conversations/${opened.id}/messages`, { body: "blocked", clientMessageId: randomUUID() }, 409); assert.equal(sends, 5);
     const history = vault.get(scope())?.historyOperation; assert.equal(history, undefined);
