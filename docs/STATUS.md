@@ -1,3 +1,13 @@
+# Interface WhatsApp publicada — 12/10/2026, 14:55 UTC
+
+**INTERFACE_WHATSAPP_PUBLICADA — AGUARDANDO_HOMOLOGACAO.** Core/Worker/Provider `c90099b` e Chat `dd731cb` publicados, seis serviços healthy/ready; schema12 preservado, sem nova migration. CI dos mains aprovada: Core133/133, Provider125/125 e Chat322/322, lint/typecheck/build/Prisma/OpenAPI/drift. Backup consistente/restauração isolada e compatibilidade do Vault comprovados.
+
+Configurações → Provedores oferece uma ação contextual, QR integrado e detalhes recolhidos. Primeiro vínculo respeita proteção global e autorização por conexão; nova vinculação usa prepare_link somente após confirmação remota ou declaração explícita de remoção pelo celular, com aposentadoria criptografada limitada. Recuperação permanece uma tentativa autorizada, quando elegível. [Contrato e riscos](WHATSAPP_WEB_LINK_MANAGEMENT.md).
+
+**WhatsApp não está conectado:** houve logout solicitado pelo usuário antes desta execução; estado atual DISCONNECTED/UNCONFIRMED, desiredfalse, sem transporte, attempts5, credenciais/Signal preservados. Recuperação inelegível após intenção de logout; nova vinculação exige confirmar remoção do aparelho no celular. Nenhuma operação WhatsApp real foi acionada pelo Codex; histórico1→1solicitações/0mensagens, gates remotos fechados, autorizações de atendimento preexistentes preservadas. Homologação visual/funcional exclusiva do usuário; B6 não homologado.
+
+[Progresso canônico](WHATSAPP_WEB_CONSOLIDATION_PROGRESS.md). Evidências locais: `~/homelab/deploy-records/wapphub-provider-web/20261012-whatsapp-link-simplification/`. Registros abaixo descrevem publicações anteriores.
+
 # Estado vigente — consolidação WhatsApp Web B5 (12/10/2026)
 
 **PUBLICADO — AGUARDANDO_RECUPERACAO_DA_SESSAO.** Core/API/Worker e Provider8dbd7fb, Chat6e92234 publicados, migration12 aditiva aplicada após backup/restauração isolada verificados. Seis serviços healthy/ready, mas a conta permanece FAILED/RECONNECT_LIMIT/attempts5 e sem socket. B5 não concluído; B6 não homologado.

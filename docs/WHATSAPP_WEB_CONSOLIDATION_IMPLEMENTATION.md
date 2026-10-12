@@ -80,3 +80,7 @@ A falha foi reproduzida com RSS 443.039.744 bytes acima do gate 402.653.184 byte
 O bloqueio global de mídia continua em uma transferência, inclusive entre instâncias. Streams, processos FFprobe/FFmpeg, pipelines e caches incompletos são encerrados/limpos antes da liberação. O cliente Core destrói o stream de origem em finally e propaga somente erros permitidos. Transferência possui limite de 60s; falha/cancelamento não bloqueiam upload posterior. O teste HTTP passa pelo parser já registrado, sessão/Origin/CSRF, cliente HMAC, Provider e armazenamento privado criptografado, concomitante a evento live, sem rede WhatsApp.
 
 Critérios de retomada: três P0 cobertos por integração/regressão; Core/Provider/Chat, lint/typecheck/build, Prisma/schema12/drift/OpenAPI e CI dos heads finais verdes. Publicação, restauração isolada de backup produtivo e recuperação real continuam pendentes e dependem da retomada autorizada B5; STATUS de produção não foi alterado.
+
+## Simplificação publicada em12/10/2026
+
+Core/Provider PR30 e ChatPR21 acrescentam prepare_link ao outbox existente, elegibilidade e transporte confirmado; UI contextual com vinculação/QR integrado e encerramento remoto explícito. Nenhuma migration/fila/gerenciador de sessões adicional. Proteção global permanece, autorização inicial é escopada e não sobrevive a restart de pairing incompleto. [Fluxo, gates e limites](WHATSAPP_WEB_LINK_MANAGEMENT.md). Estado publicado e homologação humana são registrados somente no progresso/STATUS, sem presumir sessão conectada.
