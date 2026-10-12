@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient, ProviderConnection, ProviderCommand } from "@prisma/client";
-import type { ProviderSession } from "../../contracts/provider-internal.js";
+import { lifecycleSchema, type ProviderSession } from "../../contracts/provider-internal.js";
 import type { Principal } from "./foundation.js";
 import type { Chat } from "./chat.js";
 import type { WebProviderPort } from "../integrations/web-provider-client.js";
@@ -8,13 +8,14 @@ import { WebProviderError } from "../integrations/web-provider-client.js";
 import { AppError } from "../domain/errors.js";
 import { historyRecord } from "./web-history.js";
 import { syncProgress } from "./web-sync.js";
-export type ConnectionAction = "connect" | "refresh" | "disconnect";
-export type CommandInput = { commandId: string; action: ConnectionAction; expectedVersion: number };
+export type ConnectionAction = "connect" | "refresh" | "recover" | "disconnect" | "logout";
+export type CommandInput = { commandId: string; action: ConnectionAction; expectedVersion: number; confirmed?: boolean };
 const pending = { in: ["PENDING", "PROCESSING"] };
 export function connectionDTO(record: ProviderConnection, command?: ProviderCommand | null) {
   const state = record.state;
   const provider = record.providerSync && typeof record.providerSync === "object" && !Array.isArray(record.providerSync) ? { ...record.providerSync } : null;
-  if (provider) { delete provider.processingFailure; delete provider.activeTransport; }
+  const lifecycle = lifecycleSchema.safeParse(provider?.lifecycle);
+  if (provider) { delete provider.lifecycle; delete provider.processingFailure; delete provider.activeTransport; }
   const { failedBatches, lastBatch: _lastBatch, occurrences: _occurrences, diagnosticEvictions: _evictions, ...progress } = syncProgress(record.syncProgress);
   void _lastBatch; void _occurrences; void _evictions; // Private diagnostic fields require a separate permission.
   return { id: record.channelId, state,
@@ -25,7 +26,7 @@ export function connectionDTO(record: ProviderConnection, command?: ProviderComm
     pairingPhase: record.pairingPhase ?? null,
     sync: { ...progress, pendingFailures: Object.keys(failedBatches).length, provider },
     operation: command ? { id: command.id, action: command.action, status: command.status, errorCode: command.errorCode } : null,
-    sendingEnabled: record.outboundEnabled, mediaEnabled: record.mediaEnabled,
+    sendingEnabled: record.outboundEnabled, mediaEnabled: record.mediaEnabled, lifecycle: lifecycle.success ? lifecycle.data : null,
   };
 }
 export class WebConnections {
@@ -66,11 +67,20 @@ export class WebConnections {
         return this.dto(record, existing);
       }
       if (record.version !== input.expectedVersion) throw new AppError(409, "CONNECTION_VERSION_CONFLICT");
-      if (await tx.providerCommand.count({ where: { organizationId: c.organizationId, channelId: id, status: pending } })) throw new AppError(409, "CONNECTION_OPERATION_PENDING");
+      const stopping = ["disconnect", "logout"].includes(input.action);
+      if (["recover", "logout"].includes(input.action) && input.confirmed !== true) throw new AppError(400, "EXPLICIT_CONFIRMATION_REQUIRED");
+      if (!stopping && await tx.providerCommand.count({ where: { organizationId: c.organizationId, channelId: id, status: pending } })) throw new AppError(409, "CONNECTION_OPERATION_PENDING");
       if (input.action === "refresh" && (record.pairingPhase === "AUTHENTICATING" || !["QR_REQUIRED", "CONNECTING"].includes(record.state))) throw new AppError(409, "INVALID_SESSION_STATE");
       if (input.action === "connect" && record.state === "CONNECTED") throw new AppError(409, "CONNECTION_ALREADY_CONNECTED");
-      const command = await tx.providerCommand.create({ data: { id: input.commandId, organizationId: c.organizationId, channelId: id, actorUserId: c.userId, sessionId: p.session.id, action: input.action } });
-      const updated = await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: c.organizationId, channelId: id } }, data: { version: { increment: 1 } } });
+      if (input.action === "recover" && (!["FAILED", "DISCONNECTED"].includes(record.state) || ["SESSION_REVOKED", "SESSION_REPLACED", "BAD_SESSION"].includes(record.errorCode ?? ""))) throw new AppError(409, "RECOVERY_NOT_ELIGIBLE");
+      if (["connect", "refresh"].includes(input.action) && ["SESSION_REVOKED", "SESSION_REPLACED", "BAD_SESSION", "RECONNECT_LIMIT"].includes(record.errorCode ?? "")) throw new AppError(409, "CONTROLLED_RECOVERY_REQUIRED");
+      if (stopping) {
+        await tx.providerCommand.updateMany({ where: { organizationId: c.organizationId, channelId: id, status: pending, action: { in: ["connect", "refresh", "recover", "disconnect", "logout", "history_prepare", "history_start", "history_resume", "history_reconcile"] } }, data: { status: "FAILED", errorCode: "CONNECTION_STOP_AUTHORIZED" } });
+        const op = historyRecord(record.historyOperation); if (op?.authorization) { op.authorization.state = "PAUSED"; await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: c.organizationId, channelId: id } }, data: { historyOperation: op } }); }
+        await tx.channel.update({ where: { organizationId_id: { organizationId: c.organizationId, id } }, data: { status: "DISABLED" } });
+      }
+      const command = await tx.providerCommand.create({ data: { id: input.commandId, organizationId: c.organizationId, channelId: id, actorUserId: c.userId, sessionId: p.session.id, action: input.action, payload: { controlVersion: record.version + 1 } } });
+      const updated = await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: c.organizationId, channelId: id } }, data: { version: { increment: 1 }, ...(stopping ? { outboundEnabled: false, mediaEnabled: false } : {}) } });
       await tx.auditEvent.create({ data: { organizationId: c.organizationId, actorUserId: c.userId, action: `WHATSAPP_WEB_${input.action.toUpperCase()}_REQUESTED`, details: { channelId: id, commandId: input.commandId } } });
       await this.chat.resourceEvent(tx, c.organizationId, "provider.connection.updated", id);
       return this.dto(updated, command);

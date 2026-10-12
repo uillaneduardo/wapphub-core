@@ -2,7 +2,7 @@ import { createWebContact } from "./web-contact.js";
 import { mediaUploadSchema, mediaLimit, validMediaKind, type MediaUpload } from "../../contracts/provider-media.js";
 import { mediaReferenceSchema } from "../../contracts/provider.js";
 import { randomUUID } from "node:crypto";
-import type { WebProviderPort } from "../integrations/web-provider-client.js";
+import { WebProviderError, type WebProviderPort } from "../integrations/web-provider-client.js";
 import { internationalPhoneSchema, directJidSchema } from "../../contracts/provider-outbound.js";
 import { externalContactPresentation, trustedContactName, type PresentationIdentity } from "../integrations/provider-contact-presentation.js";
 import { resolvePermissions } from "../domain/resources.js";
@@ -541,6 +541,7 @@ export class Chat {
   }
   async webConnectionReady(tx: DB, organizationId: string, channelId: string) {
     const row = await tx.providerConnection.findFirst({ where: { organizationId, channelId, channel: { provider: "WHATSAPP_WEB", status: "ENABLED" } } });
+    if (await tx.providerCommand.count({ where: { organizationId, channelId, action: { in: ["disconnect", "logout"] }, status: { in: ["PENDING", "PROCESSING"] } } })) throw new AppError(409, "CONNECTION_STOP_AUTHORIZED");
     if (!this.outboundExecutionEnabled || !row?.outboundEnabled) throw new AppError(409, "PROVIDER_SEND_UNAVAILABLE");
     if (row.state !== "CONNECTED" || row.errorCode || !row.lastCheckedAt || row.lastCheckedAt.getTime() < Date.now() - 30000) throw new AppError(409, "PROVIDER_UNAVAILABLE");
     return row;
@@ -836,7 +837,7 @@ export class Chat {
     // Quotas are per actor and organization; aborted uploads expire in Provider.
     if (await this.db.media.count({ where: { organizationId: c.organizationId, expiresAt: { gt: new Date() }, messageId: null } }) >= 64) throw new AppError(429, "MEDIA_QUOTA_EXHAUSTED");
     let result;
-    try { result = await this.webProvider.uploadMedia({ organizationId: c.organizationId, connectionId: conversation.channelId }, meta.data, source); } catch { throw new AppError(503, "MEDIA_UPLOAD_FAILED"); }
+    try { result = await this.webProvider.uploadMedia({ organizationId: c.organizationId, connectionId: conversation.channelId }, meta.data, source); } catch (error) { if (error instanceof WebProviderError && ["MEDIA_BUSY", "MEDIA_MEMORY_PRESSURE", "MEDIA_CACHE_LIMIT", "MEDIA_INTEGRITY_FAILED", "MEDIA_SIZE_MISMATCH", "MEDIA_TYPE_MISMATCH", "MEDIA_CODEC_INVALID", "MEDIA_CODEC_UNAVAILABLE", "MEDIA_TRANSFER_TIMEOUT"].includes(error.code)) throw new AppError(error.status, error.code); throw new AppError(503, "MEDIA_UPLOAD_FAILED"); }
     if (result.mediaId !== meta.data.mediaId || result.type !== meta.data.type || !result.sha256 || result.size > mediaLimit(meta.data.type) || result.state !== "READY") throw new AppError(409, "MEDIA_INTEGRITY_FAILED");
     return this.mutation(p, "messages.send", async (tx, current) => {
       if (current.organizationId !== c.organizationId) throw new AppError(403, "ORGANIZATION_ACCESS_DENIED");

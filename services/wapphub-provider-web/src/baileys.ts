@@ -53,7 +53,7 @@ export async function encryptedAuth(vault: Vault, scope: Scope, failure: () => v
     };
     return { state: { creds, keys }, saveCreds, disable: (revoke = false) => { closed = true; revoked ||= revoke; }, isDisabled: () => closed };
 }
-type SocketCreator = (options: Parameters<typeof makeWASocket>[0]) => Pick<ReturnType<typeof makeWASocket>, "ev" | "end" | "logout"> & Partial<Pick<ReturnType<typeof makeWASocket>, "fetchMessageHistory" | "onWhatsApp" | "sendMessage">>;
+type SocketCreator = (options: Parameters<typeof makeWASocket>[0]) => Pick<ReturnType<typeof makeWASocket>, "ev" | "end" | "logout"> & Partial<Pick<ReturnType<typeof makeWASocket>, "fetchMessageHistory" | "onWhatsApp" | "sendMessage" | "query">>;
 export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; initialHistoryEnabled?: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; historyExecutionEnabled?: boolean; scopedHistoryAuthorization?: boolean; mediaEnabled?: boolean } = { enabled: false, historyEnabled: false }): TransportFactory {
   return async (scope, callbacks) => {
     const media = new ProviderMedia(vault, syncOptions.mediaEnabled === true);
@@ -316,6 +316,14 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
         const content = record.type === "IMAGE" ? { image: { stream }, mimetype: record.mimeType, caption: intent.body, jpegThumbnail: "" } : record.type === "VIDEO" ? { video: { stream }, mimetype: record.mimeType, caption: intent.body, jpegThumbnail: "" } : { audio: { stream }, mimetype: record.mimeType, ptt: record.type === "VOICE", seconds: record.seconds ?? 0, waveform: Buffer.alloc(0) };
         try { await socket.sendMessage(intent.destination, content, { messageId: intent.providerMessageId }); } finally { stream.destroy(); }
       }
-    }, history: (control) => importer.command(control), close: () => { clearTimeout(bootstrapTimer); importer.close(); downloads.abort(); auth.disable(); void socket.end(new Error("CONTROLLED_SHUTDOWN")).catch(() => callbacks.failure()); }, logout: () => { downloads.abort(); auth.disable(true); return socket.logout(); } };
+    }, history: (control) => importer.command(control), close: () => { clearTimeout(bootstrapTimer); importer.close(); downloads.abort(); auth.disable(); void socket.end(new Error("CONTROLLED_SHUTDOWN")).catch(() => callbacks.failure()); }, logout: async () => {
+      downloads.abort(); auth.disable(true);
+      // RC14 logout() waits only for sendNode, not an acknowledgement. A query
+      // of the same documented SDK IQ waits for a correlated server response.
+      const jid = auth.state.creds.me?.id;
+      if (!jid || !socket.query) { await socket.logout(); return "UNCONFIRMED"; }
+      const response = await socket.query({ tag: "iq", attrs: { to: "s.whatsapp.net", type: "set", xmlns: "md" }, content: [{ tag: "remove-companion-device", attrs: { jid, reason: "user_initiated" } }] }, 5000);
+      return response?.tag === "iq" && response.attrs.type === "result" ? "CONFIRMED" : "UNCONFIRMED";
+    } };
   };
 }

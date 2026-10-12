@@ -22535,7 +22535,9 @@
                                 "create",
                                 "connect",
                                 "refresh",
+                                "recover",
                                 "disconnect",
+                                "logout",
                                 "history_prepare",
                                 "history_start",
                                 "history_pause",
@@ -22572,6 +22574,114 @@
                         },
                         "mediaEnabled": {
                           "type": "boolean"
+                        },
+                        "lifecycle": {
+                          "type": "object",
+                          "properties": {
+                            "linked": {
+                              "type": "boolean"
+                            },
+                            "desired": {
+                              "type": "boolean"
+                            },
+                            "recoveryEligible": {
+                              "type": "boolean"
+                            },
+                            "recovery": {
+                              "type": "object",
+                              "properties": {
+                                "commandId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "state": {
+                                  "type": "string",
+                                  "enum": [
+                                    "RUNNING",
+                                    "AUTHENTICATED",
+                                    "SUCCEEDED",
+                                    "FAILED",
+                                    "INTERRUPTED"
+                                  ]
+                                },
+                                "startedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "finishedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "errorCode": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Z0-9_]{0,79}$"
+                                }
+                              },
+                              "required": [
+                                "commandId",
+                                "state",
+                                "startedAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "termination": {
+                              "type": "object",
+                              "properties": {
+                                "commandId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "action": {
+                                  "type": "string",
+                                  "enum": [
+                                    "disconnect",
+                                    "logout"
+                                  ]
+                                },
+                                "remote": {
+                                  "type": "string",
+                                  "enum": [
+                                    "NOT_REQUESTED",
+                                    "PENDING",
+                                    "CONFIRMED",
+                                    "UNCONFIRMED"
+                                  ]
+                                },
+                                "requestedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "finishedAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                },
+                                "errorCode": {
+                                  "type": "string",
+                                  "pattern": "^[A-Z][A-Z0-9_]{0,79}$"
+                                }
+                              },
+                              "required": [
+                                "commandId",
+                                "action",
+                                "remote",
+                                "requestedAt"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "required": [
+                            "linked",
+                            "desired",
+                            "recoveryEligible"
+                          ],
+                          "additionalProperties": false,
+                          "nullable": true
                         }
                       },
                       "required": [
@@ -22586,7 +22696,8 @@
                         "sync",
                         "operation",
                         "sendingEnabled",
-                        "mediaEnabled"
+                        "mediaEnabled",
+                        "lifecycle"
                       ],
                       "nullable": true
                     }
@@ -23236,7 +23347,9 @@
                             "create",
                             "connect",
                             "refresh",
+                            "recover",
                             "disconnect",
+                            "logout",
                             "history_prepare",
                             "history_start",
                             "history_pause",
@@ -23273,6 +23386,114 @@
                     },
                     "mediaEnabled": {
                       "type": "boolean"
+                    },
+                    "lifecycle": {
+                      "type": "object",
+                      "properties": {
+                        "linked": {
+                          "type": "boolean"
+                        },
+                        "desired": {
+                          "type": "boolean"
+                        },
+                        "recoveryEligible": {
+                          "type": "boolean"
+                        },
+                        "recovery": {
+                          "type": "object",
+                          "properties": {
+                            "commandId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "RUNNING",
+                                "AUTHENTICATED",
+                                "SUCCEEDED",
+                                "FAILED",
+                                "INTERRUPTED"
+                              ]
+                            },
+                            "startedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            "finishedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            "errorCode": {
+                              "type": "string",
+                              "pattern": "^[A-Z][A-Z0-9_]{0,79}$"
+                            }
+                          },
+                          "required": [
+                            "commandId",
+                            "state",
+                            "startedAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "termination": {
+                          "type": "object",
+                          "properties": {
+                            "commandId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "action": {
+                              "type": "string",
+                              "enum": [
+                                "disconnect",
+                                "logout"
+                              ]
+                            },
+                            "remote": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_REQUESTED",
+                                "PENDING",
+                                "CONFIRMED",
+                                "UNCONFIRMED"
+                              ]
+                            },
+                            "requestedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            "finishedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            "errorCode": {
+                              "type": "string",
+                              "pattern": "^[A-Z][A-Z0-9_]{0,79}$"
+                            }
+                          },
+                          "required": [
+                            "commandId",
+                            "action",
+                            "remote",
+                            "requestedAt"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "linked",
+                        "desired",
+                        "recoveryEligible"
+                      ],
+                      "additionalProperties": false,
+                      "nullable": true
                     }
                   },
                   "required": [
@@ -23287,7 +23508,8 @@
                     "sync",
                     "operation",
                     "sendingEnabled",
-                    "mediaEnabled"
+                    "mediaEnabled",
+                    "lifecycle"
                   ]
                 }
               }
@@ -23638,12 +23860,17 @@
                     "enum": [
                       "connect",
                       "refresh",
-                      "disconnect"
+                      "recover",
+                      "disconnect",
+                      "logout"
                     ]
                   },
                   "expectedVersion": {
                     "type": "integer",
                     "minimum": 1
+                  },
+                  "confirmed": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -23958,7 +24185,9 @@
                             "create",
                             "connect",
                             "refresh",
+                            "recover",
                             "disconnect",
+                            "logout",
                             "history_prepare",
                             "history_start",
                             "history_pause",
@@ -23995,6 +24224,114 @@
                     },
                     "mediaEnabled": {
                       "type": "boolean"
+                    },
+                    "lifecycle": {
+                      "type": "object",
+                      "properties": {
+                        "linked": {
+                          "type": "boolean"
+                        },
+                        "desired": {
+                          "type": "boolean"
+                        },
+                        "recoveryEligible": {
+                          "type": "boolean"
+                        },
+                        "recovery": {
+                          "type": "object",
+                          "properties": {
+                            "commandId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "state": {
+                              "type": "string",
+                              "enum": [
+                                "RUNNING",
+                                "AUTHENTICATED",
+                                "SUCCEEDED",
+                                "FAILED",
+                                "INTERRUPTED"
+                              ]
+                            },
+                            "startedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            "finishedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            "errorCode": {
+                              "type": "string",
+                              "pattern": "^[A-Z][A-Z0-9_]{0,79}$"
+                            }
+                          },
+                          "required": [
+                            "commandId",
+                            "state",
+                            "startedAt"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "termination": {
+                          "type": "object",
+                          "properties": {
+                            "commandId": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "action": {
+                              "type": "string",
+                              "enum": [
+                                "disconnect",
+                                "logout"
+                              ]
+                            },
+                            "remote": {
+                              "type": "string",
+                              "enum": [
+                                "NOT_REQUESTED",
+                                "PENDING",
+                                "CONFIRMED",
+                                "UNCONFIRMED"
+                              ]
+                            },
+                            "requestedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            "finishedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            "errorCode": {
+                              "type": "string",
+                              "pattern": "^[A-Z][A-Z0-9_]{0,79}$"
+                            }
+                          },
+                          "required": [
+                            "commandId",
+                            "action",
+                            "remote",
+                            "requestedAt"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "linked",
+                        "desired",
+                        "recoveryEligible"
+                      ],
+                      "additionalProperties": false,
+                      "nullable": true
                     }
                   },
                   "required": [
@@ -24009,7 +24346,8 @@
                     "sync",
                     "operation",
                     "sendingEnabled",
-                    "mediaEnabled"
+                    "mediaEnabled",
+                    "lifecycle"
                   ]
                 }
               }

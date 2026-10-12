@@ -24,8 +24,10 @@ export class PrivateFiles {
     return { bytes, scopedBytes };
   }
   async has(scope: Scope, id: string) { try { return Date.now() - (await stat(this.path(scope, id))).mtimeMs < TTL; } catch { return false; } }
+  async remove(scope: Scope, id: string) { await rm(this.path(scope, id), { force: true }); }
   async put(scope: Scope, id: string, source: AsyncIterable<Uint8Array>, expected: { size?: number; sha256?: string; maximum?: number }, inspect?: (prefix: Buffer) => void) {
-    if (this.writing || process.memoryUsage().rss >= 384 * 1024 * 1024) throw new ServiceError("MEDIA_BUSY", 429);
+    if (this.writing) throw new ServiceError("MEDIA_BUSY", 429);
+    if (process.memoryUsage().rss >= 384 * 1024 * 1024) throw new ServiceError("MEDIA_MEMORY_PRESSURE", 429);
     this.writing = true;
     const temporary = join(this.directory, `${this.name(scope, id)}.${randomUUID()}.part`);
     try {
@@ -36,7 +38,8 @@ export class PrivateFiles {
       const fd = await open(temporary, "wx", 0o600); await fd.write(Buffer.concat([Buffer.from([1]), nonce, Buffer.alloc(16)])); await fd.close();
       let size = 0, prefix = Buffer.alloc(0); const hash = createHash("sha256");
       const bounded = new Transform({ transform(chunk: Buffer, _encoding, callback) { size += chunk.length; if (size > (expected.size ?? expected.maximum ?? 25 * 1024 * 1024)) return callback(new ServiceError("MEDIA_SIZE_MISMATCH", 413)); hash.update(chunk); if (prefix.length < 64) prefix = Buffer.concat([prefix, chunk.subarray(0, 64 - prefix.length)]); callback(null, chunk); } });
-      await pipeline(Readable.from(source), bounded, cipher, createWriteStream(temporary, { flags: "a" }));
+      try { await pipeline(Readable.from(source), bounded, cipher, createWriteStream(temporary, { flags: "a" }), { signal: AbortSignal.timeout(60_000) }); }
+      catch (error) { if (error instanceof Error && error.name === "AbortError") throw new ServiceError("MEDIA_TRANSFER_TIMEOUT", 408); throw error; }
       const sha256 = hash.digest("hex");
       if (expected.size !== undefined && size !== expected.size || expected.sha256 !== undefined && sha256 !== expected.sha256) throw new ServiceError("MEDIA_INTEGRITY_FAILED", 409);
       inspect?.(prefix);

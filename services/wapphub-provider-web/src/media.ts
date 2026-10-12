@@ -44,19 +44,22 @@ export class ProviderMedia {
     const child = spawn("ffprobe", ["-v", "error", "-max_alloc", "33554432", "-protocol_whitelist", "pipe", "-show_entries", "stream=codec_type,codec_name:format=duration", "-of", "json", "pipe:0"], { stdio: ["pipe", "pipe", "ignore"] });
     const timer = setTimeout(() => child.kill("SIGKILL"), 15000); timer.unref();
     const done = new Promise<void>((resolve, reject) => { child.once("error", () => reject(new ServiceError("MEDIA_CODEC_UNAVAILABLE", 503))); child.once("exit", code => code === 0 ? resolve() : reject(new ServiceError("MEDIA_CODEC_INVALID", 415))); });
-    let output = "";
+    let output = ""; const abort = new AbortController(); const tasks: Promise<unknown>[] = [done];
     try {
-      await Promise.all([pipeline(await this.files.stream(scope, id, expected), child.stdin), pipeline(child.stdout, new Writable({ write(chunk: Buffer, _encoding, callback) { output += chunk.toString(); callback(output.length > 8192 ? new ServiceError("MEDIA_CODEC_INVALID", 415) : undefined); } })), done]);
+      tasks.push(pipeline(await this.files.stream(scope, id, expected), child.stdin, { signal: abort.signal }), pipeline(child.stdout, new Writable({ write(chunk: Buffer, _encoding, callback) { output += chunk.toString(); callback(output.length > 8192 ? new ServiceError("MEDIA_CODEC_INVALID", 415) : undefined); } }), { signal: abort.signal }));
+      await Promise.all(tasks);
       const result = JSON.parse(output) as { streams?: { codec_type: string; codec_name: string }[]; format?: { duration: string } };
       return { streams: result.streams ?? [], seconds: Math.ceil(Number(result.format?.duration ?? 0)) };
-    } finally { clearTimeout(timer); child.kill("SIGKILL"); }
+    } finally { clearTimeout(timer); abort.abort(); child.kill("SIGKILL"); await Promise.allSettled(tasks); }
   }
   async upload(scope: Scope, input: MediaUpload, source: AsyncIterable<Uint8Array>) {
     this.allowed(scope); const meta = mediaUploadSchema.parse(input);
     if (!validMediaKind(meta.type, meta.mimeType) || meta.size > mediaLimit(meta.type)) throw new ServiceError("MEDIA_SIZE_OR_TYPE_DENIED", 415);
     if (mediaTransferBusy) throw new ServiceError("MEDIA_BUSY", 429); mediaTransferBusy = true;
+    let cacheOwned = false;
     try {
       if (this.vault.get(scope)?.media?.some(x => x.id === meta.mediaId)) throw new ServiceError("MEDIA_ID_CONFLICT", 409);
+      cacheOwned = true;
       await this.files.put(scope, meta.mediaId, source, meta, prefix => inspectMedia(prefix, meta.mimeType));
       const probe = await this.probe(scope, meta.mediaId, meta);
       if (meta.type === "AUDIO" || meta.type === "VOICE") probe.seconds = Math.ceil(await getAudioDuration(await this.files.stream(scope, meta.mediaId, meta)) ?? Number.NaN);
@@ -67,15 +70,20 @@ export class ProviderMedia {
         const temporary = randomUUID(), child = spawn("ffmpeg", ["-nostdin", "-v", "error", "-max_alloc", "33554432", "-protocol_whitelist", "pipe", "-i", "pipe:0", "-map", "0:a:0", "-threads", "1", "-t", "600", "-c:a", "libopus", "-f", "ogg", "pipe:1"], { stdio: ["pipe", "pipe", "ignore"] });
         const timer = setTimeout(() => child.kill("SIGKILL"), 30000); timer.unref();
         const done = new Promise<void>((resolve, reject) => { child.once("error", () => reject(new ServiceError("MEDIA_CODEC_UNAVAILABLE", 503))); child.once("exit", code => code === 0 ? resolve() : reject(new ServiceError("MEDIA_CODEC_INVALID", 415))); });
+        const abort = new AbortController(), tasks: Promise<unknown>[] = [done];
         try {
-          const [, converted] = await Promise.all([pipeline(await this.files.stream(scope, meta.mediaId, meta), child.stdin), this.files.put(scope, temporary, child.stdout, { maximum: mediaLimit(meta.type) }, prefix => inspectMedia(prefix, "audio/ogg")), done]);
+          const input = pipeline(await this.files.stream(scope, meta.mediaId, meta), child.stdin, { signal: abort.signal });
+          const convertedFile = this.files.put(scope, temporary, child.stdout, { maximum: mediaLimit(meta.type) }, prefix => inspectMedia(prefix, "audio/ogg"));
+          tasks.push(input, convertedFile);
+          const [, converted] = await Promise.all([input, convertedFile, done]);
           await this.files.put(scope, meta.mediaId, await this.files.stream(scope, temporary, converted), converted);
           output = { ...converted, mimeType: "audio/ogg" };
-        } finally { clearTimeout(timer); child.kill("SIGKILL"); }
+        } finally { clearTimeout(timer); abort.abort(); child.kill("SIGKILL"); await Promise.allSettled(tasks); await this.files.remove(scope, temporary); }
       }
       await this.vault.update(scope, record => { record.media ??= []; record.media = record.media.filter(x => x.expiresAt > Date.now()); if (record.media.length >= 2048) throw new ServiceError("MEDIA_CACHE_LIMIT", 429); record.media.push({ id: meta.mediaId, type: meta.type, fileName: meta.fileName, ...output, seconds: probe.seconds, expiresAt: Date.now() + 24 * 3600000 }); });
       return { mediaId: meta.mediaId, type: meta.type, fileName: meta.fileName, ...output, state: "READY" as const };
-    } finally { mediaTransferBusy = false; }
+    } catch (error) { if (cacheOwned) await this.files.remove(scope, meta.mediaId); throw error; }
+    finally { mediaTransferBusy = false; }
   }
   async read(scope: Scope, id: string) {
     this.allowed(scope); const record = this.record(scope, id);

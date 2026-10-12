@@ -30,10 +30,11 @@ export class WebProviderWorker {
       // Even an unready service may still drain its durable queue. Never execute
       // lifecycle commands until ready, and retain the unavailability marker.
       const prioritySend = available ? await this.db.providerCommand.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, action: "send", status: { in: ["PENDING", "PROCESSING"] }, nextAttemptAt: { lte: new Date() } }, orderBy: { createdAt: "asc" } }) : null;
-      const command = prioritySend ?? (available ? await this.db.providerCommand.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, status: { in: ["PENDING", "PROCESSING"] }, nextAttemptAt: { lte: new Date() } }, orderBy: { createdAt: "asc" } }) : null);
+      const stop = available ? await this.db.providerCommand.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, action: { in: ["disconnect", "logout"] }, status: { in: ["PENDING", "PROCESSING"] }, nextAttemptAt: { lte: new Date() } }, orderBy: { createdAt: "desc" } }) : null;
+      const command = stop ?? prioritySend ?? (available ? await this.db.providerCommand.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, status: { in: ["PENDING", "PROCESSING"] }, nextAttemptAt: { lte: new Date() } }, orderBy: { createdAt: "asc" } }) : null);
       if (command?.action === "send") await this.dispatchSend(scope, token, command);
       else if (command) {
-        await this.chat.integrationMutation(scope.organizationId, async (tx) => { await this.fence(tx, scope, token); await tx.providerCommand.update({ where: { id: command.id }, data: { status: "PROCESSING", attempts: { increment: 1 } } }); });
+        await this.chat.integrationMutation(scope.organizationId, async (tx) => { await this.fence(tx, scope, token); const current = await tx.providerCommand.findUniqueOrThrow({ where: { id: command.id } }); if (!["PENDING", "PROCESSING"].includes(current.status)) throw new AppError(409, "STALE_CONTROL_COMMAND"); await tx.providerCommand.update({ where: { id: command.id }, data: { status: "PROCESSING", attempts: { increment: 1 } } }); });
         try {
           const session = await this.db.session.findFirst({ where: { id: command.sessionId, userId: command.actorUserId, currentOrganizationId: scope.organizationId }, include: { user: true } });
           const row = await this.db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } } });
@@ -56,14 +57,16 @@ export class WebProviderWorker {
             view = await this.client.history(scope, control);
           } else {
             await this.client.create(scope);
-            view = command.action === "create" ? await this.client.session(scope) : await this.client.command(scope, command.action === "disconnect" ? "logout" : command.action as InternalAction, command.id);
+            const control = z.object({ controlVersion: z.number().int().positive() }).safeParse(command.payload);
+            view = command.action === "create" ? await this.client.session(scope) : await this.client.command(scope, command.action as InternalAction, command.id, control.success ? control.data.controlVersion : undefined);
           }
           await this.connections.synchronize(scope, view, token);
           await this.chat.integrationMutation(scope.organizationId, async (tx) => {
             await this.fence(tx, scope, token);
-            await tx.providerCommand.update({ where: { id: command.id }, data: { status: "COMPLETED", errorCode: null } });
+            const current = await tx.providerCommand.findUniqueOrThrow({ where: { id: command.id } }); if (current.status !== "PROCESSING") return;
+            await tx.providerCommand.update({ where: { id: command.id }, data: { status: "COMPLETED", errorCode: view.sync?.lifecycle?.termination?.errorCode ?? null } });
             await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } }, data: { version: { increment: 1 } } });
-            await tx.auditEvent.create({ data: { organizationId: scope.organizationId, actorUserId: command.actorUserId, action: "WHATSAPP_WEB_COMMAND_COMPLETED", details: { channelId: scope.connectionId, commandId: command.id, action: command.action } } });
+            await tx.auditEvent.create({ data: { organizationId: scope.organizationId, actorUserId: command.actorUserId, action: "WHATSAPP_WEB_COMMAND_COMPLETED", details: { channelId: scope.connectionId, commandId: command.id, action: command.action, ...(view.sync?.lifecycle?.termination ? { remote: view.sync.lifecycle.termination.remote } : {}) } } });
             await this.chat.resourceEvent(tx, scope.organizationId, "provider.connection.updated", scope.connectionId);
           });
         } catch (error) {
@@ -72,6 +75,7 @@ export class WebProviderWorker {
           const code = error instanceof AppError && [401, 403].includes(error.status) ? "COMMAND_AUTHORIZATION_REVOKED" : error instanceof WebProviderError ? error.code : "PROVIDER_OPERATION_FAILED";
           await this.chat.integrationMutation(scope.organizationId, async (tx) => {
             await this.fence(tx, scope, token);
+            const current = await tx.providerCommand.findUniqueOrThrow({ where: { id: command.id } }); if (current.status === "FAILED" && current.errorCode === "CONNECTION_STOP_AUTHORIZED") return;
             await tx.providerCommand.update({ where: { id: command.id }, data: { status: permanent || attempts >= 5 ? "FAILED" : "PENDING", errorCode: code, nextAttemptAt: new Date(Date.now() + Math.min(30_000, 1000 * 2 ** attempts)) } });
             const row = await tx.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: scope.organizationId, channelId: scope.connectionId } } });
             const op = historyRecord(row.historyOperation);

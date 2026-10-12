@@ -114,3 +114,28 @@ test("B3 an authenticated media echo binds its private reference to the original
   await media.retain(f.scope, { key: { id: providerMessageId, remoteJid: "5581999999999@s.whatsapp.net", fromMe: true }, messageTimestamp: Math.floor(Date.now() / 1000), message: { imageMessage: { mimetype: "image/png", fileLength: 12, fileSha256: Buffer.from(sha256, "hex"), mediaKey: Buffer.alloc(32, 1), directPath: "/synthetic-private-reference" } } });
   const retained = f.vault.get(f.scope)!.media!.find(x => x.id === id)!; assert.ok(retained.reference); assert.ok(retained.expiresAt > Date.now() + 24 * 3600000); assert.equal(f.stats().starts, 0);
 });
+
+for (const mode of ["ACK", "NO_ACK", "FAIL"] as const) test(`P0 Baileys unlink ${mode} reports only a correlated response as remote confirmation`, async t => {
+ const f = await fixture(t), ev = makeEventBuffer(pino({ level: "silent" })); let queries = 0, sdkLogout = 0;
+ await f.vault.update(f.scope, r => { r.auth = JSON.stringify({ me: { id: "synthetic@lid" } }); });
+ const factory = baileysFactory(f.vault, () => ({ ev, end: async () => undefined, logout: async () => { sdkLogout++; }, ...(mode === "NO_ACK" ? {} : { query: async node => { queries++; assert.equal(node.attrs.xmlns, "md"); assert.ok(Array.isArray(node.content) && node.content[0]?.tag === "remove-companion-device"); if (mode === "FAIL") throw new Error("synthetic remote failure"); return { tag: "iq", attrs: { type: "result" } }; } }) }));
+ const transport = await factory(f.scope, { connection() {}, text() {}, receipt() {}, failure() {} }); t.after(() => transport.close());
+ if (mode === "FAIL") await assert.rejects(transport.logout()); else assert.equal(await transport.logout(), mode === "ACK" ? "CONFIRMED" : "UNCONFIRMED");
+ assert.equal(queries, mode === "NO_ACK" ? 0 : 1); assert.equal(sdkLogout, mode === "NO_ACK" ? 1 : 0); assert.ok(f.vault.get(f.scope)?.auth);
+});
+
+test("media global transfer guard serializes instances and releases after a failed stream", async t => {
+ const f = await fixture(t); await f.sessions.create(f.scope); const first = new ProviderMedia(f.vault, true), second = new ProviderMedia(f.vault, true), bytes = Buffer.from("89504e470d0a1a0a", "hex");
+ const meta = () => ({ mediaId: randomUUID(), type: "IMAGE" as const, mimeType: "image/png" as const, fileName: "synthetic.png", size: bytes.length, sha256: "0".repeat(64) });
+ let release!: () => void, entered!: () => void; const started = new Promise<void>(resolve => { entered = resolve; }), proceed = new Promise<void>(resolve => { release = resolve; });
+ const streaming = first.upload(f.scope, meta(), (async function* () { entered(); await proceed; yield bytes; })()); await started;
+ await assert.rejects(second.upload(f.scope, meta(), Readable.from([bytes])), /MEDIA_BUSY/); release(); await assert.rejects(streaming, /MEDIA_INTEGRITY_FAILED/);
+ await assert.rejects(second.upload(f.scope, meta(), Readable.from([bytes])), /MEDIA_INTEGRITY_FAILED/); assert.ok(!(await readdir(join(f.vault.directory, "files"))).some(x => x.endsWith(".part")));
+});
+
+test("media memory backpressure remains enforced with a distinct diagnostic", async t => {
+ const f = await fixture(t), files = f.vault.privateFiles(), meta = { size: 1, sha256: createHash("sha256").update("x").digest("hex") };
+ const original = process.memoryUsage(); t.mock.method(process, "memoryUsage", () => ({ ...original, rss: 384 * 1024 * 1024 }));
+ await assert.rejects(files.put(f.scope, randomUUID(), Readable.from([Buffer.from("x")]), meta), /MEDIA_MEMORY_PRESSURE/);
+ t.mock.restoreAll(); const id = randomUUID(); await files.put(f.scope, id, Readable.from([Buffer.from("x")]), meta); assert.equal(await files.has(f.scope, id), true);
+});

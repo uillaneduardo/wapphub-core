@@ -12,5 +12,5 @@ export type TransportCallbacks = {
 };
 import type { HistoryControl } from "../../../contracts/history.js";
 import type { SendIntent } from "../../../contracts/provider-outbound.js";
-export type Transport = { resolveRecipient?(phone: string): Promise<{ state: "VALID" | "NOT_FOUND" | "UNKNOWN"; jid?: string }>; send?(intent: SendIntent): Promise<void>; close(): void; logout(): Promise<void>; history?(control: HistoryControl): Promise<void> };
+export type Transport = { resolveRecipient?(phone: string): Promise<{ state: "VALID" | "NOT_FOUND" | "UNKNOWN"; jid?: string }>; send?(intent: SendIntent): Promise<void>; close(): void; logout(): Promise<"CONFIRMED" | "UNCONFIRMED" | void>; history?(control: HistoryControl): Promise<void> };
 export type TransportFactory = (scope: Scope, callbacks: TransportCallbacks) => Promise<Transport>;

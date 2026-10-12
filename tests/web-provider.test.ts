@@ -1,11 +1,11 @@
+import { Readable } from "node:stream";
+import { createHash } from "node:crypto";
 import { bootstrapCorrelationId } from "../contracts/provider-internal.js";
 import { Sessions } from "../services/wapphub-provider-web/src/sessions.js";
 import { createHttp } from "../services/wapphub-provider-web/src/http.js";
 import { InternalAuth } from "../services/wapphub-provider-web/src/auth.js";
 import { WebProviderClient } from "../src/integrations/web-provider-client.js";
 import type { TransportCallbacks } from "../services/wapphub-provider-web/src/transport.js";
-import { Readable } from "node:stream";
-import { createHash } from "node:crypto";
 import { before, after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -21,9 +21,8 @@ import { MessageIngestionService } from "../src/application/message-ingestion.js
 import { WebHistory, selectHistoryAnchors } from "../src/application/web-history.js";
 import { HistoryImporter } from "../services/wapphub-provider-web/src/history-operation.js";
 import { Vault } from "../services/wapphub-provider-web/src/vault.js";
-import { ProviderMedia } from "../services/wapphub-provider-web/src/media.js";
 import { EventJournal } from "../services/wapphub-provider-web/src/events.js";
-import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -45,7 +44,7 @@ class FakeProvider implements WebProviderPort {
   async ready() { return !this.fail && !this.unready; }
   async create(scope: ProviderScope) { this.calls.push("create"); if (!this.views.has(scope.connectionId)) this.views.set(scope.connectionId, { state: "DISCONNECTED", revision: 0, qrRevision: 0, attempts: 0, connectEnabled: true }); return this.session(scope); }
   async session(scope: ProviderScope) { if (this.fail) throw new WebProviderError("PROVIDER_UNAVAILABLE"); const view = this.views.get(scope.connectionId); if (!view) throw new WebProviderError("SESSION_NOT_FOUND", 404); return view; }
-  async command(scope: ProviderScope, action: InternalAction) { this.calls.push(action); const old = await this.session(scope); const view: ProviderSession = { ...old, state: action === "logout" ? "LOGGED_OUT" : "CONNECTING", revision: old.revision + 1 }; this.views.set(scope.connectionId, view); return view; }
+  async command(scope: ProviderScope, action: InternalAction) { this.calls.push(action); const old = await this.session(scope); const view: ProviderSession = { ...old, state: action === "logout" ? "LOGGED_OUT" : action === "disconnect" ? "DISCONNECTED" : "CONNECTING", revision: old.revision + 1 }; this.views.set(scope.connectionId, view); return view; }
   async history(scope: ProviderScope, control: import("../contracts/history.js").HistoryControl) {
     this.calls.push(`history_${control.action}`); const view = await this.session(scope);
     if (control.action === "prepare") { const spec = control.spec!; view.history = { id: spec.id, state: "PREPARED", from: spec.from, to: spec.to, limits: spec.limits, contacts: 0, conversations: 0, messages: 0, requests: 0, duplicates: 0, failures: 0, limited: false, queued: 0 }; }
@@ -155,8 +154,8 @@ test("refresh is explicit and cannot disrupt an already connected session", asyn
   await command("refresh"); await worker.runConnection(scope()); assert.equal((await current()).uiState, "CONNECTING"); await state("CONNECTED", 4, 2);
   await command("refresh", randomUUID(), undefined, 409); assert.equal((await current()).uiState, "CONNECTED"); assert.equal((await current()).sendingEnabled, false);
 });
-test("disconnect revokes the provider link and records the administrative action", async () => {
-  await command("disconnect"); await worker.runConnection(scope()); assert.equal((await current()).state, "LOGGED_OUT"); assert.equal((await current()).uiState, "DISCONNECTED"); assert.ok(provider.calls.includes("logout"));
+test("disconnect stops the local provider transport and records the administrative action", async () => {
+  await command("disconnect"); await worker.runConnection(scope()); assert.equal((await current()).state, "DISCONNECTED"); assert.equal((await current()).uiState, "DISCONNECTED"); assert.ok(provider.calls.includes("disconnect"));
   assert.ok(await db.auditEvent.count({ where: { organizationId: orgA, action: "WHATSAPP_WEB_DISCONNECT_REQUESTED" } }));
 });
 test("Worker rechecks revoked permissions before executing an explicit command", async () => {
@@ -376,6 +375,7 @@ test("CP4 contact-only replay/realtime requires contacts.read and cannot disclos
   const until = Date.now() + 4000; while (!frames.some((frame) => frame.includes("sync.checkpoint")) && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 20));
   ws.close(); assert.ok(frames.some((frame) => frame.includes("contacts.updated"))); assert.ok(!frames.join("").includes("message.created")); assert.ok(!frames.join("").includes("conversation.history.updated"));
 });
+
 test("CP4 synthetic load measures bounded SQL batches, live latency and deduplicated replay", async () => {
   const cpu = process.cpuUsage(), started = performance.now(); let peakRss = process.memoryUsage().rss, liveLatencyMs = 0;
   const batches = Array.from({ length: 50 }, (_, batch) => syncBatch(Array.from({ length: 20 }, (_, index) => syncMessage(`load-${index % 10}@lid`, `cp4-load-${batch}-${index}`, new Date(Date.now() - 86400000 + batch * 20 + index).toISOString()))));
@@ -634,7 +634,7 @@ test("B2/B3 HTTP Core -> SQL outbox -> signed Provider -> durable journal -> SQL
   const journal = new EventJournal(vault), internalKey = randomBytes(32), auth = new InternalAuth(internalKey, join(directory, "nonces")); await auth.initialize();
   let callbacks!: TransportCallbacks, sends = 0, resolves = 0, unknown = false; let resolveHook: (() => Promise<void>) | undefined; let releaseSlow: (() => void) | undefined;
   const sessions = new Sessions(vault, journal, async (_scope, cb) => { callbacks = cb; return { close() {}, logout: async () => undefined, resolveRecipient: async phone => { resolves++; await resolveHook?.(); return phone === "+5581999999999" ? { state: "VALID", jid: "5581999999999@s.whatsapp.net" } : { state: "UNKNOWN" }; }, send: async intent => { sends++; if (intent.body === "Synthetic slow") await new Promise<void>(resolve => { releaseSlow = resolve; }); if (unknown) throw new Error("synthetic uncertainty"); callbacks.receipt(intent.providerMessageId, "READ", intent.destination); } }; }, true, () => () => undefined, Date.now, () => undefined, { enabled: false, historyEnabled: false, outboundEnabled: true });
-  const providerCodes: string[] = [], source = createHttp(sessions, journal, auth, code => providerCodes.push(code), new ProviderMedia(vault, true)), sourceUrl = await source.listen({ host: "127.0.0.1", port: 0 }), client = new WebProviderClient(sourceUrl, internalKey);
+  const source = createHttp(sessions, journal, auth), sourceUrl = await source.listen({ host: "127.0.0.1", port: 0 }), client = new WebProviderClient(sourceUrl, internalKey);
   const activeConfig = { ...config, PROVIDER_OUTBOUND_ENABLED: true, PROVIDER_MEDIA_ENABLED: true };
   const activeApp = await buildApp(activeConfig, db, redis, false, undefined, client);
   const activeChat = new Chat(db, activeConfig, async () => { throw new Error("synthetic Redis wake unavailable"); }, new DemoProvider(), new MessageIngestionService()), activeWorker = new WebProviderWorker(db, activeChat, client);
@@ -692,46 +692,6 @@ test("B2/B3 HTTP Core -> SQL outbox -> signed Provider -> durable journal -> SQL
     await db.membershipPermissionOverride.deleteMany({ where: { organizationId: orgA, membershipId: ownerMembership.id, permissionId: sendPermission.id } });
     const retried = (await inject(owner, "POST", `/conversations/${opened.id}/messages`, retryBody)).json(); assert.equal(retried.id, rejected.id); assert.equal(retried.status, "PENDING"); unknown = false; await activeWorker.runConnection(scope()); await sessions.settle(scope()); await activeWorker.runConnection(scope()); assert.equal(sends, 5);
 
-    // Full synthetic binary path: session + Origin + CSRF + Core octet-stream
-    // parser + signed service request + Provider private encrypted cache.
-    const probeDir = join(directory, "probe-bin"); await mkdir(probeDir, { mode: 0o700 });
-    const probe = join(probeDir, "ffprobe"); await writeFile(probe, "#!/bin/sh\ncat >/dev/null\nprintf '%s' '{\"streams\":[{\"codec_type\":\"video\",\"codec_name\":\"png\"}],\"format\":{\"duration\":\"0\"}}'\n", { mode: 0o700 }); await chmod(probe, 0o700);
-    const oldPath = process.env.PATH!, memoryUsageDescriptor = Object.getOwnPropertyDescriptor(process, "memoryUsage")!; process.env.PATH = `${probeDir}:${oldPath}`;
-    // Prior SQL load fixtures can leave a high-water RSS in the shared Node
-    // test process; isolate this route contract from the production 384MiB
-    // backpressure threshold, which is exercised in the Provider image smoke.
-    Object.defineProperty(process, "memoryUsage", { configurable: true, value: () => ({ ...memoryUsageDescriptor.value.call(process), rss: 0 }) });
-    const imageBytes = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.from("synthetic-image")]), imageHash = createHash("sha256").update(imageBytes).digest("hex");
-    const makeMeta = (overrides: Partial<{ mediaId: string; type: string; mimeType: string; fileName: string; size: number; sha256: string }> = {}) => ({ mediaId: randomUUID(), type: "IMAGE", mimeType: "image/png", fileName: "synthetic.png", size: imageBytes.length, sha256: imageHash, ...overrides });
-    const uploadPath = (meta: ReturnType<typeof makeMeta>) => `/conversations/${opened.id}/media?${new URLSearchParams({ mediaId: meta.mediaId, type: meta.type, mimeType: meta.mimeType, fileName: meta.fileName, size: String(meta.size), sha256: meta.sha256 })}`;
-    const upload = (a: Auth, meta: ReturnType<typeof makeMeta>, payload: Readable | Buffer = imageBytes, headers: Record<string, string> = {}) => activeApp.inject({ method: "POST", url: "/api/v1" + uploadPath(meta), payload, headers: { "content-type": "application/octet-stream", origin, cookie: a.cookie, "x-csrf-token": a.csrf, ...headers } });
-    try {
-      await inject(owner, "PUT", `${route}/${channelId}/capabilities`, { outboundEnabled: true, mediaEnabled: true });
-      assert.equal((await activeApp.inject({ method: "POST", url: "/api/v1" + uploadPath(makeMeta()), payload: imageBytes, headers: { origin, "content-type": "application/octet-stream" } })).statusCode, 401);
-      assert.equal((await upload(owner, makeMeta(), imageBytes, { "x-csrf-token": "" })).statusCode, 403);
-      assert.equal((await activeApp.inject({ method: "POST", url: "/api/v1" + uploadPath(makeMeta()), payload: imageBytes, headers: { cookie: owner.cookie, "x-csrf-token": owner.csrf, origin: "https://untrusted.invalid", "content-type": "application/octet-stream" } })).statusCode, 403);
-      assert.equal((await upload(denied, makeMeta())).statusCode, 403);
-      assert.ok((await upload(other, makeMeta())).statusCode >= 400);
-      assert.ok((await activeApp.inject({ method: "POST", url: "/api/v1" + uploadPath(makeMeta()), payload: imageBytes, headers: { origin, cookie: owner.cookie, "x-csrf-token": owner.csrf, "content-type": "application/json" } })).statusCode >= 400);
-      const oversizedPayload = Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(8 * 1024 * 1024 + 1 - 8)]), oversizedHash = createHash("sha256").update(oversizedPayload).digest("hex");
-      assert.equal((await upload(owner, makeMeta({ size: oversizedPayload.length, sha256: oversizedHash }), oversizedPayload)).statusCode, 415);
-      assert.ok((await upload(owner, makeMeta({ sha256: "0".repeat(64) }))).statusCode >= 400);
-      assert.ok((await upload(owner, makeMeta({ mimeType: "image/jpeg", fileName: "synthetic.jpg" }))).statusCode >= 400);
-      assert.ok(!(await readdir(join(vault.directory, "files"))).some(name => name.endsWith(".part")));
-
-      let continueUpload!: () => void, uploadStarted!: () => void; const started = new Promise<void>(resolve => { uploadStarted = resolve; }), releaseUpload = new Promise<void>(resolve => { continueUpload = resolve; });
-      const slowStream = Readable.from((async function* () { yield imageBytes.subarray(0, 12); uploadStarted(); await releaseUpload; yield imageBytes.subarray(12); })());
-      const pendingUpload = upload(owner, makeMeta(), slowStream); await started;
-      callbacks.text({ id: "b5-live-during-upload", chatId: "5581999999999@s.whatsapp.net", body: "Synthetic live during upload", fromMe: false, timestamp: Date.now() }); await sessions.settle(scope());
-      assert.ok((await journal.pull(scope(), 20)).some(item => item.event.type === "message.received")); continueUpload();
-      const acceptedUpload = await pendingUpload; assert.equal(acceptedUpload.statusCode, 200, `${acceptedUpload.body}; provider=${providerCodes.join(",")}`);
-      const cached = await readdir(join(vault.directory, "files")); assert.ok(cached.some(name => name.endsWith(".cache"))); assert.ok(!cached.some(name => name.endsWith(".part")));
-
-      const interruptedMeta = makeMeta(); let partialReachedProvider = false;
-      const interrupted = Readable.from((async function* () { yield imageBytes.subarray(0, 12); for (let i = 0; i < 100; i++) { if ((await readdir(join(vault.directory, "files"))).some(name => name.endsWith(".part"))) { partialReachedProvider = true; break; } await new Promise(resolve => setTimeout(resolve, 10)); } throw new Error("synthetic client interruption"); })());
-      try { await upload(owner, interruptedMeta, interrupted); } catch { /* Fastify closes the synthetic request after the partial client stream breaks. */ }
-      await new Promise(resolve => setTimeout(resolve, 50)); const afterInterrupt = await readdir(join(vault.directory, "files")); assert.equal(partialReachedProvider, true); assert.ok(!afterInterrupt.some(name => name.endsWith(".part")));
-    } finally { process.env.PATH = oldPath; Object.defineProperty(process, "memoryUsage", memoryUsageDescriptor); }
     await inject(owner, "PUT", `${route}/${channelId}/capabilities`, { outboundEnabled: false, mediaEnabled: false });
     await inject(owner, "POST", `/conversations/${opened.id}/messages`, { body: "blocked", clientMessageId: randomUUID() }, 409); assert.equal(sends, 5);
     const history = vault.get(scope())?.historyOperation; assert.equal(history, undefined);
@@ -781,4 +741,37 @@ test("B4 delivered bootstrap uses scoped correlation without spending or replaci
   assert.deepEqual(after.historyOperation, granted); assert.equal(provider.calls.length, calls);
   const thread = await db.conversation.findFirstOrThrow({ where: { organizationId: orgA, channelId, providerConversationId: "b4-bootstrap-metadata@lid" } });
   assert.equal(thread.status, "OPEN"); assert.equal(await db.message.count({ where: { conversationId: thread.id } }), 0);
+});
+
+test("B5 lifecycle HTTP/outbox/Worker/HMAC authorizes one recovery, fences stops and reports unconfirmed unlink", async () => {
+ const directory = await mkdtemp(join(tmpdir(), "b5-lifecycle-")), vaultKey = randomBytes(32), vault = new Vault(join(directory, "sessions"), vaultKey); await vault.initialize();
+ const journal = new EventJournal(vault), key = randomBytes(32), auth = new InternalAuth(key, join(directory, "nonces")); await auth.initialize();
+ const creds = JSON.stringify({ me: { id: "synthetic@lid" }, signedIdentityKey: { private: "synthetic", public: "synthetic" }, noiseKey: { private: "synthetic", public: "synthetic" } });
+ await vault.update(scope(), r => { r.auth = creds; r.state = "FAILED"; r.errorCode = "RECONNECT_LIMIT"; r.attempts = 5; r.desired = true; });
+ let starts = 0; const callbacks: TransportCallbacks[] = [], timers: { run: () => void; delay: number; canceled: boolean }[] = [];
+ const sessions = new Sessions(vault, journal, async (_scope, cb) => { starts++; callbacks.push(cb); assert.equal(vault.get(scope())?.recovery?.state, "RUNNING"); return { close() {}, logout: async () => "CONFIRMED" }; }, true, (run, delay) => { const t = { run, delay, canceled: false }; timers.push(t); return () => { t.canceled = true; }; }, Date.now, undefined, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true });
+ const source = createHttp(sessions, journal, auth), url = await source.listen({ host: "127.0.0.1", port: 0 }), client = new WebProviderClient(url, key), api = await buildApp(config, db, redis, false, undefined, client), activeWorker = new WebProviderWorker(db, chat, client);
+ const original = await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } }), originalChannel = await db.channel.findUniqueOrThrow({ where: { organizationId_id: { organizationId: orgA, id: channelId } } }), ids: string[] = [];
+ const read = async () => (await api.inject({ method: "GET", url: `/api/v1${route}`, headers: { origin, cookie: owner.cookie } })).json().connection;
+ const submit = async (action: "recover" | "disconnect" | "logout", values = {}, a = owner, status = 200) => { const commandId = randomUUID(); ids.push(commandId); const response = await api.inject({ method: "POST", url: `/api/v1${route}/${channelId}/commands`, headers: { origin, cookie: a.cookie, "x-csrf-token": a.csrf }, payload: { action, commandId, expectedVersion: (await read()).version, ...values } }); assert.equal(response.statusCode, status, response.body); return commandId; };
+ try {
+  await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { providerRevision: 0, state: "FAILED", errorCode: "RECONNECT_LIMIT", providerSync: Prisma.DbNull } });
+  await activeWorker.runConnection(scope()); assert.equal(starts, 0); assert.equal((await read()).lifecycle.recoveryEligible, true);
+  await submit("recover", {}, owner, 400); await submit("recover", { confirmed: true }, denied, 403); await submit("recover", { confirmed: true }, other, 404);
+  const noCsrf = await api.inject({ method: "POST", url: `/api/v1${route}/${channelId}/commands`, headers: { origin, cookie: owner.cookie }, payload: { action: "recover", confirmed: true, commandId: randomUUID(), expectedVersion: (await read()).version } }); assert.equal(noCsrf.statusCode, 403);
+  const badOrigin = await api.inject({ method: "POST", url: `/api/v1${route}/${channelId}/commands`, headers: { origin: "https://untrusted.invalid", cookie: owner.cookie, "x-csrf-token": owner.csrf }, payload: { action: "recover", confirmed: true, commandId: randomUUID(), expectedVersion: (await read()).version } }); assert.equal(badOrigin.statusCode, 403);
+  const id = await submit("recover", { confirmed: true }); await activeWorker.runConnection(scope()); assert.equal(starts, 1); assert.equal((await read()).lifecycle.recovery.state, "RUNNING");
+  await api.inject({ method: "POST", url: `/api/v1${route}/${channelId}/commands`, headers: { origin, cookie: owner.cookie, "x-csrf-token": owner.csrf }, payload: { action: "recover", confirmed: true, commandId: id, expectedVersion: 1 } }); await activeWorker.runConnection(scope()); assert.equal(starts, 1);
+  callbacks[0]!.connection({ state: "close", code: 503 }); await sessions.settle(scope()); await activeWorker.runConnection(scope()); assert.equal((await read()).lifecycle.recovery.state, "FAILED");
+  const cancelled = await submit("recover", { confirmed: true }); await submit("disconnect"); await activeWorker.runConnection(scope()); assert.equal(starts, 1); assert.equal((await read()).state, "DISCONNECTED"); assert.equal((await read()).lifecycle.termination.remote, "NOT_REQUESTED"); assert.equal((await db.providerCommand.findUniqueOrThrow({ where: { id: cancelled } })).errorCode, "CONNECTION_STOP_AUTHORIZED");
+  await assert.rejects(client.command(scope(), "connect", randomUUID(), 1), /STALE_CONTROL_COMMAND/); await sessions.recover(); assert.equal(starts, 1);
+  await submit("recover", { confirmed: true }); await activeWorker.runConnection(scope()); assert.equal(starts, 2); callbacks[1]!.connection({ state: "open" }); await sessions.settle(scope()); await activeWorker.runConnection(scope()); assert.equal((await read()).lifecycle.recovery.state, "AUTHENTICATED");
+  timers.find(t => !t.canceled && t.delay === 30000)!.run(); await sessions.settle(scope()); await activeWorker.runConnection(scope()); assert.equal((await read()).lifecycle.recovery.state, "SUCCEEDED"); assert.equal(vault.get(scope())?.attempts, 7);
+  await submit("disconnect"); await activeWorker.runConnection(scope()); await submit("logout", {}, owner, 400); await submit("logout", { confirmed: true }); await activeWorker.runConnection(scope()); const stopped = await read(); assert.equal(stopped.state, "DISCONNECTED"); assert.equal(stopped.lifecycle.termination.remote, "UNCONFIRMED"); assert.equal(stopped.lifecycle.termination.errorCode, "LOGOUT_TRANSPORT_UNAVAILABLE"); assert.equal(vault.get(scope())?.auth, creds); assert.equal(stopped.sendingEnabled, false);
+  await sessions.shutdown(); const restoredVault = new Vault(vault.directory, vaultKey); await restoredVault.initialize(); // no network is involved in the persisted intent check
+  assert.equal(restoredVault.get(scope())?.desired, false); assert.equal(starts, 2);
+ } finally {
+  await api.close(); await sessions.shutdown(); await source.close(); await db.providerCommand.deleteMany({ where: { organizationId: orgA, id: { in: ids } } });
+  await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { state: original.state, errorCode: original.errorCode, providerRevision: original.providerRevision, pairingPhase: original.pairingPhase, version: original.version, providerSync: original.providerSync ?? Prisma.DbNull, historyOperation: original.historyOperation ?? Prisma.DbNull, outboundEnabled: original.outboundEnabled, mediaEnabled: original.mediaEnabled } }); await db.channel.update({ where: { organizationId_id: { organizationId: orgA, id: channelId } }, data: { status: originalChannel.status } }); await rm(directory, { recursive: true, force: true });
+ }
 });
