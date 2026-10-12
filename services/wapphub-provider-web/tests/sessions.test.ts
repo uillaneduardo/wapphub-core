@@ -38,14 +38,14 @@ test("late updates from an old socket cannot replace the current session", async
   f.callbacks[1]!.connection({ state: "open" }); await f.sessions.settle(f.scope); assert.equal(f.sessions.view(f.scope).state, "CONNECTED");
 });
 for (const code of [401, 403, 411, 440, 500]) test(`disconnect ${code} stops reconnection`, async (t) => {
-  const f = await fixture(t); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID());
+  const f = await fixture(t); await f.vault.update(f.scope, r => { r.auth = JSON.stringify({me:{id:"synthetic@lid"},noiseKey:{private:"synthetic",public:"synthetic"},signedIdentityKey:{private:"synthetic",public:"synthetic"}}); }); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID());
   f.callbacks[0]!.connection({ state: "close", code }); await f.sessions.settle(f.scope);
   assert.equal(f.vault.get(f.scope)?.desired, false); assert.equal(f.stats().starts, 1);
   assert.equal(f.timers.filter((timer) => !timer.canceled).length, 0);
   assert.equal(f.sessions.view(f.scope).state, code === 401 ? "LOGGED_OUT" : "FAILED");
 });
 test("transient failures reconnect with exponential backoff and stop after five attempts", async (t) => {
-  const f = await fixture(t); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID());
+  const f = await fixture(t); await f.vault.update(f.scope, r => { r.auth = JSON.stringify({me:{id:"synthetic@lid"},noiseKey:{private:"synthetic",public:"synthetic"},signedIdentityKey:{private:"synthetic",public:"synthetic"}}); }); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID());
   for (let attempt = 1; attempt <= 5; attempt++) {
     f.callbacks[attempt - 1]!.connection({ state: "close", code: 503 }); await f.sessions.settle(f.scope);
     const timer = f.timers.find((item) => !item.canceled);
@@ -58,6 +58,7 @@ test("transient failures reconnect with exponential backoff and stop after five 
 });
 test("pairing deadline terminates an abandoned QR session", async (t) => {
   const f = await fixture(t); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID());
+  f.callbacks[0]!.connection({qr:"SYNTHETIC_ABANDONED_QR"}); await f.sessions.settle(f.scope);
   f.timers.find(timer => !timer.canceled)!.run(); await f.sessions.settle(f.scope);
   assert.equal(f.sessions.view(f.scope).errorCode, "PAIRING_TIMEOUT"); assert.equal(f.vault.get(f.scope)?.desired, false);
 });
@@ -68,7 +69,7 @@ test("logout without a remote acknowledgement preserves credentials and is idemp
   assert.equal(f.stats().logouts, 1); assert.equal(f.vault.get(f.scope)?.auth, "TEST_AUTH"); assert.equal(f.sessions.view(f.scope).state, "DISCONNECTED"); assert.equal(f.vault.get(f.scope)?.termination?.remote, "UNCONFIRMED");
 });
 test("restart restores desired sessions and retains retry budget", async (t) => {
-  const f = await fixture(t); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID());
+  const f = await fixture(t); await f.vault.update(f.scope, r => { r.auth = JSON.stringify({me:{id:"synthetic@lid"},noiseKey:{private:"synthetic",public:"synthetic"},signedIdentityKey:{private:"synthetic",public:"synthetic"}}); }); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID());
   await f.sessions.shutdown(); const restored = new Vault(f.vault.directory, f.key); await restored.initialize();
   const journal = new EventJournal(restored), sessions = new Sessions(restored, journal, f.factory, true);
   t.after(() => sessions.shutdown()); await sessions.recover();
