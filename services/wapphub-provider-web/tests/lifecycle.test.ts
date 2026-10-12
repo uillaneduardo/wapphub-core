@@ -74,3 +74,32 @@ test("known transient construction error permits only another explicitly authori
  const f = await fixture(t); await failed(f); let starts = 0; const sessions = new Sessions(f.vault, f.journal, async () => { starts++; throw Object.assign(new Error("synthetic network failure"), { code: "EAI_AGAIN" }); }, true); t.after(() => sessions.shutdown());
  const id = randomUUID(); await sessions.command(f.scope, "recover", id); await sessions.command(f.scope, "recover", id); await sessions.recover(); assert.equal(starts, 1); assert.equal(sessions.view(f.scope).errorCode, "CONNECTION_LOST"); assert.equal(f.vault.get(f.scope)?.auth, linkedAuth); assert.equal(f.vault.get(f.scope)?.desired, false);
 });
+
+for (const proof of ["CONFIRMED", "UNCONFIRMED"] as const) test(`new link after ${proof} unlink requires proof, keeps encrypted archive and uses a fenced scoped authorization`, async t => {
+ const f = await fixture(t); await failed(f); await f.vault.update(f.scope, r => { r.desired = false; r.termination = { commandId: randomUUID(), action: "logout", remote: proof, requestedAt: new Date().toISOString() }; if (proof === "CONFIRMED") r.invalidated = "SESSION_REVOKED"; });
+ const sessions = new Sessions(f.vault, f.journal, f.factory, true, undefined, undefined, undefined, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true }); t.after(() => sessions.shutdown());
+ assert.equal(sessions.view(f.scope).sync.lifecycle.preparationEligible, true);
+ await assert.rejects(sessions.command(f.scope, "connect", randomUUID(), 1), /CONTROLLED_RECOVERY_REQUIRED/);
+ if (proof === "UNCONFIRMED") await assert.rejects(sessions.command(f.scope, "prepare_link", randomUUID(), 2), /LINK_PREPARATION_DENIED/);
+ const id = randomUUID(); await sessions.command(f.scope, "prepare_link", id, 2, proof === "UNCONFIRMED"); await sessions.command(f.scope, "prepare_link", id, 2, proof === "UNCONFIRMED");
+ const r = f.vault.get(f.scope)!; assert.equal(r.auth, undefined); assert.deepEqual(r.keys, {}); assert.equal(r.retiredSessions?.length, 1); assert.equal(r.retiredSessions?.[0]?.auth, linkedAuth); assert.equal(r.attempts, 5); assert.equal(f.stats().starts, 0);
+ await assert.rejects(sessions.command(f.scope, "connect", randomUUID(), 1), /STALE_CONTROL_COMMAND/);
+ await sessions.command(f.scope, "connect", randomUUID(), 3); assert.equal(f.stats().starts, 1); f.callbacks[0]!.connection({ qr: "SYNTHETIC_NEW_QR" }); await sessions.settle(f.scope); assert.equal(sessions.qr(f.scope).qr, "SYNTHETIC_NEW_QR");
+ await f.vault.update(f.scope, record => { record.auth = linkedAuth; }); f.callbacks[0]!.connection({ state: "open" }); await sessions.settle(f.scope); assert.equal(sessions.view(f.scope).state, "CONNECTED"); assert.equal(f.vault.get(f.scope)?.retiredSessions?.[0]?.auth, linkedAuth); assert.equal(f.vault.get(f.scope)?.attempts, 6);
+});
+test("linked-only policy allows an explicitly scoped first pairing but never a QR on unauthenticated boot or exhausted linked session", async t => {
+ const f = await fixture(t); await f.sessions.create(f.scope); const sessions = new Sessions(f.vault, f.journal, f.factory, true, undefined, undefined, undefined, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true }); t.after(() => sessions.shutdown());
+ await sessions.recover(); assert.equal(f.stats().starts, 0); await sessions.command(f.scope, "connect", randomUUID(), 1); f.callbacks[0]!.connection({ qr: "SYNTHETIC_FIRST_QR" }); await sessions.settle(f.scope); assert.equal(sessions.qr(f.scope).revision, 1);
+ await sessions.command(f.scope, "refresh", randomUUID(), 2); assert.equal(f.stats().starts, 2);
+ await sessions.shutdown(); const restored = new Sessions(f.vault, f.journal, f.factory, true, undefined, undefined, undefined, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true }); t.after(() => restored.shutdown()); await restored.recover(); assert.equal(f.stats().starts, 2); assert.equal(f.vault.get(f.scope)?.desired, false); assert.equal(f.vault.get(f.scope)?.pairingAuthorization, undefined);
+});
+test("local stop and active credentials cannot be retired; quota and idempotency protect archive", async t => {
+ const f = await fixture(t); await failed(f); await f.sessions.command(f.scope, "disconnect", randomUUID(), 1); await assert.rejects(f.sessions.command(f.scope, "prepare_link", randomUUID(), 2, true), /LINK_PREPARATION_DENIED/); assert.equal(f.vault.get(f.scope)?.auth, linkedAuth);
+ await f.sessions.command(f.scope, "logout", randomUUID(), 2); const id = randomUUID(); await f.sessions.command(f.scope, "prepare_link", id, 3, true); await assert.rejects(f.sessions.command(f.scope, "prepare_link", id, 3, false), /IDEMPOTENCY_CONFLICT/);
+ await f.vault.update(f.scope, r => { r.retiredSessions!.push(r.retiredSessions![0]!); r.auth = linkedAuth; r.termination = { commandId: randomUUID(), action: "logout", remote: "CONFIRMED", requestedAt: new Date().toISOString() }; }); await assert.rejects(f.sessions.command(f.scope, "prepare_link", randomUUID(), 4), /SESSION_ARCHIVE_LIMIT/); assert.equal(f.vault.get(f.scope)?.auth, linkedAuth);
+});
+
+for (const code of [401, 403] as const) test(`remote revocation code ${code} keeps removal evidence distinct`, async t => {
+ const f = await fixture(t); await failed(f, "SESSION_REVOKED"); await f.vault.update(f.scope, r => { r.desired = false; r.invalidated = "SESSION_REVOKED"; r.lastDisconnect = { code, occurredAt: new Date().toISOString() }; });
+ assert.equal(f.sessions.view(f.scope).sync.lifecycle.preparationEligible, true); assert.equal(f.sessions.view(f.scope).sync.lifecycle.removalConfirmationRequired, code !== 401); assert.equal(f.stats().starts, 0); assert.equal(f.vault.get(f.scope)?.auth, linkedAuth);
+});

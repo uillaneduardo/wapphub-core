@@ -61,3 +61,10 @@ test("QR-linked SDK recovery accepts registered false and preserves the authenti
  ev.emit("creds.update", { registered: false }); await new Promise((resolve) => setImmediate(resolve)); await f.vault.flush();
  assert.equal(JSON.parse(f.vault.get(f.scope)!.auth!).me.id, "synthetic@lid"); assert.equal(JSON.parse(f.vault.get(f.scope)!.auth!).registered, false); transport.close();
 });
+
+test("scoped initial pairing under linked-only guard accepts new identity without enabling pairing for other sessions", async t => {
+ const f = await fixture(t); await f.sessions.create(f.scope); const ev = makeEventBuffer(pino({ level: 'silent' })), updates: unknown[] = []; let starts = 0;
+ const factory = baileysFactory(f.vault, () => { starts++; return { ev, end: async () => undefined, logout: async () => assert.fail('no remote logout') }; }, { enabled: false, historyEnabled: false, linkedRecoveryOnly: true });
+ const transport = await factory(f.scope, { connection: value => updates.push(value), text: () => undefined, receipt: () => undefined, failure: () => assert.fail('persistence failure') }, { allowPairing: true });
+ ev.emit('creds.update', { me: { id: 'synthetic-new@lid' } }); await new Promise(resolve => setImmediate(resolve)); await f.vault.flush(); assert.equal(JSON.parse(f.vault.get(f.scope)!.auth!).me.id, 'synthetic-new@lid'); assert.equal(updates.length, 0); assert.equal(starts, 1); transport.close();
+});

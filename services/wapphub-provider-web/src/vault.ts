@@ -18,6 +18,8 @@ export type Session = Scope & {
   attempts: number; errorCode?: string; auth?: string; keys: Record<string, string>;
   recoveryFailures?: number;
   controlVersion?: number;
+  pairingAuthorization?: { commandId: string; expiresAt: number };
+  retiredSessions?: { commandId: string; retiredAt: string; proof: "REMOTE_CONFIRMED" | "PHONE_CONFIRMED"; auth?: string; keys: Record<string, string>; invalidated?: string; termination?: SessionLifecycle["termination"] }[];
   recovery?: SessionLifecycle["recovery"];
   termination?: SessionLifecycle["termination"];
   lastDisconnect?: { occurredAt: string; code?: number };

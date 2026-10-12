@@ -55,10 +55,10 @@ export async function encryptedAuth(vault: Vault, scope: Scope, failure: () => v
 }
 type SocketCreator = (options: Parameters<typeof makeWASocket>[0]) => Pick<ReturnType<typeof makeWASocket>, "ev" | "end" | "logout"> & Partial<Pick<ReturnType<typeof makeWASocket>, "fetchMessageHistory" | "onWhatsApp" | "sendMessage" | "query">>;
 export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeWASocket, syncOptions: { enabled: boolean; historyEnabled: boolean; initialHistoryEnabled?: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; historyExecutionEnabled?: boolean; scopedHistoryAuthorization?: boolean; mediaEnabled?: boolean } = { enabled: false, historyEnabled: false }): TransportFactory {
-  return async (scope, callbacks) => {
+  return async (scope, callbacks, authorization) => {
     const media = new ProviderMedia(vault, syncOptions.mediaEnabled === true);
     const historyEnabled = syncOptions.historyEnabled && syncOptions.approvedScope === `${scope.organizationId}:${scope.connectionId}`;
-    if (syncOptions.linkedRecoveryOnly) {
+    if (syncOptions.linkedRecoveryOnly && !authorization?.allowPairing) {
       let linked = false;
       try { const existing = JSON.parse(vault.get(scope)?.auth ?? "null"); linked = typeof existing?.me?.id === "string" && existing.me.id.length > 0; } catch { /* no credential logging */ }
       if (!linked) throw new ServiceError("EXISTING_AUTH_REQUIRED", 403);
@@ -104,7 +104,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
     await importer.recover();
     socket.ev.on("creds.update", (update) => {
       if (auth.isDisabled()) return;
-      if (syncOptions.linkedRecoveryOnly && (Object.hasOwn(update, "me") && update.me?.id !== auth.state.creds.me?.id)) {
+      if (syncOptions.linkedRecoveryOnly && !authorization?.allowPairing && (Object.hasOwn(update, "me") && update.me?.id !== auth.state.creds.me?.id)) {
         auth.disable(); callbacks.connection({ state: "close", code: 401 }); return;
       }
       Object.assign(auth.state.creds, update);

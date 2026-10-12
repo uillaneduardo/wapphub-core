@@ -8,7 +8,7 @@ import { z } from "zod";
 import { providerSessionSchema, providerQrSchema, providerDeliveriesSchema, signedHeaders, type ProviderSession, type ProviderQr } from "../../contracts/provider-internal.js";
 import type { Config } from "../infrastructure/config.js";
 export type ProviderScope = { organizationId: string; connectionId: string };
-export type InternalAction = "connect" | "refresh" | "recover" | "disconnect" | "logout";
+export type InternalAction = "connect" | "refresh" | "recover" | "disconnect" | "logout" | "prepare_link";
 export type Delivery = z.infer<typeof providerDeliveriesSchema>["deliveries"][number];
 export interface WebProviderPort {
   uploadMedia?(scope: ProviderScope, meta: MediaUpload, stream: AsyncIterable<Uint8Array>): Promise<import("zod").infer<typeof mediaReferenceSchema>>;
@@ -19,7 +19,7 @@ export interface WebProviderPort {
   ready(): Promise<boolean>;
   create(scope: ProviderScope): Promise<ProviderSession>;
   session(scope: ProviderScope): Promise<ProviderSession>;
-  command(scope: ProviderScope, action: InternalAction, commandId: string, controlVersion?: number): Promise<ProviderSession>;
+  command(scope: ProviderScope, action: InternalAction, commandId: string, controlVersion?: number, removedOnPhone?: boolean): Promise<ProviderSession>;
   qr(scope: ProviderScope): Promise<ProviderQr>;
   pull(scope: ProviderScope): Promise<Delivery[]>;
   ack(scope: ProviderScope, eventId: string, leaseId: string): Promise<void>;
@@ -40,7 +40,7 @@ export class WebProviderClient implements WebProviderPort {
       const result: unknown = JSON.parse(Buffer.concat(chunks).toString());
       if (!response.ok) {
         const error = z.object({ error: z.object({ code: z.string() }) }).safeParse(result);
-        const code = error.success && ["HISTORY_SCOPE_DENIED", "HISTORY_REQUEST_UNCERTAIN", "HISTORY_EXECUTION_DISABLED", "HISTORY_TRANSPORT_UNAVAILABLE", "HISTORY_ANCHOR_REQUIRED", "HISTORY_OPERATION_PENDING", "HISTORY_OPERATION_MISMATCH", "INVALID_HISTORY_STATE", "IDEMPOTENCY_CONFLICT", "QR_NOT_AVAILABLE", "SESSION_NOT_FOUND", "RECOVERY_NOT_ELIGIBLE", "CONTROLLED_RECOVERY_REQUIRED", "STALE_CONTROL_COMMAND", "LINKED_RECOVERY_ONLY", "CONNECTIONS_DISABLED", "INVALID_SESSION_STATE", "IDEMPOTENCY_CONFLICT"].includes(error.data.error.code) ? error.data.error.code : "PROVIDER_UNAVAILABLE";
+        const code = error.success && ["HISTORY_SCOPE_DENIED", "HISTORY_REQUEST_UNCERTAIN", "HISTORY_EXECUTION_DISABLED", "HISTORY_TRANSPORT_UNAVAILABLE", "HISTORY_ANCHOR_REQUIRED", "HISTORY_OPERATION_PENDING", "HISTORY_OPERATION_MISMATCH", "INVALID_HISTORY_STATE", "IDEMPOTENCY_CONFLICT", "QR_NOT_AVAILABLE", "SESSION_NOT_FOUND", "RECOVERY_NOT_ELIGIBLE", "CONTROLLED_RECOVERY_REQUIRED", "STALE_CONTROL_COMMAND", "LINK_PREPARATION_DENIED", "SESSION_ARCHIVE_LIMIT", "LINKED_RECOVERY_ONLY", "CONNECTIONS_DISABLED", "INVALID_SESSION_STATE", "IDEMPOTENCY_CONFLICT"].includes(error.data.error.code) ? error.data.error.code : "PROVIDER_UNAVAILABLE";
         throw new WebProviderError(code, response.status);
       }
       return result;
@@ -75,7 +75,7 @@ export class WebProviderClient implements WebProviderPort {
   async history(scope: ProviderScope, control: HistoryControl) { return providerSessionSchema.parse(await this.request("POST", `${prefix(scope)}/history`, control)); }
   async create(scope: ProviderScope) { return providerSessionSchema.parse(await this.request("PUT", prefix(scope))); }
   async session(scope: ProviderScope) { return providerSessionSchema.parse(await this.request("GET", prefix(scope))); }
-  async command(scope: ProviderScope, action: InternalAction, commandId: string, controlVersion?: number) { return providerSessionSchema.parse(await this.request("POST", `${prefix(scope)}/commands`, { action, commandId, ...(controlVersion !== undefined ? { controlVersion } : {}) })); }
+  async command(scope: ProviderScope, action: InternalAction, commandId: string, controlVersion?: number, removedOnPhone?: boolean) { return providerSessionSchema.parse(await this.request("POST", `${prefix(scope)}/commands`, { action, commandId, ...(removedOnPhone === undefined ? {} : { removedOnPhone }), ...(controlVersion !== undefined ? { controlVersion } : {}) })); }
   async qr(scope: ProviderScope) { return providerQrSchema.parse(await this.request("GET", `${prefix(scope)}/qr`)); }
   async pull(scope: ProviderScope) { return providerDeliveriesSchema.parse(await this.request("POST", `${prefix(scope)}/events/pull`, { limit: 5 })).deliveries; }
   async ack(scope: ProviderScope, eventId: string, leaseId: string) { await this.request("POST", `${prefix(scope)}/events/ack`, { eventId, leaseId }); }

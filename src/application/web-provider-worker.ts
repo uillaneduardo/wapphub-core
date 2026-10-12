@@ -57,8 +57,8 @@ export class WebProviderWorker {
             view = await this.client.history(scope, control);
           } else {
             await this.client.create(scope);
-            const control = z.object({ controlVersion: z.number().int().positive() }).safeParse(command.payload);
-            view = command.action === "create" ? await this.client.session(scope) : await this.client.command(scope, command.action as InternalAction, command.id, control.success ? control.data.controlVersion : undefined);
+            const control = z.object({ controlVersion: z.number().int().positive(), removedOnPhone: z.boolean().optional() }).safeParse(command.payload);
+            view = command.action === "create" ? await this.client.session(scope) : await this.client.command(scope, command.action as InternalAction, command.id, control.success ? control.data.controlVersion : undefined, control.success ? control.data.removedOnPhone : undefined);
           }
           await this.connections.synchronize(scope, view, token);
           await this.chat.integrationMutation(scope.organizationId, async (tx) => {

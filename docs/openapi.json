@@ -22538,6 +22538,7 @@
                                 "recover",
                                 "disconnect",
                                 "logout",
+                                "prepare_link",
                                 "history_prepare",
                                 "history_start",
                                 "history_pause",
@@ -22569,6 +22570,9 @@
                           ],
                           "nullable": true
                         },
+                        "transportConfirmed": {
+                          "type": "boolean"
+                        },
                         "sendingEnabled": {
                           "type": "boolean"
                         },
@@ -22585,6 +22589,15 @@
                               "type": "boolean"
                             },
                             "recoveryEligible": {
+                              "type": "boolean"
+                            },
+                            "pairingEligible": {
+                              "type": "boolean"
+                            },
+                            "preparationEligible": {
+                              "type": "boolean"
+                            },
+                            "removalConfirmationRequired": {
                               "type": "boolean"
                             },
                             "recovery": {
@@ -22695,6 +22708,7 @@
                         "pairingPhase",
                         "sync",
                         "operation",
+                        "transportConfirmed",
                         "sendingEnabled",
                         "mediaEnabled",
                         "lifecycle"
@@ -23350,6 +23364,7 @@
                             "recover",
                             "disconnect",
                             "logout",
+                            "prepare_link",
                             "history_prepare",
                             "history_start",
                             "history_pause",
@@ -23381,6 +23396,9 @@
                       ],
                       "nullable": true
                     },
+                    "transportConfirmed": {
+                      "type": "boolean"
+                    },
                     "sendingEnabled": {
                       "type": "boolean"
                     },
@@ -23397,6 +23415,15 @@
                           "type": "boolean"
                         },
                         "recoveryEligible": {
+                          "type": "boolean"
+                        },
+                        "pairingEligible": {
+                          "type": "boolean"
+                        },
+                        "preparationEligible": {
+                          "type": "boolean"
+                        },
+                        "removalConfirmationRequired": {
                           "type": "boolean"
                         },
                         "recovery": {
@@ -23507,6 +23534,7 @@
                     "pairingPhase",
                     "sync",
                     "operation",
+                    "transportConfirmed",
                     "sendingEnabled",
                     "mediaEnabled",
                     "lifecycle"
@@ -23862,7 +23890,8 @@
                       "refresh",
                       "recover",
                       "disconnect",
-                      "logout"
+                      "logout",
+                      "prepare_link"
                     ]
                   },
                   "expectedVersion": {
@@ -23870,6 +23899,9 @@
                     "minimum": 1
                   },
                   "confirmed": {
+                    "type": "boolean"
+                  },
+                  "removedOnPhone": {
                     "type": "boolean"
                   }
                 },
@@ -24188,6 +24220,7 @@
                             "recover",
                             "disconnect",
                             "logout",
+                            "prepare_link",
                             "history_prepare",
                             "history_start",
                             "history_pause",
@@ -24219,6 +24252,9 @@
                       ],
                       "nullable": true
                     },
+                    "transportConfirmed": {
+                      "type": "boolean"
+                    },
                     "sendingEnabled": {
                       "type": "boolean"
                     },
@@ -24235,6 +24271,15 @@
                           "type": "boolean"
                         },
                         "recoveryEligible": {
+                          "type": "boolean"
+                        },
+                        "pairingEligible": {
+                          "type": "boolean"
+                        },
+                        "preparationEligible": {
+                          "type": "boolean"
+                        },
+                        "removalConfirmationRequired": {
                           "type": "boolean"
                         },
                         "recovery": {
@@ -24345,6 +24390,7 @@
                     "pairingPhase",
                     "sync",
                     "operation",
+                    "transportConfirmed",
                     "sendingEnabled",
                     "mediaEnabled",
                     "lifecycle"
