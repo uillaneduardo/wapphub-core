@@ -376,7 +376,7 @@ export class Sessions {
       if (this.syncOptions.enabled) await this.journal.stage(scope, [], false, this.historyEnabled(scope));
       if (["RUNNING", "AUTHENTICATED"].includes(record.recovery?.state ?? "")) { await this.finishRecovery(scope, "INTERRUPTED", "RECOVERY_INTERRUPTED"); await this.transition(scope, "FAILED", "RECOVERY_INTERRUPTED"); }
       else if (record.termination?.remote === "PENDING") { await this.vault.update(scope, current => { current.desired = false; current.termination!.remote = "UNCONFIRMED"; current.termination!.errorCode = "LOGOUT_RESULT_UNKNOWN"; current.termination!.finishedAt = new Date(this.now()).toISOString(); }); await this.transition(scope, "DISCONNECTED", "LOGOUT_RESULT_UNKNOWN"); }
-      else if (!this.linked(scope) && record.pairingAuthorization) { await this.vault.update(scope, current => { current.desired = false; delete current.pairingAuthorization; }); await this.transition(scope, "DISCONNECTED"); }
+      else if (record.pairingAuthorization) { await this.vault.update(scope, current => { current.desired = false; delete current.pairingAuthorization; }); await this.transition(scope, "DISCONNECTED"); }
       else if (record.desired && this.connectEnabled) await actor.serial.run(() => this.start(scope, actor));
       else if (!["DISCONNECTED", "LOGGED_OUT", "FAILED"].includes(record.state)) await this.transition(scope, "DISCONNECTED");
     }

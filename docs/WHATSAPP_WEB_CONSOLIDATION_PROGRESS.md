@@ -307,3 +307,5 @@ Core133/133 completo+uploadHTTP/OpenAPI/drift/migration12/lint/typecheck/build a
 ### 2026-10-12T14:42Z — revisão final — guard de identidade após primeiro QR
 
 Revisão detectou que a permissão passada ao factory poderia permanecer efetiva após open do primeiro pareamento. Guard corrigido para consultar autorização persistida escopada e prazo em cada atualização de identidade; open remove o grant de pairing e volta imediatamente à proteção linked-only. Teste SDK RC14 sintético comprova primeira identidade aceita e tentativa subsequente de remover identidade rejeitada, sem sobrescrever auth. Nenhuma operação produtiva; CI novo SHA será exigida antes de merge.
+
+Revisão de restart também cobre identidade já persistida antes de open autenticado: a presença de pairingAuthorization interrompe o episódio mesmo quando me já existe. Nenhum transporte/QR é retomado automaticamente nessa janela; credenciais permanecem, somente recuperação explícita elegível. Teste sintético específico adicionado; nova CI integral obrigatória.

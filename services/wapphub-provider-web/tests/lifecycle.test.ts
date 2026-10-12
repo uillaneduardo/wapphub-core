@@ -103,3 +103,8 @@ for (const code of [401, 403] as const) test(`remote revocation code ${code} kee
  const f = await fixture(t); await failed(f, "SESSION_REVOKED"); await f.vault.update(f.scope, r => { r.desired = false; r.invalidated = "SESSION_REVOKED"; r.lastDisconnect = { code, occurredAt: new Date().toISOString() }; });
  assert.equal(f.sessions.view(f.scope).sync.lifecycle.preparationEligible, true); assert.equal(f.sessions.view(f.scope).sync.lifecycle.removalConfirmationRequired, code !== 401); assert.equal(f.stats().starts, 0); assert.equal(f.vault.get(f.scope)?.auth, linkedAuth);
 });
+
+test("restart after pairing identity is persisted but before authenticated open does not resume QR or transport", async t => {
+ const f = await fixture(t); await f.sessions.create(f.scope); await f.sessions.command(f.scope, "connect", randomUUID(), 1); await f.vault.update(f.scope, r => { r.auth = linkedAuth; }); await f.sessions.shutdown();
+ const restored = new Sessions(f.vault, f.journal, f.factory, true); t.after(() => restored.shutdown()); await restored.recover(); assert.equal(f.stats().starts, 1); assert.equal(f.vault.get(f.scope)?.desired, false); assert.equal(f.vault.get(f.scope)?.pairingAuthorization, undefined); assert.equal(f.vault.get(f.scope)?.auth, linkedAuth); assert.equal(restored.view(f.scope).state, "DISCONNECTED");
+});
