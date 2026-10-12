@@ -8,13 +8,13 @@ import { WebProviderError } from "../integrations/web-provider-client.js";
 import { AppError } from "../domain/errors.js";
 import { historyRecord } from "./web-history.js";
 import { syncProgress } from "./web-sync.js";
-export type ConnectionAction = "connect" | "refresh" | "recover" | "disconnect" | "logout";
-export type CommandInput = { commandId: string; action: ConnectionAction; expectedVersion: number; confirmed?: boolean };
+export type ConnectionAction = "connect" | "refresh" | "recover" | "disconnect" | "logout" | "prepare_link";
+export type CommandInput = { commandId: string; action: ConnectionAction; expectedVersion: number; confirmed?: boolean; removedOnPhone?: boolean };
 const pending = { in: ["PENDING", "PROCESSING"] };
 export function connectionDTO(record: ProviderConnection, command?: ProviderCommand | null) {
   const state = record.state;
   const provider = record.providerSync && typeof record.providerSync === "object" && !Array.isArray(record.providerSync) ? { ...record.providerSync } : null;
-  const lifecycle = lifecycleSchema.safeParse(provider?.lifecycle);
+  const lifecycle = lifecycleSchema.safeParse(provider?.lifecycle); const transportConfirmed = provider?.activeTransport === true && state === "CONNECTED" && record.errorCode !== "PROVIDER_UNAVAILABLE";
   if (provider) { delete provider.lifecycle; delete provider.processingFailure; delete provider.activeTransport; }
   const { failedBatches, lastBatch: _lastBatch, occurrences: _occurrences, diagnosticEvictions: _evictions, ...progress } = syncProgress(record.syncProgress);
   void _lastBatch; void _occurrences; void _evictions; // Private diagnostic fields require a separate permission.
@@ -22,6 +22,7 @@ export function connectionDTO(record: ProviderConnection, command?: ProviderComm
     uiState: state === "QR_REQUIRED" ? "QR_READY" : state === "FAILED" ? "ERROR" : state === "LOGGED_OUT" ? "DISCONNECTED" : state,
     version: record.version, qrRevision: record.qrRevision,
     errorCode: record.errorCode,
+    transportConfirmed,
     lastCheckedAt: record.lastCheckedAt?.toISOString() ?? null,
     pairingPhase: record.pairingPhase ?? null,
     sync: { ...progress, pendingFailures: Object.keys(failedBatches).length, provider },
@@ -63,25 +64,29 @@ export class WebConnections {
       if (!record) throw new AppError(404, "NOT_FOUND");
       const existing = await tx.providerCommand.findFirst({ where: { id: input.commandId, organizationId: c.organizationId, channelId: id } });
       if (existing) {
-        if (existing.action !== input.action || existing.actorUserId !== c.userId) throw new AppError(409, "IDEMPOTENCY_CONFLICT");
+        if (existing.action !== input.action || existing.actorUserId !== c.userId || input.action === "prepare_link" && !!(existing.payload && typeof existing.payload === "object" && !Array.isArray(existing.payload) && existing.payload.removedOnPhone) !== (input.removedOnPhone === true)) throw new AppError(409, "IDEMPOTENCY_CONFLICT");
         return this.dto(record, existing);
       }
       if (record.version !== input.expectedVersion) throw new AppError(409, "CONNECTION_VERSION_CONFLICT");
       const stopping = ["disconnect", "logout"].includes(input.action);
-      if (["recover", "logout"].includes(input.action) && input.confirmed !== true) throw new AppError(400, "EXPLICIT_CONFIRMATION_REQUIRED");
+      if (["recover", "logout", "prepare_link"].includes(input.action) && input.confirmed !== true) throw new AppError(400, "EXPLICIT_CONFIRMATION_REQUIRED");
       if (!stopping && await tx.providerCommand.count({ where: { organizationId: c.organizationId, channelId: id, status: pending } })) throw new AppError(409, "CONNECTION_OPERATION_PENDING");
+      if (input.action === "prepare_link") {
+        const lifecycle = lifecycleSchema.safeParse(record.providerSync && typeof record.providerSync === "object" && !Array.isArray(record.providerSync) ? record.providerSync.lifecycle : null);
+        if (!lifecycle.success || !lifecycle.data.preparationEligible || lifecycle.data.removalConfirmationRequired && input.removedOnPhone !== true) throw new AppError(409, "LINK_PREPARATION_DENIED");
+      }
       if (input.action === "refresh" && (record.pairingPhase === "AUTHENTICATING" || !["QR_REQUIRED", "CONNECTING"].includes(record.state))) throw new AppError(409, "INVALID_SESSION_STATE");
       if (input.action === "connect" && record.state === "CONNECTED") throw new AppError(409, "CONNECTION_ALREADY_CONNECTED");
       if (input.action === "recover" && (!["FAILED", "DISCONNECTED"].includes(record.state) || ["SESSION_REVOKED", "SESSION_REPLACED", "BAD_SESSION"].includes(record.errorCode ?? ""))) throw new AppError(409, "RECOVERY_NOT_ELIGIBLE");
       if (["connect", "refresh"].includes(input.action) && ["SESSION_REVOKED", "SESSION_REPLACED", "BAD_SESSION", "RECONNECT_LIMIT"].includes(record.errorCode ?? "")) throw new AppError(409, "CONTROLLED_RECOVERY_REQUIRED");
       if (stopping) {
-        await tx.providerCommand.updateMany({ where: { organizationId: c.organizationId, channelId: id, status: pending, action: { in: ["connect", "refresh", "recover", "disconnect", "logout", "history_prepare", "history_start", "history_resume", "history_reconcile"] } }, data: { status: "FAILED", errorCode: "CONNECTION_STOP_AUTHORIZED" } });
+        await tx.providerCommand.updateMany({ where: { organizationId: c.organizationId, channelId: id, status: pending, action: { in: ["connect", "refresh", "recover", "disconnect", "logout", "prepare_link", "history_prepare", "history_start", "history_resume", "history_reconcile"] } }, data: { status: "FAILED", errorCode: "CONNECTION_STOP_AUTHORIZED" } });
         const op = historyRecord(record.historyOperation); if (op?.authorization) { op.authorization.state = "PAUSED"; await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: c.organizationId, channelId: id } }, data: { historyOperation: op } }); }
         await tx.channel.update({ where: { organizationId_id: { organizationId: c.organizationId, id } }, data: { status: "DISABLED" } });
       }
-      const command = await tx.providerCommand.create({ data: { id: input.commandId, organizationId: c.organizationId, channelId: id, actorUserId: c.userId, sessionId: p.session.id, action: input.action, payload: { controlVersion: record.version + 1 } } });
-      const updated = await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: c.organizationId, channelId: id } }, data: { version: { increment: 1 }, ...(stopping ? { outboundEnabled: false, mediaEnabled: false } : {}) } });
-      await tx.auditEvent.create({ data: { organizationId: c.organizationId, actorUserId: c.userId, action: `WHATSAPP_WEB_${input.action.toUpperCase()}_REQUESTED`, details: { channelId: id, commandId: input.commandId } } });
+      const command = await tx.providerCommand.create({ data: { id: input.commandId, organizationId: c.organizationId, channelId: id, actorUserId: c.userId, sessionId: p.session.id, action: input.action, payload: { controlVersion: record.version + 1, ...(input.action === "prepare_link" ? { removedOnPhone: input.removedOnPhone === true } : {}) } } });
+      const updated = await tx.providerConnection.update({ where: { organizationId_channelId: { organizationId: c.organizationId, channelId: id } }, data: { version: { increment: 1 }, ...(stopping || input.action === "prepare_link" ? { outboundEnabled: false, mediaEnabled: false } : {}) } });
+      await tx.auditEvent.create({ data: { organizationId: c.organizationId, actorUserId: c.userId, action: `WHATSAPP_WEB_${input.action.toUpperCase()}_REQUESTED`, details: { channelId: id, commandId: input.commandId, ...(input.action === "prepare_link" ? { removedOnPhone: input.removedOnPhone === true } : {}) } } });
       await this.chat.resourceEvent(tx, c.organizationId, "provider.connection.updated", id);
       return this.dto(updated, command);
     });

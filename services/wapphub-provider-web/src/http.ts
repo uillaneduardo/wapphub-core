@@ -11,7 +11,7 @@ import { EventJournal } from "./events.js";
 import { Sessions } from "./sessions.js";
 import { scopeSchema } from "./vault.js";
 
-const commandSchema = z.strictObject({ action: z.enum(["connect", "refresh", "recover", "disconnect", "logout"]), commandId: z.uuid(), controlVersion: z.number().int().positive().optional() });
+const commandSchema = z.strictObject({ action: z.enum(["connect", "refresh", "recover", "disconnect", "logout", "prepare_link"]), commandId: z.uuid(), controlVersion: z.number().int().positive().optional(), removedOnPhone: z.boolean().optional() });
 const eventAckSchema = z.strictObject({ eventId: z.uuid(), leaseId: z.uuid() });
 const prefix = "/internal/v1/organizations/:organizationId/connections/:connectionId";
 export function createHttp(sessions: Sessions, journal: EventJournal, auth: InternalAuth, log: (code: string) => void = () => undefined, media?: ProviderMedia) {
@@ -63,7 +63,7 @@ export function createHttp(sessions: Sessions, journal: EventJournal, auth: Inte
   app.post(`${prefix}/history`, async (request) => sessions.history(scopeSchema.parse(request.params), historyControlSchema.parse(request.body)));
   app.post(`${prefix}/commands`, async (request) => {
     const scope = scopeSchema.parse(request.params), body = commandSchema.parse(request.body);
-    return sessions.command(scope, body.action, body.commandId, body.controlVersion);
+    return sessions.command(scope, body.action, body.commandId, body.controlVersion, body.removedOnPhone);
   });
   app.post(`${prefix}/events/pull`, async (request) => {
     const scope = scopeSchema.parse(request.params), body = z.strictObject({ limit: z.number().int().min(1).max(20) }).parse(request.body);

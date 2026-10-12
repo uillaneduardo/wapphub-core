@@ -102,3 +102,7 @@ openapi.json; detalhes e limites em
 
 Código/testes em revisão; nenhum deploy ou prova de disponibilidade WhatsApp real
 nesta etapa. [Plano B5](WHATSAPP_WEB_CONSOLIDATION_B5.md).
+
+## Gerenciamento simplificado (12/10/2026)
+
+Contrato lifecycle estendido com pairingEligible/preparationEligible/removalConfirmationRequired; DTO Core transportConfirmed requer CONNECTED+socket confirmado. Ação prepare_link no outbox/IPC existente exige versão e confirmação, aposenta material antigo criptografado somente com prova remota ou declaração administrativa de remoção pelo celular. Não faz rede; connect subsequente separado e sequenciado. Guards globais mantidos; autorização inicial de QR é curta e tenant-scoped. [Fluxos, segurança e rollback](WHATSAPP_WEB_LINK_MANAGEMENT.md).

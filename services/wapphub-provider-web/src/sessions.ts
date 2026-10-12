@@ -7,7 +7,7 @@ import { Serial } from "./serial.js";
 import type { ConnectionUpdate, Transport, TransportFactory } from "./transport.js";
 import { historyView } from "./history-operation.js";
 import type { HistoryControl } from "../../../contracts/history.js";
-import { Vault, type Scope, type State } from "./vault.js";
+import { Vault, type Scope, type State, type Session } from "./vault.js";
 
 type Actor = { serial: Serial; generation: number; socket?: Transport; cancel?: () => void; deadline?: () => void; stable?: () => void; failureCode?: string; storageFailed?: boolean; recoveryStarts?: number; controlled?: string; qr?: { value: string; expiresAt: number; revision: number } };
 type Scheduler = (callback: () => void, delay: number) => () => void;
@@ -37,8 +37,8 @@ export class Sessions {
     if (!actor) { actor = { serial: new Serial(), generation: 0 }; this.actors.set(key, actor); }
     return actor;
   }
-  private linked(scope: Scope) {
-    try { const auth = JSON.parse(this.vault.get(scope)?.auth ?? "null"); return typeof auth?.me?.id === "string" && auth.me.id.length > 0 && !!auth.signedIdentityKey?.private && !!auth.signedIdentityKey?.public && !!auth.noiseKey?.private && !!auth.noiseKey?.public; } catch { return false; }
+  private linked(scope: Scope, record = this.vault.get(scope)) {
+    try { const auth = JSON.parse(record?.auth ?? "null"); return typeof auth?.me?.id === "string" && auth.me.id.length > 0 && !!auth.signedIdentityKey?.private && !!auth.signedIdentityKey?.public && !!auth.noiseKey?.private && !!auth.noiseKey?.public; } catch { return false; }
   }
   private recoveryEligible(scope: Scope) {
     const record = this.vault.get(scope);
@@ -48,16 +48,26 @@ export class Sessions {
       record.termination?.action !== "logout" && !["RUNNING", "AUTHENTICATED"].includes(record.recovery?.state ?? "") &&
       [undefined, "RECONNECT_LIMIT", "CONNECTION_LOST", "PAIRING_TIMEOUT", "RECOVERY_TIMEOUT", "RECOVERY_INTERRUPTED", "EXISTING_AUTH_REQUIRED"].includes(record.errorCode);
   }
+  private pairingAuthorized(scope: Scope) {
+    const r = this.vault.get(scope);
+    return !!r?.pairingAuthorization && r.pairingAuthorization.expiresAt > this.now() && !r.invalidated && r.termination?.action !== "logout";
+  }
+  private preparation(scope: Scope, r: Session | undefined = this.vault.get(scope)) {
+    const remote = r?.termination?.remote === "CONFIRMED" || r?.invalidated === "SESSION_REVOKED" && r.lastDisconnect?.code === 401;
+    const eligible = !!r && this.connectEnabled && !this.actor(scope).storageFailed && !this.actor(scope).socket && !r.desired && ["DISCONNECTED", "LOGGED_OUT", "FAILED"].includes(r.state) && (remote || r.termination?.remote === "UNCONFIRMED" || !!r.invalidated);
+    return { eligible, remote };
+  }
   view(scope: Scope) {
     const record = this.vault.get(scope);
     if (!record) throw new ServiceError("SESSION_NOT_FOUND", 404);
     const sync = record.sync;
     const actor = this.actors.get(scopeKey(scope));
+    const linked = this.linked(scope, record), preparation = this.preparation(scope, record);
     const queued = (sync?.pending.length ?? 0) + record.events.reduce((sum, entry) => sum + (entry.event.type === "sync.batch" ? entry.event.data.items.length : 0), 0);
     return { state: actor?.failureCode ? "FAILED" as const : record.state, revision: record.revision, qrRevision: record.qrRevision, attempts: record.attempts, errorCode: actor?.failureCode ?? record.errorCode, connectEnabled: this.connectEnabled,
       ...(record.historyOperation ? { history: historyView(record.historyOperation, (record.sync?.pending.filter((x) => x.operationId === record.historyOperation!.id).length ?? 0) + record.events.reduce((n, e) => n + (e.event.type === "sync.batch" && e.event.correlationId === record.historyOperation!.id ? e.event.data.items.length : 0), 0)) } : {}),
       ...(record.pairingPhase ? { pairingPhase: record.pairingPhase } : {}),
-      sync: { lifecycle: { linked: this.linked(scope), desired: record.desired, recoveryEligible: this.recoveryEligible(scope), ...(record.recovery ? { recovery: record.recovery } : {}), ...(record.termination ? { termination: record.termination } : {}) }, activeTransport: Boolean(actor?.socket), ...(record.processingFailure ? { processingFailure: record.processingFailure } : {}), historyEnabled: this.historyEnabled(scope), phase: record.events.some((entry) => entry.dead) || sync?.failures || sync?.limited || sync?.diagnostics?.rejected ? "PARTIAL" : sync?.complete && queued === 0 ? "PROCESSED" : sync?.phase ?? "DISABLED", queued, contacts: sync?.contacts ?? 0, conversations: sync?.conversations ?? 0, messages: sync?.messages ?? 0, failures: (sync?.failures ?? 0) + record.events.filter((entry) => entry.dead).length, limited: sync?.limited ?? false, durationMs: sync?.durationMs ?? 0, ...(sync?.diagnostics ? { diagnostics: sync.diagnostics } : {}) } };
+      sync: { lifecycle: { linked, desired: record.desired, recoveryEligible: this.recoveryEligible(scope), pairingEligible: this.connectEnabled && !linked && !record.invalidated && record.termination?.action !== "logout" && ["DISCONNECTED", "FAILED"].includes(record.state), preparationEligible: preparation.eligible && (record.retiredSessions?.length ?? 0) < 2, removalConfirmationRequired: preparation.eligible && !preparation.remote, ...(record.recovery ? { recovery: record.recovery } : {}), ...(record.termination ? { termination: record.termination } : {}) }, activeTransport: Boolean(actor?.socket), ...(record.processingFailure ? { processingFailure: record.processingFailure } : {}), historyEnabled: this.historyEnabled(scope), phase: record.events.some((entry) => entry.dead) || sync?.failures || sync?.limited || sync?.diagnostics?.rejected ? "PARTIAL" : sync?.complete && queued === 0 ? "PROCESSED" : sync?.phase ?? "DISABLED", queued, contacts: sync?.contacts ?? 0, conversations: sync?.conversations ?? 0, messages: sync?.messages ?? 0, failures: (sync?.failures ?? 0) + record.events.filter((entry) => entry.dead).length, limited: sync?.limited ?? false, durationMs: sync?.durationMs ?? 0, ...(sync?.diagnostics ? { diagnostics: sync.diagnostics } : {}) } };
   }
   qr(scope: Scope) {
     this.view(scope);
@@ -107,18 +117,34 @@ export class Sessions {
   }
 
   async create(scope: Scope) { await this.vault.update(scope, () => undefined); return this.view(scope); }
-  async command(scope: Scope, action: "connect" | "refresh" | "recover" | "disconnect" | "logout", commandId: string, controlVersion?: number) {
+  async command(scope: Scope, action: "connect" | "refresh" | "recover" | "disconnect" | "logout" | "prepare_link", commandId: string, controlVersion?: number, removedOnPhone = false) {
     this.view(scope);
     const actor = this.actor(scope);
     return actor.serial.run(async () => {
       if (this.stopping) throw new ServiceError("SERVICE_STOPPING", 503);
-      const digest = createHash("sha256").update(controlVersion === undefined ? action : JSON.stringify([action, controlVersion])).digest("hex"), record = this.vault.get(scope)!;
+      const digest = createHash("sha256").update(controlVersion === undefined ? action : JSON.stringify([action, controlVersion, ...(action === "prepare_link" ? [removedOnPhone] : [])])).digest("hex"), record = this.vault.get(scope)!;
       const previous = record.commands.find(command => command.id === commandId);
       if (previous) { if (previous.digest !== digest) throw new ServiceError("IDEMPOTENCY_CONFLICT"); return this.view(scope); }
       if (record.commands.length >= 256 && !["disconnect", "logout"].includes(action)) throw new ServiceError("SESSION_COMMAND_LIMIT", 429);
       if (controlVersion !== undefined && controlVersion <= (record.controlVersion ?? 0) || controlVersion === undefined && record.controlVersion !== undefined) throw new ServiceError("STALE_CONTROL_COMMAND", 409);
       if (["connect", "refresh", "recover"].includes(action) && !this.connectEnabled) throw new ServiceError("CONNECTIONS_DISABLED", 403);
-      if (this.syncOptions.linkedRecoveryOnly && action === "refresh") throw new ServiceError("LINKED_RECOVERY_ONLY", 403);
+      if (this.syncOptions.linkedRecoveryOnly && action === "refresh" && !this.pairingAuthorized(scope)) throw new ServiceError("LINKED_RECOVERY_ONLY", 403);
+      if (action === "prepare_link") {
+        const preparation = this.preparation(scope);
+        if (!controlVersion || !preparation.eligible || !preparation.remote && !removedOnPhone) throw new ServiceError("LINK_PREPARATION_DENIED", 409);
+        if ((record.retiredSessions?.length ?? 0) >= 2) throw new ServiceError("SESSION_ARCHIVE_LIMIT", 409);
+        // Existing encrypted record/quota; no auth deletion until outcome or
+        // explicit phone-removal confirmation has been validated and recorded.
+        this.close(actor);
+        await this.vault.update(scope, current => {
+          current.retiredSessions ??= [];
+          current.retiredSessions.push({ commandId, retiredAt: new Date(this.now()).toISOString(), proof: preparation.remote ? "REMOTE_CONFIRMED" : "PHONE_CONFIRMED", ...(current.auth ? { auth: current.auth } : {}), keys: current.keys, ...(current.invalidated ? { invalidated: current.invalidated } : {}), ...(current.termination ? { termination: current.termination } : {}) });
+          current.commands.push({ id: commandId, digest }); current.controlVersion = controlVersion; current.desired = false;
+          delete current.auth; current.keys = {}; delete current.invalidated; delete current.termination; delete current.recovery; delete current.pairingAuthorization;
+          // Lifetime attempts, history references, journal and receipts remain.
+        });
+        await this.transition(scope, "DISCONNECTED"); return this.view(scope);
+      }
       if (action === "recover" && !this.recoveryEligible(scope)) throw new ServiceError("RECOVERY_NOT_ELIGIBLE", 409);
       if (action === "connect" && (record.invalidated || record.termination?.action === "logout" || ["SESSION_REVOKED", "SESSION_REPLACED", "BAD_SESSION"].includes(record.errorCode ?? "") || this.linked(scope) && ((record.recoveryFailures ?? (record.state === "CONNECTED" ? 0 : record.attempts)) >= 5 || record.recovery && record.recovery.state !== "SUCCEEDED"))) throw new ServiceError("CONTROLLED_RECOVERY_REQUIRED", 409);
       if (action === "refresh" && (record.pairingPhase === "AUTHENTICATING" || !["CONNECTING", "QR_REQUIRED"].includes(record.state))) throw new ServiceError("INVALID_SESSION_STATE");
@@ -127,9 +153,11 @@ export class Sessions {
         current.commands.push({ id: commandId, digest }); if (current.commands.length > 256) current.commands.shift();
         if (controlVersion !== undefined) current.controlVersion = controlVersion;
         current.desired = action === "connect" || action === "refresh";
+        if (action === "connect" && !this.linked(scope) && controlVersion !== undefined) current.pairingAuthorization = { commandId, expiresAt: this.now() + 120_000 };
         if (["connect", "refresh"].includes(action) && !this.linked(scope)) current.recoveryFailures = 0; // new unlinked pairing episode; lifetime attempts remain intact
         if (action === "recover") current.recovery = { commandId, state: "RUNNING", startedAt: new Date(this.now()).toISOString() };
         if (action === "disconnect" || action === "logout") {
+          delete current.pairingAuthorization;
           if (["RUNNING", "AUTHENTICATED"].includes(current.recovery?.state ?? "")) { current.recovery!.state = "INTERRUPTED"; current.recovery!.finishedAt = new Date(this.now()).toISOString(); current.recovery!.errorCode = "RECOVERY_INTERRUPTED"; }
           if (action === "logout" || current.termination?.action !== "logout") current.termination = { commandId, action, remote: action === "logout" ? "PENDING" : "NOT_REQUESTED", requestedAt: new Date(this.now()).toISOString() };
         } else if (action !== "recover" || current.termination?.action === "disconnect") delete current.termination;
@@ -212,7 +240,7 @@ export class Sessions {
     if (initial.invalidated || ["SESSION_REVOKED", "SESSION_REPLACED", "BAD_SESSION"].includes(initial.errorCode ?? "")) return;
     if (!controlled && (initial.recoveryFailures ?? (initial.state === "CONNECTED" ? 0 : initial.attempts)) >= 5) { await this.transition(scope, "FAILED", "RECONNECT_LIMIT"); return; }
     this.close(actor);
-    if (this.syncOptions.linkedRecoveryOnly || controlled) {
+    if (this.syncOptions.linkedRecoveryOnly && !this.pairingAuthorized(scope) || controlled) {
       const record = this.vault.get(scope); let linked = false;
       if (record?.state === "FAILED" && ["SESSION_REVOKED", "SESSION_REPLACED"].includes(record.errorCode ?? "")) return;
       try { const auth = JSON.parse(record?.auth ?? "null"); linked = typeof auth?.me?.id === "string" && auth.me.id.length > 0; } catch { /* never log credentials */ }
@@ -264,7 +292,7 @@ export class Sessions {
             if (observation) for (const [code, count] of Object.entries(observation.reasons)) this.log(`SYNC_${code}`, { source: observation.source, stage: "NORMALIZATION", count });
           });
         },
-      }).then(socket => { if (timedOut || this.stopping || actor.generation !== generation) { socket.close(); throw new ServiceError("RECOVERY_INTERRUPTED", 409); } return socket; });
+      }, { allowPairing: this.pairingAuthorized(scope) && !controlled }).then(socket => { if (timedOut || this.stopping || actor.generation !== generation) { socket.close(); throw new ServiceError("RECOVERY_INTERRUPTED", 409); } return socket; });
       try { actor.socket = await Promise.race([construction, new Promise<never>((_, reject) => { constructionCancel = this.schedule(() => { timedOut = true; reject(new ServiceError(controlled ? "RECOVERY_TIMEOUT" : "PAIRING_TIMEOUT")); }, 120_000); })]); }
       finally { constructionCancel?.(); }
       actor.deadline = this.schedule(() => this.enqueue(scope, actor, generation, async () => {
@@ -290,7 +318,7 @@ export class Sessions {
       });
     }
     if (update.qr) {
-      if (this.syncOptions.linkedRecoveryOnly || actor.controlled) { this.close(actor); await this.finishRecovery(scope, "FAILED", "EXISTING_AUTH_REQUIRED"); actor.controlled = undefined; await this.transition(scope, "FAILED", "EXISTING_AUTH_REQUIRED"); return; }
+      if (this.syncOptions.linkedRecoveryOnly && !this.pairingAuthorized(scope) || actor.controlled) { this.close(actor); await this.finishRecovery(scope, "FAILED", "EXISTING_AUTH_REQUIRED"); actor.controlled = undefined; await this.transition(scope, "FAILED", "EXISTING_AUTH_REQUIRED"); return; }
       if (Buffer.byteLength(update.qr) > 8192) throw new ServiceError("INVALID_QR");
       const revision = await this.vault.update(scope, (record) => { record.qrRevision++; return record.qrRevision; });
       actor.qr = { value: update.qr, expiresAt: this.now() + 20_000, revision };
@@ -301,7 +329,7 @@ export class Sessions {
       await this.vault.update(scope, (record) => { if (record.processingFailure && !record.processingFailure.recoveredAt) record.processingFailure.recoveredAt = new Date(this.now()).toISOString(); });
       actor.failureCode = undefined; actor.storageFailed = false;
       this.failedStorage = [...this.actors.values()].some((entry) => Boolean(entry.storageFailed));
-      await this.vault.update(scope, record => { record.lastAuthenticatedAt = new Date(this.now()).toISOString(); if (actor.controlled && record.recovery?.commandId === actor.controlled) record.recovery.state = "AUTHENTICATED"; });
+      await this.vault.update(scope, record => { record.lastAuthenticatedAt = new Date(this.now()).toISOString(); delete record.pairingAuthorization; if (actor.controlled && record.recovery?.commandId === actor.controlled) record.recovery.state = "AUTHENTICATED"; });
       await this.transition(scope, "CONNECTED");
       {
         const generation = actor.generation;
@@ -348,6 +376,7 @@ export class Sessions {
       if (this.syncOptions.enabled) await this.journal.stage(scope, [], false, this.historyEnabled(scope));
       if (["RUNNING", "AUTHENTICATED"].includes(record.recovery?.state ?? "")) { await this.finishRecovery(scope, "INTERRUPTED", "RECOVERY_INTERRUPTED"); await this.transition(scope, "FAILED", "RECOVERY_INTERRUPTED"); }
       else if (record.termination?.remote === "PENDING") { await this.vault.update(scope, current => { current.desired = false; current.termination!.remote = "UNCONFIRMED"; current.termination!.errorCode = "LOGOUT_RESULT_UNKNOWN"; current.termination!.finishedAt = new Date(this.now()).toISOString(); }); await this.transition(scope, "DISCONNECTED", "LOGOUT_RESULT_UNKNOWN"); }
+      else if (record.pairingAuthorization) { await this.vault.update(scope, current => { current.desired = false; delete current.pairingAuthorization; }); await this.transition(scope, "DISCONNECTED"); }
       else if (record.desired && this.connectEnabled) await actor.serial.run(() => this.start(scope, actor));
       else if (!["DISCONNECTED", "LOGGED_OUT", "FAILED"].includes(record.state)) await this.transition(scope, "DISCONNECTED");
     }
