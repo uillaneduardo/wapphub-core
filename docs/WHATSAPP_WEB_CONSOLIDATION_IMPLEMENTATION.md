@@ -56,3 +56,27 @@ Os testes de mídia executam a imagem real com FFmpeg e preparação real do SDK
 
 
 Validação encerrada B4: Core131/131, Provider90/90, Chat294/294; [CI Core](https://github.com/uillaneduardo/wapphub-core/actions/runs/38179967004), [CI Provider](https://github.com/uillaneduardo/wapphub-core/actions/runs/38179967011), [CI Chat](https://github.com/uillaneduardo/wapphub-chat/actions/runs/38179832791) verdes no SHA funcional registrado no PROGRESS. [PR26 P0](https://github.com/uillaneduardo/wapphub-core/pull/26), [PR27 Core/Provider](https://github.com/uillaneduardo/wapphub-core/pull/27), [PR19 Chat](https://github.com/uillaneduardo/wapphub-chat/pull/19) abertos para revisão, sem merge.
+
+## Correções dos gates B5 — recuperação, encerramento e upload (2026-10-12)
+
+Não há nova implementação de transporte/fila nem migration adicional. `ProviderCommand.payload.controlVersion`, recibos existentes e Vault aditivo coordenam os comandos. A ação HTTP de conexão admite `recover`, `disconnect` e `logout`; `recover`/`logout` exigem `confirmed=true`, sessão, Origin, CSRF, contexto da organização e `providers.manage`. O Worker revalida autorização antes do comando assinado. `lifecycle` no DTO expõe apenas estados operacionais, nunca credenciais. OpenAPI acompanha o contrato.
+
+### Recuperação controlada
+
+Uma sessão vinculada, estruturalmente autenticável, sem socket e com falha elegível pode receber **uma tentativa por autorização explícita**. O comando/estado RUNNING são persistidos antes da rede, com `desired=false`; o contador acumulado `attempts` é incrementado, nunca redefinido. O orçamento automático esgotado permanece bloqueado. `SESSION_REVOKED`, `SESSION_REPLACED`, `BAD_SESSION`, falhas de armazenamento e credenciais ausentes são inelegíveis.
+
+A construção do transporte e a autenticação compartilham limite total de 120s; um transporte criado tardiamente é fechado. Falha transitória não dispara retry automático. QR de fallback é descartado. Open autenticado marca AUTHENTICATED; apenas 30s estáveis marcam SUCCEEDED e permitem continuidade normal limitada. Reinício de RUNNING/AUTHENTICATED registra INTERRUPTED e não repete rede; repetir o mesmo commandId retorna seu estado. Uma nova tentativa exige outra confirmação humana. O resultado sintético não comprova aceitação da sessão real pelo WhatsApp.
+
+### Parada e desvinculação
+
+`disconnect` significa **parada local reversível**, mantendo credenciais e vínculo; deixou de ser traduzido pelo Core em `logout`. `logout` solicita desvinculação definitiva, acessível também em FAILED. `linkedRecoveryOnly` restringe pareamento, sem impedir encerramento legítimo. O Core desativa saída/mídia, pausa autorização histórica e cancela comandos de conexão/histórico conflitantes. A versão monotônica emitida pelo Core impede comandos antigos de recriar o socket. Callbacks e timers são cercados por generation. Histórico, contatos, mensagens, tags e atribuições não são apagados.
+
+O Vault persiste intenção PENDING antes da RPC, depois CONFIRMED ou UNCONFIRMED, preservando auth e Signal em ambos os casos. No Baileys RC14, `logout()` só aguarda `sendNode`; isso não é prova de remoção. O adapter utiliza o mesmo IQ remove-companion-device via `query` correlacionada, com limite de 5s, e só reconhece resposta IQ result como confirmação. Transporte ausente, erro, resposta sem ACK, timeout ou restart incerto ficam UNCONFIRMED, sem reconexão nem retransmissão de logout. A UI orienta revogar o aparelho pelo WhatsApp do celular. Intent de logout e invalidation persistem e impedem reutilização silenciosa de credenciais. Não existe limpeza automática de Signal nem novo pareamento.
+
+### Upload binário
+
+A falha foi reproduzida com RSS 443.039.744 bytes acima do gate 402.653.184 bytes (384 MiB). `PrivateFiles.put` usava MEDIA_BUSY tanto para writer ocupado quanto para pressão de memória. A integração HTTP saiu do processo do fixture de carga compartilhado para um fixture/processo/tenant próprio, mantendo todas as negações e o limite produtivo, **sem override de RSS**. Memória agora retorna MEDIA_MEMORY_PRESSURE; concorrência permanece MEDIA_BUSY.
+
+O bloqueio global de mídia continua em uma transferência, inclusive entre instâncias. Streams, processos FFprobe/FFmpeg, pipelines e caches incompletos são encerrados/limpos antes da liberação. O cliente Core destrói o stream de origem em finally e propaga somente erros permitidos. Transferência possui limite de 60s; falha/cancelamento não bloqueiam upload posterior. O teste HTTP passa pelo parser já registrado, sessão/Origin/CSRF, cliente HMAC, Provider e armazenamento privado criptografado, concomitante a evento live, sem rede WhatsApp.
+
+Critérios de retomada: três P0 cobertos por integração/regressão; Core/Provider/Chat, lint/typecheck/build, Prisma/schema12/drift/OpenAPI e CI dos heads finais verdes. Publicação, restauração isolada de backup produtivo e recuperação real continuam pendentes e dependem da retomada autorizada B5; STATUS de produção não foi alterado.
