@@ -12,6 +12,23 @@ test("creation is idle, scoped, and never connects accounts on startup", async (
   assert.throws(() => f.sessions.view(f.other), /SESSION_NOT_FOUND/);
   await assert.rejects(f.sessions.command(f.scope, "connect", randomUUID()), /CONNECTIONS_DISABLED/);
 });
+test("session diagnostics reuse one defensive snapshot of a populated vault", async t => {
+ const f = await fixture(t);
+ await f.vault.update(f.scope, record => {
+  record.auth = JSON.stringify({ me: { id: "synthetic@lid" }, noiseKey: { private: "synthetic", public: "synthetic" }, signedIdentityKey: { private: "synthetic", public: "synthetic" } });
+  record.state = "FAILED"; record.errorCode = "RECONNECT_LIMIT"; record.desired = true;
+  record.keys = Object.fromEntries(Array.from({ length: 2000 }, (_, i) => [String(i), "synthetic-key-state"]));
+ });
+ const get = f.vault.get.bind(f.vault); let reads = 0;
+ f.vault.get = scope => { reads++; return get(scope); };
+ const view = f.sessions.view(f.scope);
+ assert.equal(reads, 1);
+ assert.equal(view.state, "FAILED"); assert.equal(view.sync.lifecycle.linked, true);
+ assert.equal(view.sync.lifecycle.recoveryEligible, true); assert.equal(view.sync.lifecycle.pairingEligible, false);
+ view.sync.lifecycle.desired = false;
+ assert.equal(get(f.scope)?.desired, true);
+ assert.throws(() => f.sessions.view(f.other), /SESSION_NOT_FOUND/);
+});
 test("concurrent connects and repeated command IDs start a single socket", async (t) => {
   const f = await fixture(t); await f.sessions.create(f.scope); const id = randomUUID();
   await Promise.all(Array.from({ length: 10 }, () => f.sessions.command(f.scope, "connect", id)));

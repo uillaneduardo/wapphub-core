@@ -646,3 +646,10 @@ Usuário autoriza correção/publicação, limpeza escopada e reconexão/QR se n
 ### 2026-10-13T16:39:55.035920+00:00 — recuperação fase2 validada
 
 Regressão reproduzida (bootstrap não acked quando execution=false), corrigida pela correlação scoped em WebSync. Core148/148, lint/typecheck/build/Prisma aprovados. On-demand continua bloqueado; Worker prioriza send e journal prioriza live por comportamento já existente. Diagnóstico preserva HISTORY_EXECUTION_DISABLED em vez de mascará-lo. Mídia recebida com metadados válidos não tem referência no Vault; GET Provider404 antes do download/reprodução. Sem mudanças Provider nesta fase, sem ativar histórico irrestrito. Próximos: commit/imagem Core, backup quiescente, reset de filas/checkpoints somente do canal ativo e retomada autenticada.
+
+
+### 2026-10-13T17:01:46.201845+00:00 — fase3/4 aplicada; latência restante localizada
+
+Backup SQL/Vault quiescente e restore SQL isolado aprovados. Descartados81 dead-letter bootstrap/1615itens/14referências somente do canal ativo; nenhum registro de domínio apagado, inboxSQL/sends/receipts/identidade preservados. Core708443e publicado, Provider06fafb6 reiniciado sem QR; CONNECTED/PROCESSED, todas filas0, seis healthy,37outros containers intactos. Uma falha de auditoria na primeira tentativa SQL foi revertida pela transação; corrigido campo obrigatório de ator. Vault regravado com uid0 impediu primeiro startup; restaurado uid/gid1000/mode600 do backup antes da reconexão. Identidade/key material/QR preservados; lastAccountSyncTimestamp/lastPropHash atualizados normalmente pelo protocolo. Controles/sessões de outro tenant preservados.
+
+Tráfego humano observado:3INBOUND/4OUTBOUND, sendsCOMPLETED/attempts1, cerca6–10s até confirmação Provider. Não homologar rapidez ainda. Profile5s confirma clones repetidos+GC; Provider138testes/checagens aprovados para snapshot único. CursorWorker tinha volta vazia; wrap corrigido e Core em validação. Sem ativar histórico, envio automático ou nova aprovação. Próximo: publicar somente imagens afetadas pela correção complementar e medir novamente. Mídia404por referência ausente e emoji picker registrados independentemente.

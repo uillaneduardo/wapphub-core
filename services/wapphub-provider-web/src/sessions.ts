@@ -26,8 +26,8 @@ export class Sessions {
     private readonly log: (code: string, fields?: { source: string; stage: string; count: number; scopeHash?: string; generation?: number }) => void = () => undefined,
     private readonly syncOptions: { enabled: boolean; historyEnabled: boolean; initialHistoryEnabled?: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; outboundEnabled?: boolean } = { enabled: false, historyEnabled: false },
   ) {}
-  private historyEnabled(scope: Scope) {
-    const bootstrap = this.vault.get(scope)?.historyImports;
+  private historyEnabled(scope: Scope, record = this.vault.get(scope)) {
+    const bootstrap = record?.historyImports;
     return (this.syncOptions.initialHistoryEnabled === true && (bootstrap?.initialPending === true || !!bootstrap?.pending?.length)) ||
       this.syncOptions.historyEnabled && this.syncOptions.approvedScope === scopeKey(scope);
   }
@@ -40,12 +40,11 @@ export class Sessions {
   private linked(scope: Scope, record = this.vault.get(scope)) {
     try { const auth = JSON.parse(record?.auth ?? "null"); return typeof auth?.me?.id === "string" && auth.me.id.length > 0 && !!auth.signedIdentityKey?.private && !!auth.signedIdentityKey?.public && !!auth.noiseKey?.private && !!auth.noiseKey?.public; } catch { return false; }
   }
-  private hasIdentity(scope: Scope) {
-    try { const auth = JSON.parse(this.vault.get(scope)?.auth ?? "null"); return typeof auth?.me?.id === "string" && auth.me.id.length > 0; } catch { return false; }
+  private hasIdentity(scope: Scope, record = this.vault.get(scope)) {
+    try { const auth = JSON.parse(record?.auth ?? "null"); return typeof auth?.me?.id === "string" && auth.me.id.length > 0; } catch { return false; }
   }
-  private recoveryEligible(scope: Scope) {
-    const record = this.vault.get(scope);
-    return !!record && !record.invalidated && this.linked(scope) && this.connectEnabled && !this.actor(scope).socket &&
+  private recoveryEligible(scope: Scope, record = this.vault.get(scope)) {
+    return !!record && !record.invalidated && this.linked(scope, record) && this.connectEnabled && !this.actor(scope).socket &&
       ["FAILED", "DISCONNECTED"].includes(record.state) &&
       !["SESSION_REVOKED", "SESSION_REPLACED", "BAD_SESSION"].includes(record.errorCode ?? "") &&
       record.termination?.action !== "logout" && !["RUNNING", "AUTHENTICATED"].includes(record.recovery?.state ?? "") &&
@@ -70,7 +69,7 @@ export class Sessions {
     return { state: actor?.failureCode ? "FAILED" as const : record.state, revision: record.revision, qrRevision: record.qrRevision, attempts: record.attempts, errorCode: actor?.failureCode ?? record.errorCode, connectEnabled: this.connectEnabled,
       ...(record.historyOperation ? { history: historyView(record.historyOperation, (record.sync?.pending.filter((x) => x.operationId === record.historyOperation!.id).length ?? 0) + record.events.reduce((n, e) => n + (e.event.type === "sync.batch" && e.event.correlationId === record.historyOperation!.id ? e.event.data.items.length : 0), 0)) } : {}),
       ...(record.pairingPhase ? { pairingPhase: record.pairingPhase } : {}),
-      sync: { lifecycle: { linked, desired: record.desired, recoveryEligible: this.recoveryEligible(scope), pairingEligible: this.connectEnabled && !this.hasIdentity(scope) && !actor?.socket && !actor?.storageFailed && !record.invalidated && record.termination?.action !== "logout" && ["DISCONNECTED", "FAILED"].includes(record.state), preparationEligible: preparation.eligible && (record.retiredSessions?.length ?? 0) < 2, removalConfirmationRequired: preparation.eligible && !preparation.remote, ...(record.recovery ? { recovery: record.recovery } : {}), ...(record.termination ? { termination: record.termination } : {}) }, activeTransport: Boolean(actor?.socket), ...(record.processingFailure ? { processingFailure: record.processingFailure } : {}), historyEnabled: this.historyEnabled(scope), phase: record.events.some((entry) => entry.dead) || sync?.failures || sync?.limited || sync?.diagnostics?.rejected ? "PARTIAL" : sync?.complete && queued === 0 ? "PROCESSED" : sync?.phase ?? "DISABLED", queued, contacts: sync?.contacts ?? 0, conversations: sync?.conversations ?? 0, messages: sync?.messages ?? 0, failures: (sync?.failures ?? 0) + record.events.filter((entry) => entry.dead).length, limited: sync?.limited ?? false, durationMs: sync?.durationMs ?? 0, ...(sync?.diagnostics ? { diagnostics: sync.diagnostics } : {}) } };
+      sync: { lifecycle: { linked, desired: record.desired, recoveryEligible: this.recoveryEligible(scope, record), pairingEligible: this.connectEnabled && !this.hasIdentity(scope, record) && !actor?.socket && !actor?.storageFailed && !record.invalidated && record.termination?.action !== "logout" && ["DISCONNECTED", "FAILED"].includes(record.state), preparationEligible: preparation.eligible && (record.retiredSessions?.length ?? 0) < 2, removalConfirmationRequired: preparation.eligible && !preparation.remote, ...(record.recovery ? { recovery: record.recovery } : {}), ...(record.termination ? { termination: record.termination } : {}) }, activeTransport: Boolean(actor?.socket), ...(record.processingFailure ? { processingFailure: record.processingFailure } : {}), historyEnabled: this.historyEnabled(scope, record), phase: record.events.some((entry) => entry.dead) || sync?.failures || sync?.limited || sync?.diagnostics?.rejected ? "PARTIAL" : sync?.complete && queued === 0 ? "PROCESSED" : sync?.phase ?? "DISABLED", queued, contacts: sync?.contacts ?? 0, conversations: sync?.conversations ?? 0, messages: sync?.messages ?? 0, failures: (sync?.failures ?? 0) + record.events.filter((entry) => entry.dead).length, limited: sync?.limited ?? false, durationMs: sync?.durationMs ?? 0, ...(sync?.diagnostics ? { diagnostics: sync.diagnostics } : {}) } };
   }
   qr(scope: Scope) {
     this.view(scope);

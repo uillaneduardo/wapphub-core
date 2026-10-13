@@ -276,7 +276,11 @@ export class WebProviderWorker {
     }, (changed) => changed);
   }
   async tick() {
-    const connections = await this.db.providerConnection.findMany({ where: { channel: { provider: "WHATSAPP_WEB", organization: { status: "ACTIVE" } } }, take: 2, orderBy: [{ organizationId: "asc" }, { channelId: "asc" }], ...(this.cursor ? { cursor: { organizationId_channelId: this.cursor }, skip: 1 } : {}) });
+    const query = { where: { channel: { provider: "WHATSAPP_WEB", organization: { status: "ACTIVE" } } }, take: 2, orderBy: [{ organizationId: "asc" as const }, { channelId: "asc" as const }] };
+    let connections = await this.db.providerConnection.findMany({ ...query, ...(this.cursor ? { cursor: { organizationId_channelId: this.cursor }, skip: 1 } : {}) });
+    // Wrap immediately: an exhausted cursor must not consume a whole idle
+    // worker interval while there are connections waiting at the beginning.
+    if (!connections.length && this.cursor) connections = await this.db.providerConnection.findMany(query);
     const last = connections.at(-1); this.cursor = last ? { organizationId: last.organizationId, channelId: last.channelId } : undefined;
     // Two concurrent scopes, sequential within each. No browser/WhatsApp polling.
     for (let index = 0; index < connections.length; index += 2) await Promise.all(connections.slice(index, index + 2).map((row) => this.runConnection({ organizationId: row.organizationId, connectionId: row.channelId }).catch((error: unknown) => this.onError(error instanceof WebProviderError ? error.code : "PROVIDER_SYNC_FAILED"))));

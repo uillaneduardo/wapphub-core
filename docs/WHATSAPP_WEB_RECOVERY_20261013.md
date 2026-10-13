@@ -15,3 +15,7 @@ Mídia: Core possui metadados de IMAGE/VOICE recebidas, mas Vault contém só tr
 Emoji picker: melhoria independente, não bloqueia recuperação.
 
 Evidências e entrega operacional: `/home/uillan/homelab/deploy-records/wapphub-core/20261013-whatsapp-recovery/`. Homologação de recebimento/envio e latência ponta a ponta depende de ação humana; nenhuma mensagem automática será enviada. Atualizar relatório após publicação.
+
+## Gargalo restante e correção complementar
+
+Após reset, três entradas e quatro envios humanos foram observados; envios confirmados em6,27–9,81s, uma tentativa cada, sem filas/retries. Amostra CPU5s mostrou1.247ms em GC e667ms em structuredClone: Sessions.view copiava Vault várias vezes para calcular lifecycle/history. Alteração complementar reutiliza uma única cópia defensiva da sessão; Provider138/138, lint/typecheck/build aprovados. Worker percorria duas conexões e consumia a próxima volta apenas ao esgotar o cursor; wrap agora ocorre dentro do mesmo tick, preservando janela/take2/tenancy e removendo dois segundos vazios do ciclo. Teste específico e checks Core em execução. Profile foi somente leitura e local ao container; a atualização Provider encerra o processo inspecionado.
