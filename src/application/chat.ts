@@ -3,7 +3,7 @@ import { outboundSignature } from "./outbound-signature.js";
 import { mediaUploadSchema, mediaLimit, validMediaKind, type MediaUpload } from "../../contracts/provider-media.js";
 import { mediaReferenceSchema } from "../../contracts/provider.js";
 import { randomUUID } from "node:crypto";
-import { WebProviderError, type WebProviderPort } from "../integrations/web-provider-client.js";
+import { WebProviderError, publicMediaError, type WebProviderPort } from "../integrations/web-provider-client.js";
 import { internationalPhoneSchema, directJidSchema } from "../../contracts/provider-outbound.js";
 import { externalContactPresentation, trustedContactName, type PresentationIdentity } from "../integrations/provider-contact-presentation.js";
 import { resolvePermissions } from "../domain/resources.js";
@@ -849,7 +849,8 @@ export class Chat {
       await this.audit(tx, current, "MEDIA_UPLOADED"); return result;
     });
   }
-  async messageMedia(p: Principal, conversationId: string, messageId: string) {
+  async messageMedia(p: Principal, conversationId: string, messageId: string, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     const c = await this.context(p, "messages.read"), thread = await this.conversation(c, conversationId);
     const floor = messageReadFloor(c, thread);
     const message = floor === null ? null : await this.db.message.findFirst({ where: { id: messageId, organizationId: c.organizationId, conversationId, sequence: { gte: floor }, ...(thread.channel?.provider === "WHATSAPP_WEB" && !c.permissions.includes("conversations.supervise") && thread.visibility !== "FULL" ? { OR: [{ historical: false }, { historical: true, importedAt: { lte: thread.historyBoundaryAt ?? new Date(0) } }] } : {}) } });
@@ -858,9 +859,10 @@ export class Chat {
     const connection = await this.db.providerConnection.findFirst({ where: { organizationId: c.organizationId, channelId: message.channelId, mediaEnabled: true } });
     if (!connection) throw new AppError(404, "MEDIA_UNAVAILABLE");
     let result;
-    try { result = await this.webProvider.readMedia({ organizationId: c.organizationId, connectionId: message.channelId }, meta.data.mediaId); } catch { throw new AppError(503, "MEDIA_UNAVAILABLE"); }
+    try { result = await this.webProvider.readMedia({ organizationId: c.organizationId, connectionId: message.channelId }, meta.data.mediaId, signal); } catch (reason) { const error = publicMediaError(reason); throw new AppError(error.status, error.code); }
     // Revalidate after demand fetch: organization/assignment may have changed.
     try {
+      signal?.throwIfAborted();
       const current = await this.context(p, "messages.read");
       if (current.organizationId !== c.organizationId) throw new AppError(403, "ORGANIZATION_ACCESS_DENIED");
       const currentThread = await this.conversation(current, conversationId), currentFloor = messageReadFloor(current, currentThread);

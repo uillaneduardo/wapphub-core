@@ -121,7 +121,8 @@ export async function buildApp(
     origin: config.origins,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allowedHeaders: ["content-type", "x-csrf-token"],
+    allowedHeaders: ["content-type", "x-csrf-token", "range"],
+    exposedHeaders: ["content-range", "accept-ranges", "content-length"],
   });
   await app.register(helmet);
   await app.register(rateLimit, {
