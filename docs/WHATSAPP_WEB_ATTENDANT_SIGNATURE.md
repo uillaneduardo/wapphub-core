@@ -331,3 +331,5 @@ Validação do ajuste: Core149/149 e Provider14/14 nos testes afetados, zero fal
 Lint/typecheck/build e Prisma/drift/OpenAPI aprovados; contratos/schema sem alteração. Nenhuma migration em produção.
 
 Publicação final17:34UTC autorizada junto à recuperação: Core `recovery-41fdf6a` em API/Worker. Provider `recovery-da15c3b` corresponde à correção de desempenho separada. A composição da assinatura muda somente em outbound-signature.ts; nenhuma regravação de dados. Health/readiness200 e filas0; nenhum envio real de teste. Homologação visual por ação humana ainda pendente. Relatório local: `/home/uillan/homelab/deploy-records/wapphub-core/20261013-whatsapp-recovery/RELATORIO.md`.
+
+Três envios humanos posteriores observados na versão final:3/3snapshots usam separador único e preservam body; COMPLETED/attempts1, confirmaçãoProvider1,110–2,192s. Validação técnica de produção adicional, sem mensagem automática nem afirmação de homologação visual.
