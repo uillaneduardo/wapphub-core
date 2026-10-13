@@ -1,27 +1,32 @@
 import { spawn } from "node:child_process";
 import { pipeline } from "node:stream/promises";
 import { Writable } from "node:stream";
+import type { Readable } from "node:stream";
 import { randomUUID } from "node:crypto";
 import { BufferJSON, getAudioDuration, downloadContentFromMessage, normalizeMessageContent, type WAMessage } from "baileys";
 import { mediaUploadSchema, mediaLimit, validMediaKind, type MediaUpload } from "../../../contracts/provider-media.js";
 import { normalizeSyncMessage } from "./sync-normalization.js";
 import { ServiceError } from "./errors.js";
 import { Vault, type Scope } from "./vault.js";
+import { mediaPath } from "./media-reference.js";
 export function inspectMedia(prefix: Buffer, mime: string) {
   const recognized = mime === "image/jpeg" ? prefix[0] === 255 && prefix[1] === 216 && prefix[2] === 255 : mime === "image/png" ? prefix.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")) : mime === "image/webp" ? prefix.toString("ascii", 0, 4) === "RIFF" && prefix.toString("ascii", 8, 12) === "WEBP" : mime === "audio/ogg" ? prefix.toString("ascii", 0, 4) === "OggS" : mime === "audio/mpeg" ? prefix.toString("ascii", 0, 3) === "ID3" || prefix[0] === 255 && ((prefix[1] ?? 0) & 224) === 224 : mime === "audio/webm" ? prefix.subarray(0, 4).equals(Buffer.from("1a45dfa3", "hex")) : ["video/mp4", "audio/mp4"].includes(mime) ? prefix.toString("ascii", 4, 8) === "ftyp" : false;
   if (!recognized) throw new ServiceError("MEDIA_TYPE_MISMATCH", 415);
 }
 let mediaTransferBusy = false;
+export type MediaDiagnostic = "MEDIA_REFERENCE_REJECTED" | "MEDIA_METADATA_REJECTED" | "MEDIA_REFERENCE_RETAINED" | "MEDIA_REFERENCE_CONFLICT" | "MEDIA_REFERENCE_LIMIT";
 export class ProviderMedia {
   private readonly files;
-  constructor(private readonly vault: Vault, private readonly enabled: boolean) { this.files = vault.privateFiles(); }
+  constructor(private readonly vault: Vault, private readonly enabled: boolean, private readonly diagnostic: (code: MediaDiagnostic) => void = () => undefined, private readonly download: (...args: Parameters<typeof downloadContentFromMessage>) => Promise<Readable> = downloadContentFromMessage) { this.files = vault.privateFiles(); }
   private allowed(scope: Scope) { if (!this.enabled) throw new ServiceError("MEDIA_DISABLED", 403); if (!this.vault.get(scope)) throw new ServiceError("SESSION_NOT_FOUND", 404); }
   async retain(scope: Scope, message: WAMessage) {
     const normalized = normalizeSyncMessage(scope, message);
     if (normalized?.kind !== "message" || normalized.message.content.type === "TEXT" || normalized.message.content.type === "DOCUMENT") return;
     const meta = normalized.message.content.media, raw = normalizeMessageContent(message.message), data = raw?.imageMessage ?? raw?.audioMessage ?? raw?.videoMessage;
-    if (!data?.mediaKey || !data.directPath || !/^\/[^\s\\?#]{1,1800}$/.test(data.directPath) || !meta.sha256 || !meta.size || meta.size > mediaLimit(meta.type as MediaUpload["type"])) return;
-    const reference = JSON.stringify({ directPath: data.directPath, mediaKey: data.mediaKey }, BufferJSON.replacer);
+    const directPath = mediaPath(data?.directPath, data?.url);
+    if (!directPath) { this.diagnostic("MEDIA_REFERENCE_REJECTED"); return; }
+    if (!data?.mediaKey || data.mediaKey.length !== 32 || !meta.sha256 || !meta.size || !validMediaKind(meta.type as MediaUpload["type"], meta.mimeType) || meta.size > mediaLimit(meta.type as MediaUpload["type"])) { this.diagnostic("MEDIA_METADATA_REJECTED"); return; }
+    const reference = JSON.stringify({ directPath, mediaKey: data.mediaKey }, BufferJSON.replacer);
     await this.vault.update(scope, record => {
       record.media ??= [];
       const sent = message.key.fromMe ? record.sends?.find(x => x.providerMessageId === message.key.id) : undefined;
@@ -29,15 +34,22 @@ export class ProviderMedia {
       if (uploaded && uploaded.sha256 === meta.sha256 && uploaded.size === meta.size && uploaded.type === meta.type && uploaded.mimeType === meta.mimeType) {
         uploaded.reference = reference; uploaded.expiresAt = Date.now() + 30 * 86400000;
       }
-      if (record.media.some(x => x.id === meta.mediaId)) return;
+      const existing = record.media.find(x => x.id === meta.mediaId);
+      if (existing) {
+        if (existing.sha256 === meta.sha256 && existing.size === meta.size && existing.mimeType === meta.mimeType && existing.type === meta.type) { existing.reference = reference; existing.expiresAt = Date.now() + 30 * 86400000; this.diagnostic("MEDIA_REFERENCE_RETAINED"); }
+        else this.diagnostic("MEDIA_REFERENCE_CONFLICT");
+        return;
+      }
       record.media = record.media.filter(x => x.expiresAt > Date.now());
-      if (record.media.length >= 2048) return;
+      if (record.media.length >= 2048) { this.diagnostic("MEDIA_REFERENCE_LIMIT"); return; }
       record.media.push({ id: meta.mediaId, reference, type: meta.type as MediaUpload["type"], mimeType: meta.mimeType, fileName: meta.fileName, size: meta.size, sha256: meta.sha256!, expiresAt: Date.now() + 30 * 86400000 });
+      this.diagnostic("MEDIA_REFERENCE_RETAINED");
     });
   }
   private record(scope: Scope, id: string) {
-    const record = this.vault.get(scope)?.media?.find(x => x.id === id && x.expiresAt > Date.now());
+    const record = this.vault.get(scope)?.media?.find(x => x.id === id);
     if (!record) throw new ServiceError("MEDIA_UNAVAILABLE", 404);
+    if (record.expiresAt <= Date.now()) throw new ServiceError("MEDIA_EXPIRED", 410);
     return record;
   }
   private async probe(scope: Scope, id: string, expected: { size: number; sha256: string }) {
@@ -85,17 +97,29 @@ export class ProviderMedia {
     } catch (error) { if (cacheOwned) await this.files.remove(scope, meta.mediaId); throw error; }
     finally { mediaTransferBusy = false; }
   }
-  async read(scope: Scope, id: string) {
+  async read(scope: Scope, id: string, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     this.allowed(scope); const record = this.record(scope, id);
     if (!await this.files.has(scope, id)) {
       if (!record.reference) throw new ServiceError("MEDIA_EXPIRED", 410);
       if (mediaTransferBusy) throw new ServiceError("MEDIA_BUSY", 429); mediaTransferBusy = true;
+      const transfer = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(30000)]);
       try {
-        const stream = await downloadContentFromMessage(JSON.parse(record.reference, BufferJSON.reviver), record.type === "VOICE" ? "audio" : record.type.toLowerCase() as "image" | "audio" | "video", { host: "mmg.whatsapp.net", options: { redirect: "error", signal: AbortSignal.timeout(30000) } });
-        await this.files.put(scope, id, stream, record, prefix => inspectMedia(prefix, record.mimeType));
-      } catch (reason) { if (reason instanceof ServiceError) throw reason; throw new ServiceError("MEDIA_UNAVAILABLE", 503); }
+        const reference = JSON.parse(record.reference, BufferJSON.reviver), directPath = mediaPath(reference.directPath, reference.url);
+        if (!directPath || !reference.mediaKey || reference.mediaKey.length !== 32) throw new ServiceError("MEDIA_UNAVAILABLE", 404);
+        const stream = await this.download({ directPath, mediaKey: reference.mediaKey }, record.type === "VOICE" ? "audio" : record.type.toLowerCase() as "image" | "audio" | "video", { host: "mmg.whatsapp.net", options: { redirect: "error", signal: transfer } });
+        try { await this.files.put(scope, id, stream, record, prefix => inspectMedia(prefix, record.mimeType), transfer); }
+        finally { stream.destroy(); }
+      } catch (reason) {
+        if (signal?.aborted) throw new ServiceError("MEDIA_TRANSFER_CANCELLED", 499);
+        if (transfer.aborted) throw new ServiceError("MEDIA_TRANSFER_TIMEOUT", 408);
+        if (reason instanceof ServiceError) throw reason;
+        const status = reason && typeof reason === "object" && "output" in reason && reason.output && typeof reason.output === "object" && "statusCode" in reason.output ? reason.output.statusCode : undefined;
+        if (status === 404 || status === 410) throw new ServiceError("MEDIA_EXPIRED", 410);
+        throw new ServiceError("MEDIA_UNAVAILABLE", 503);
+      }
       finally { mediaTransferBusy = false; }
     }
-    return { record, stream: await this.files.stream(scope, id, record) };
+    return { record, stream: await this.files.stream(scope, id, record, signal) };
   }
 }

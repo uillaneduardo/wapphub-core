@@ -1,6 +1,7 @@
 FROM node:22.23.3-bookworm-slim AS build
 WORKDIR /workspace/services/wapphub-provider-web
 COPY services/wapphub-provider-web/package*.json ./
+COPY services/wapphub-provider-web/scripts/patch-media-sdk.mjs ./scripts/patch-media-sdk.mjs
 RUN npm ci
 COPY contracts /workspace/contracts
 COPY package.json /workspace/package.json

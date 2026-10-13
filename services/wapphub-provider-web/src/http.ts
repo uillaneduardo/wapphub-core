@@ -54,9 +54,16 @@ export function createHttp(sessions: Sessions, journal: EventJournal, auth: Inte
   app.get(`${prefix}/media/:id`, async (request, reply) => {
     if (!media) throw new ServiceError("MEDIA_DISABLED", 403);
     const { id, ...scope } = z.strictObject({ ...scopeSchema.shape, id: z.uuid() }).parse(request.params);
-    const result = await media.read(scope, id);
-    reply.header("content-type", result.record.mimeType).header("content-length", result.record.size).header("x-media-sha256", result.record.sha256);
-    return reply.send(result.stream);
+    const cancellation = new AbortController();
+    const close = () => { if (!reply.raw.writableFinished) cancellation.abort(); cleanup(); };
+    const aborted = () => cancellation.abort();
+    const cleanup = () => { request.raw.removeListener("aborted", aborted); reply.raw.removeListener("close", close); reply.raw.removeListener("finish", cleanup); };
+    request.raw.once("aborted", aborted); reply.raw.once("close", close); reply.raw.once("finish", cleanup);
+    try {
+      const result = await media.read(scope, id, cancellation.signal);
+      reply.header("content-type", result.record.mimeType).header("content-length", result.record.size).header("x-media-sha256", result.record.sha256);
+      return reply.send(result.stream);
+    } catch (error) { cleanup(); throw error; }
   });
   app.post(`${prefix}/recipients/resolve`, async request => recipientResultSchema.parse(await sessions.resolveRecipient(scopeSchema.parse(request.params), resolveRecipientSchema.parse(request.body).phone)));
   app.post(`${prefix}/messages`, async request => sessions.send(scopeSchema.parse(request.params), sendIntentSchema.parse(request.body)));

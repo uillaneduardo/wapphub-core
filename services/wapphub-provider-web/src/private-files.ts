@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 import { mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 import { join } from "node:path";
-import { Readable, Transform } from "node:stream";
+import { Readable, Transform, addAbortSignal } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { ServiceError } from "./errors.js";
 import type { Scope } from "./vault.js";
@@ -25,7 +25,8 @@ export class PrivateFiles {
   }
   async has(scope: Scope, id: string) { try { return Date.now() - (await stat(this.path(scope, id))).mtimeMs < TTL; } catch { return false; } }
   async remove(scope: Scope, id: string) { await rm(this.path(scope, id), { force: true }); }
-  async put(scope: Scope, id: string, source: AsyncIterable<Uint8Array>, expected: { size?: number; sha256?: string; maximum?: number }, inspect?: (prefix: Buffer) => void) {
+  async put(scope: Scope, id: string, source: AsyncIterable<Uint8Array>, expected: { size?: number; sha256?: string; maximum?: number }, inspect?: (prefix: Buffer) => void, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     if (this.writing) throw new ServiceError("MEDIA_BUSY", 429);
     if (process.memoryUsage().rss >= 384 * 1024 * 1024) throw new ServiceError("MEDIA_MEMORY_PRESSURE", 429);
     this.writing = true;
@@ -38,18 +39,20 @@ export class PrivateFiles {
       const fd = await open(temporary, "wx", 0o600); await fd.write(Buffer.concat([Buffer.from([1]), nonce, Buffer.alloc(16)])); await fd.close();
       let size = 0, prefix = Buffer.alloc(0); const hash = createHash("sha256");
       const bounded = new Transform({ transform(chunk: Buffer, _encoding, callback) { size += chunk.length; if (size > (expected.size ?? expected.maximum ?? 25 * 1024 * 1024)) return callback(new ServiceError("MEDIA_SIZE_MISMATCH", 413)); hash.update(chunk); if (prefix.length < 64) prefix = Buffer.concat([prefix, chunk.subarray(0, 64 - prefix.length)]); callback(null, chunk); } });
-      try { await pipeline(Readable.from(source), bounded, cipher, createWriteStream(temporary, { flags: "a" }), { signal: AbortSignal.timeout(60_000) }); }
-      catch (error) { if (error instanceof Error && error.name === "AbortError") throw new ServiceError("MEDIA_TRANSFER_TIMEOUT", 408); throw error; }
+      try { await pipeline(source instanceof Readable ? source : Readable.from(source), bounded, cipher, createWriteStream(temporary, { flags: "a" }), { signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(60_000)]) }); }
+      catch (error) { if (error instanceof Error && error.name === "AbortError") throw new ServiceError(signal?.aborted ? "MEDIA_TRANSFER_CANCELLED" : "MEDIA_TRANSFER_TIMEOUT", signal?.aborted ? 499 : 408); throw error; }
       const sha256 = hash.digest("hex");
       if (expected.size !== undefined && size !== expected.size || expected.sha256 !== undefined && sha256 !== expected.sha256) throw new ServiceError("MEDIA_INTEGRITY_FAILED", 409);
       inspect?.(prefix);
+      signal?.throwIfAborted();
       const handle = await open(temporary, "r+"); try { await handle.write(cipher.getAuthTag(), 0, 16, 13); await handle.sync(); } finally { await handle.close(); }
       await rename(temporary, this.path(scope, id));
       const directory = await open(this.directory, "r"); try { await directory.sync(); } finally { await directory.close(); }
       return { size, sha256 };
     } finally { this.writing = false; await rm(temporary, { force: true }); }
   }
-  private async decrypt(scope: Scope, id: string) {
+  private async decrypt(scope: Scope, id: string, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     if (!await this.has(scope, id)) throw new ServiceError("MEDIA_EXPIRED", 410);
     const path = this.path(scope, id), fd = await open(path, "r"), header = Buffer.alloc(29);
     try { await fd.read(header, 0, 29, 0); } finally { await fd.close(); }
@@ -60,13 +63,14 @@ export class PrivateFiles {
     source.once("error", error => decipher.destroy(error));
     const stream = source.pipe(decipher);
     stream.once("close", () => source.destroy());
+    if (signal) addAbortSignal(signal, stream);
     return stream;
   }
-  async stream(scope: Scope, id: string, expected: { size: number; sha256: string }) {
+  async stream(scope: Scope, id: string, expected: { size: number; sha256: string }, signal?: AbortSignal) {
     let size = 0; const hash = createHash("sha256");
-    try { for await (const chunk of await this.decrypt(scope, id)) { size += chunk.length; if (size > expected.size) throw new Error(); hash.update(chunk); } if (size !== expected.size || hash.digest("hex") !== expected.sha256) throw new Error(); }
-    catch { throw new ServiceError("MEDIA_INTEGRITY_FAILED", 409); }
-    return this.decrypt(scope, id);
+    try { for await (const chunk of await this.decrypt(scope, id, signal)) { size += chunk.length; if (size > expected.size) throw new Error(); hash.update(chunk); } if (size !== expected.size || hash.digest("hex") !== expected.sha256) throw new Error(); }
+    catch { if (signal?.aborted) throw new ServiceError("MEDIA_TRANSFER_CANCELLED", 499); throw new ServiceError("MEDIA_INTEGRITY_FAILED", 409); }
+    return this.decrypt(scope, id, signal);
   }
   async bytes(scope: Scope, id: string, expected: { size: number; sha256: string }, maximum: number) {
     if (expected.size > maximum) throw new ServiceError("MEDIA_SIZE_MISMATCH", 413);

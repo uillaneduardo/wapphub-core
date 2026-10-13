@@ -69,7 +69,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       const record = vault.get(scope);
       return !!record?.pairingAuthorization && record.pairingAuthorization.expiresAt > Date.now() && !record.invalidated && record.termination?.action !== "logout";
     };
-    const media = new ProviderMedia(vault, syncOptions.mediaEnabled === true);
+    const media = new ProviderMedia(vault, syncOptions.mediaEnabled === true, code => callbacks.diagnostic?.(code));
     const historyEnabled = syncOptions.historyEnabled && syncOptions.approvedScope === `${scope.organizationId}:${scope.connectionId}`;
     if (syncOptions.linkedRecoveryOnly && !pairingAllowed()) {
       let linked = false;
