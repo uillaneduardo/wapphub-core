@@ -585,3 +585,15 @@ substituir registros publicados ou afirmar homologação. Próxima ação: commi
 de revisão e CI conforme fluxo do repositório, sem merge/publicação automática.
 Deploy, migrations em produção, pareamento/envio real e homologação humana
 permanecem fora da autorização desta implementação.
+
+### 2026-10-13T14:22:30Z — assinatura automática — PR de revisão e CI
+
+Branch renomeada para `feat/whatsapp-attendant-signature`, commit funcional
+`57bf2becd27c602a2670834d8e39e23eada29ada`, push concluído e workspace limpo.
+[PR37](https://github.com/uillaneduardo/wapphub-core/pull/37) aberta como draft
+para revisão, base701f634/main, nove arquivos; nenhum merge automático.
+CI disparada Core38412743642/Provider38412743865, em andamento neste registro.
+Commit documental subsequente registra esses links e a retomada; conferir
+checks do head final antes de eventual integração. Resultados remotos finais
+serão preservados no relatório local e comunicados na entrega, sem executar
+publicação ou homologação. Testes/checks locais143/143+137/137 já encerrados.

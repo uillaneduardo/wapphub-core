@@ -3,6 +3,9 @@
 Data: 2026-10-13. Estado: `VALIDADO_TECNICAMENTE_LOCAL — EM_REVISAO`.
 A proposta abaixo foi aprovada expressamente pelo usuário antes da implementação.
 Código local implementado; produção não alterada nesta entrega.
+Revisão em [PR37](https://github.com/uillaneduardo/wapphub-core/pull/37), draft,
+branch `feat/whatsapp-attendant-signature`; commit funcional
+`57bf2becd27c602a2670834d8e39e23eada29ada`. Nenhum merge automático.
 
 ## Resultado solicitado
 
@@ -281,7 +284,9 @@ não ganham suporte novo a legenda; mídias/IDs seguem contratos existentes.
 Rollback de código deve manter reconciliação de ecos assinados e snapshots
 já persistidos, desativando somente a composição de novas assinaturas.
 
-Pendências: revisão/CI da PR, eventual integração e autorização específica de
+CI da PR acionada nos workflows Core/Provider; resultados finais devem ser
+conferidos nos checks do head vigente e no relatório local da entrega.
+Pendências: revisão da PR, eventual integração e autorização específica de
 publicação; depois, homologação humana. Não há check local obrigatório pendente.
 Nenhum deploy/restart, migration produtiva, pareamento ou envio real foi
 executado. Não declarar esta feature publicada ou homologada.
