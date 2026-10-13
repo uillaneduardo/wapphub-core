@@ -1,3 +1,5 @@
+> Atualização13/10: PR37/main41861c4 publicada. Recuperação operacional em andamento, com conexão restaurada e filas zeradas; [evidências](WHATSAPP_WEB_RECOVERY_20261013.md). Ajuste solicitado de assinatura usa uma única quebra em novas mensagens/legendas, preservando snapshots antigos, autoria e IDs. Core149/149 e Provider14/14 dos testes afetados aprovados em ambiente isolado; lint/typecheck/build/Prisma/drift/OpenAPI aprovados; publicação final em preparação. Os registros abaixo descrevem entregas anteriores.
+
 > Alteração local em revisão, sem publicação: [assinatura automática do
 > atendente](WHATSAPP_WEB_ATTENDANT_SIGNATURE.md). Resultados técnicos e rollback
 > estão no documento da entrega; os registros de publicação abaixo são preservados.

@@ -658,3 +658,8 @@ Tráfego humano observado:3INBOUND/4OUTBOUND, sendsCOMPLETED/attempts1, cerca6�
 ### 2026-10-13 — recuperação complementar validada; ajuste de assinatura iniciado
 
 Core/Provider76bf571 publicados e CONNECTED, sem novo QR. Filas0; três envios humanos confirmados em2,695–4,673s, uma tentativa; nove entradasTEXT+umaVOICE observadas. Snapshot de status agora exclui da cópia diagnóstica material volumoso não utilizado; Vault original e get completo preservados. Provider138/138 e lint/typecheck/build; Core lint/typecheck/build aprovados. Worker ativo500ms substitui2000ms, mantendo fluxo/isolamento existentes. Inspector fechado; interrupção operacional do Provider ao terminar profiling (~16:56–17:07UTC) registrada e comunicada. Demais37containers preservados. Usuário pediu adicionalmente separador único na assinatura; implementação/testes em commit separado, sem reescrever snapshots já persistidos. Próximos: checks da assinatura, imagens finais, backup e publicação controlada.
+
+
+### 2026-10-13 — assinatura sem linha extra validada
+
+Única linha funcional alterada em outbound-signature.ts: `*nome*\n\nbody` → `*nome*\nbody`. Body/senderName/autoria/IDs e snapshots persistidos intactos, mídia sem texto sem assinatura. Unitários5/5, Core149/149 e Provider14/14 dos testes afetados aprovados; legendas IMAGE/VIDEO, limite8000, snapshots antigos com duas quebras, retry/eco/tenancy e renomeação validados. Correção de desempenho em commit separado da assinatura. Próximo: finalizar checks, commitar, imagem Core da assinatura e Providerda15c3b, backup e publicação nos três serviços autorizados.

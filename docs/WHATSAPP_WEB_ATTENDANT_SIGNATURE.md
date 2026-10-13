@@ -1,6 +1,6 @@
 # Assinatura automática do atendente — implementação e validação
 
-Data: 2026-10-13. Estado: `VALIDADO_TECNICAMENTE_LOCAL — EM_REVISAO`.
+Data: 2026-10-13. PR37 integrada à main41861c4 e publicada; separador único validado conforme novo pedido do usuário. Os registros da revisão original abaixo são históricos.
 A proposta abaixo foi aprovada expressamente pelo usuário antes da implementação.
 Código local implementado; produção não alterada nesta entrega.
 Revisão em [PR37](https://github.com/uillaneduardo/wapphub-core/pull/37), draft,
@@ -14,11 +14,10 @@ canal WhatsApp Web terão o seguinte texto transmitido:
 
 ```text
 *Nome do Atendente*
-
 Mensagem original
 ```
 
-Representação exata: `*${nomeNormalizado}*\n\n${bodyOriginal}`.
+Representação exata: `*${nomeNormalizado}*\n${bodyOriginal}`.
 `body`, `senderUserId`, `senderName`, IDs e DTOs continuam com a semântica atual.
 Somente `transmittedBody` contém o texto assinado. `senderName` permanece o
 nome de exibição atual associado ao autor persistido; renomeação posterior
@@ -114,7 +113,7 @@ contrato canônico de ingresso, mas não no upload atual. Não ampliar capabilit
 4. Se o nome ficar vazio após normalizar, rejeitar antes de enfileirar com erro
    seguro `INVALID_ATTENDANT_NAME` (HTTP400), sem inventar identidade. Mídia
    sem texto não precisa de assinatura nem dessa validação de nome.
-5. Montar `*nome*\n\nbody` preservando cada caractere do body original.
+5. Montar `*nome*\nbody` preservando cada caractere do body original.
    Em mídia com body vazio ou só espaços, não acrescentar assinatura;
    conservar o conteúdo original sem produzir legenda artificial.
 6. Validar o texto final com o campo body do contrato SendIntent existente.
@@ -321,3 +320,12 @@ provider-full.log e core/provider-{lint,typecheck,build}.log preservados no
 diretório da revisão. Provider sem alteração de arquivo em relação ao head d7f37f9.
 PR continua draft; CI será conferida no head atualizado e os resultados finais
 preservados no relatório local, sem merge/deploy ou interação real WhatsApp.
+
+
+## Ajuste solicitado após PR37 — separador único
+
+Única mudança de comportamento: novas mensagens e legendas textuais usam `*nome*\nbody`, mantendo negrito WhatsApp. Corpo original preservado inclusive espaços, Unicode e linhas em branco próprias. Não reescrever `transmittedBody` já persistido; retries e ecos mantêm snapshots anteriores com duas quebras, inclusive após renomeação. `senderName`, autoria, IDs, contratos e restante do envio permanecem intactos. Mídia sem texto segue sem assinatura. Limite de8000codepoints continua sobre texto final: prefixo de nome A agora ocupa quatro caracteres. Testes existentes atualizados para texto/IMAGE/VIDEO, limites e pass-through Provider; fixture legada inclui assinatura antiga de duas quebras. Sem migrations ou envio real de teste.
+
+Validação do ajuste: Core149/149 e Provider14/14 nos testes afetados, zero falhas/skips. A suíte completa Provider138/138 validou separadamente a recuperação; o ajuste de assinatura não modifica código de envio do Provider. Unitários5/5 incluídos na suíte Core. Texto/legendas IMAGE/VIDEO, limite8000, Unicode/whitespace, snapshots antigos assinados/não assinados, renomeação, retry/eco/idempotência/autoria/tenancy cobertos. Evidências em20261013-whatsapp-recovery/core-full.log e provider-signature-pass-through.log.
+
+Lint/typecheck/build e Prisma/drift/OpenAPI aprovados; contratos/schema sem alteração. Nenhuma migration em produção.

@@ -9,7 +9,7 @@ export function outboundSignature(body: string, attendantName: string, media = f
     .replace(/ +/g, " ")
     .trim();
   if ((!media || body.trim()) && !name) throw new AppError(400, "INVALID_ATTENDANT_NAME");
-  const transmittedBody = media && !body.trim() ? body : `*${name}*\n\n${body}`;
+  const transmittedBody = media && !body.trim() ? body : `*${name}*\n${body}`;
   if (!sendIntentSchema.shape.body.safeParse(transmittedBody).success)
     throw new AppError(400, "MESSAGE_PRESENTATION_TOO_LONG");
   return transmittedBody;
