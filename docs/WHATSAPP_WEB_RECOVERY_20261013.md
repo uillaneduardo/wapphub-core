@@ -22,3 +22,12 @@ Após reset, três entradas e quatro envios humanos foram observados; envios con
 
 
 Diagnóstico complementar reduz o snapshot de status às informações utilizadas por lifecycle/history, excluindo da cópia chaves Signal, credenciais aposentadas e comprovantes de envio. Esses campos continuam persistidos, e a leitura completa usada pelo transporte não muda. Regressão prova uma única cópia defensiva, identidade/lifecycle/isolation e manutenção de2000keys e credenciais aposentadas. Provider138/138 e lint/typecheck/build aprovados. Intervalo Worker ativo reduzido de2000ms para500ms; Core lint/typecheck/build aprovados, sem alterar concorrência, transações ou contratos. Última publicação76bf571 já observou três envios humanos em2,695–4,673s; todas filas0. Próxima publicação avalia o intervalo menor e snapshot reduzido.
+
+
+## Publicação final e limites — 13/10/2026,17:34UTC
+
+Core API/Worker `wapphub-core:recovery-41fdf6a`, source41fdf6a4a3c0991dd04faba2ea79742733a66b89; Provider `wapphub-provider-web:recovery-da15c3b`, sourceda15c3b04e90fdace32dcf7977336a3bcda4358d. Última publicação22,13s com SQL/Vault consistentes e restore SQL isolado375mensagens/12migrations. Seishealthy,4HTTP200 local/público, CONNECTED/PROCESSED, pending/dead/syncDead/syncQueued e SQLpendentes0 por~5min. Sem QR/logout/envio automático/migrations/segunda limpeza. Config/env/mounts/ports/restart conferidos;37outros containers iguais. Identidade/chaves/QR/credenciais aposentadas preservadas. Outro canal recebeu disconnect por ação humana autenticada17:35UTC, sem comando do executor, preservando credenciais e fence de recibos.
+
+Core149/149+lint/typecheck/build/Prisma/drift/OpenAPI e Provider138/138 recuperação+14/14 assinatura aprovados localmente. Três envios humanos na versão76 confirmados2,695–4,673s; versão final sem tráfego novo observado, portanto rapidez final e renderização pendentes. Mídia recebida404por referência ausente investigada, download/reprodução não homologados; emoji independente. Branch fix/whatsapp-bootstrap-live-recovery enviada; fixes ainda não integrados à main, sem PR/CI novo comprovado.
+
+Relatório operacional completo, imagens IDs/SHA, dados descartados, incidentes, backups e rollback: `/home/uillan/homelab/deploy-records/wapphub-core/20261013-whatsapp-recovery/RELATORIO.md`. Rollback de aplicação conserva dados/sessão e usa imagens76; não restaurar filas descartadas automaticamente. Progresso técnico publicado, homologação humana permanece pendente.
