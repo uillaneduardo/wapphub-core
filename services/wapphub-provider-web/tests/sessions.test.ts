@@ -18,15 +18,22 @@ test("session diagnostics reuse one defensive snapshot of a populated vault", as
   record.auth = JSON.stringify({ me: { id: "synthetic@lid" }, noiseKey: { private: "synthetic", public: "synthetic" }, signedIdentityKey: { private: "synthetic", public: "synthetic" } });
   record.state = "FAILED"; record.errorCode = "RECONNECT_LIMIT"; record.desired = true;
   record.keys = Object.fromEntries(Array.from({ length: 2000 }, (_, i) => [String(i), "synthetic-key-state"]));
+  record.retiredSessions = [{ commandId: randomUUID(), retiredAt: new Date().toISOString(), proof: "REMOTE_CONFIRMED", auth: "SYNTHETIC_RETIRED_AUTH", keys: { archived: "synthetic-key" } }];
  });
- const get = f.vault.get.bind(f.vault); let reads = 0;
- f.vault.get = scope => { reads++; return get(scope); };
+ const get = f.vault.get.bind(f.vault), snapshot = f.vault.viewSnapshot.bind(f.vault); let reads = 0, fullReads = 0;
+ f.vault.get = scope => { fullReads++; return get(scope); };
+ f.vault.viewSnapshot = scope => { reads++; return snapshot(scope); };
  const view = f.sessions.view(f.scope);
  assert.equal(reads, 1);
+ assert.equal(fullReads, 0);
  assert.equal(view.state, "FAILED"); assert.equal(view.sync.lifecycle.linked, true);
  assert.equal(view.sync.lifecycle.recoveryEligible, true); assert.equal(view.sync.lifecycle.pairingEligible, false);
  view.sync.lifecycle.desired = false;
  assert.equal(get(f.scope)?.desired, true);
+ assert.equal(Object.keys(get(f.scope)!.keys).length, 2000);
+ assert.equal(get(f.scope)?.retiredSessions?.[0]?.auth, "SYNTHETIC_RETIRED_AUTH");
+ assert.deepEqual(snapshot(f.scope)?.keys, {});
+ assert.equal(snapshot(f.scope)?.retiredSessions?.[0]?.auth, undefined);
  assert.throws(() => f.sessions.view(f.other), /SESSION_NOT_FOUND/);
 });
 test("concurrent connects and repeated command IDs start a single socket", async (t) => {

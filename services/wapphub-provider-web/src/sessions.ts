@@ -60,7 +60,7 @@ export class Sessions {
     return { eligible, remote };
   }
   view(scope: Scope) {
-    const record = this.vault.get(scope);
+    const record = this.vault.viewSnapshot(scope);
     if (!record) throw new ServiceError("SESSION_NOT_FOUND", 404);
     const sync = record.sync;
     const actor = this.actors.get(scopeKey(scope));

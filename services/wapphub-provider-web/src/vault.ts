@@ -79,6 +79,14 @@ export class Vault {
     }
   }
   get(scope: Scope): Session | undefined { return structuredClone(this.records.get(filename(scope))); }
+  /** Lifecycle diagnostics never consume Signal state, send receipts or retired
+   * credentials. Keep them stored; exclude them from this defensive copy. */
+  viewSnapshot(scope: Scope): Session | undefined {
+    const record = this.records.get(filename(scope));
+    if (!record) return undefined;
+    return structuredClone({ ...record, keys: {}, commands: [], dedup: [], sends: undefined, media: undefined,
+      retiredSessions: record.retiredSessions?.map(entry => ({ ...entry, auth: undefined, keys: {} })) });
+  }
   historyState(scope: Scope) { const op = this.records.get(filename(scope))?.historyOperation; return op ? { id: op.id, state: op.state, expiresAt: op.expiresAt } : undefined; }
   history(scope: Scope) { return structuredClone(this.records.get(filename(scope))?.historyOperation); }
   queueState(scope: Scope, now: number) {
