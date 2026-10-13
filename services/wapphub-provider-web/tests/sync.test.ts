@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { deflateSync } from "node:zlib";
 import { Readable } from "node:stream";
-import { makeEventBuffer, proto } from "baileys";
+import { makeEventBuffer, proto, DEFAULT_CONNECTION_CONFIG, generateRegistrationNode } from "baileys";
 import pino from "pino";
 import { fixture } from "./helpers.js";
 import { Vault } from "../src/vault.js";
@@ -39,6 +39,10 @@ test("native first-QR bootstrap captures existing conversations through bounded 
   const batches: { items: SyncItem[]; historical: boolean }[] = [];
   const factory = baileysFactory(f.vault, (options) => {
     assert.equal(options.syncFullHistory, true);
+    assert.equal(options.browser, undefined); // keep installed SDK's Web identity
+    const payload = generateRegistrationNode(options.auth!.creds, { ...DEFAULT_CONNECTION_CONFIG, ...options });
+    assert.equal(payload.webInfo!.webSubPlatform, proto.ClientPayload.WebInfo.WebSubPlatform.WEB_BROWSER);
+    assert.equal(proto.DeviceProps.decode(payload.devicePairingData!.deviceProps!).platformType, proto.DeviceProps.PlatformType.CHROME);
     assert.equal(options.shouldSyncHistoryMessage?.({}), false); // SDK cannot inflate unbounded history
     return { ev, end: async () => undefined, logout: async () => undefined };
   }, { enabled: true, historyEnabled: false, initialHistoryEnabled: true });

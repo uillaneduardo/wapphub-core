@@ -6,7 +6,7 @@ import pino from "pino";
 import { baileysFactory } from "../src/baileys.js";
 import { fixture } from "./helpers.js";
 
-test("exact RC14 is locked and the actual SDK adapter disables logging and history", async (t) => {
+test("exact RC14 is locked and the actual SDK adapter suppresses raw logging and automatic history", async (t) => {
   const f = await fixture(t);
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const lock = JSON.parse(await readFile(new URL("../package-lock.json", import.meta.url), "utf8"));
@@ -14,13 +14,18 @@ test("exact RC14 is locked and the actual SDK adapter disables logging and histo
   assert.match(lock.packages["node_modules/baileys"].resolved, /^https:\/\/registry.npmjs.org\//);
   const ev = makeEventBuffer(pino({ level: "silent" }));
   const text: unknown[] = [], receipts: unknown[] = [], connection: unknown[] = [];
+  const diagnostics: string[] = [];
   const factory = baileysFactory(f.vault, (options) => {
-    assert.equal(options.logger?.level, "silent"); assert.equal(options.syncFullHistory, false); assert.equal(options.markOnlineOnConnect, false);
+    assert.equal(options.logger?.level, "info"); assert.equal(options.syncFullHistory, false); assert.equal(options.markOnlineOnConnect, false);
+    const privateObject = { get secret() { return assert.fail("raw SDK fields must never be inspected or serialized"); } };
+    options.logger!.info(privateObject, "not logged in, attempting registration...");
+    options.logger!.child({ privateBinding: "must never reach log sink" }).error(privateObject, "unexpected private error");
     assert.equal(options.shouldSyncHistoryMessage?.({}), false); assert.equal(options.shouldIgnoreJid?.("status@broadcast"), true);
     assert.equal(options.shouldIgnoreJid?.("test@g.us"), true); assert.equal(options.shouldIgnoreJid?.("test@s.whatsapp.net"), false);
     return { ev, end: async () => undefined, logout: async () => undefined };
   });
-  const transport = await factory(f.scope, { connection: (value) => connection.push(value), text: (value) => text.push(value), receipt: (id, status) => receipts.push({ id, status }), failure: () => assert.fail("unexpected persistence failure") });
+  const transport = await factory(f.scope, { diagnostic: code => diagnostics.push(code), connection: (value) => connection.push(value), text: (value) => text.push(value), receipt: (id, status) => receipts.push({ id, status }), failure: () => assert.fail("unexpected persistence failure") });
+  assert.deepEqual(diagnostics, ["AUTH_READY", "REGISTRATION_READY", "SOCKET_CREATED"]);
   const message = { key: { id: "synthetic", remoteJid: "test@s.whatsapp.net", fromMe: false }, messageTimestamp: 1_700_000_000, message: { conversation: "  teste\n😀  " } };
   ev.emit("messages.upsert", { type: "notify", messages: [message] });
   ev.emit("messages.upsert", { type: "append", messages: [message] });

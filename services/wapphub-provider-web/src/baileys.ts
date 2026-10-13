@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import makeWASocket, { Browsers, BufferJSON, initAuthCreds, proto, processHistoryMessage, normalizeMessageContent, type AuthenticationState, type SignalDataTypeMap, type BaileysEventMap } from "baileys";
+import makeWASocket, { BufferJSON, initAuthCreds, proto, processHistoryMessage, normalizeMessageContent, type AuthenticationState, type SignalDataTypeMap, type BaileysEventMap } from "baileys";
 import pino from "pino";
-import type { TransportFactory, TransportCause } from "./transport.js";
+import type { TransportFactory, TransportCause, TransportDiagnostic } from "./transport.js";
 import { ProviderMedia } from "./media.js";
 import { ServiceError } from "./errors.js";
 import { Vault, type Scope } from "./vault.js";
@@ -77,6 +77,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       if (!linked) throw new ServiceError("EXISTING_AUTH_REQUIRED", 403);
     }
     const auth = await encryptedAuth(vault, scope, callbacks.failure);
+    callbacks.diagnostic?.("AUTH_READY");
     // The first QR pairing may deliver old chats. Process them through our bounded
     // pipeline; a linked session must never be re-paired to retrieve old history.
     const previousImport = vault.get(scope)?.historyImports;
@@ -93,13 +94,31 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       });
     }
     const downloads = new AbortController(); let downloading = false, historyObserved = false;
+    // Never forward SDK objects, messages or serializers to a log sink. Only
+    // exact installed-SDK stage labels produce our own bounded diagnostic code.
+    const sdkStages: Record<string, TransportDiagnostic> = {
+      "connected to WA": "HANDSHAKE_START",
+      "not logged in, attempting registration...": "REGISTRATION_READY",
+      "logging in...": "LOGIN_READY",
+      "error in validating connection": "HANDSHAKE_FAILED",
+      "pairing configured successfully, expect to restart the connection...": "PAIRING_ACCEPTED",
+      "opened connection to WA": "AUTHENTICATED",
+      "connection errored": "SDK_SOCKET_END",
+      "connection closed": "SDK_SOCKET_END",
+    };
+    const sdkLogger = pino({ level: "info", hooks: { logMethod(args) {
+      const label = args.at(-1);
+      if (typeof label === "string" && Object.hasOwn(sdkStages, label)) callbacks.diagnostic?.(sdkStages[label]!);
+      // Deliberately do not call the Pino output method, even for unknown logs.
+    } } });
     const socket = createSocket({
-      auth: auth.state, logger: pino({ level: "silent" }),
+      auth: auth.state, logger: sdkLogger,
       // Only new, explicitly authorized pairing uses the operational pin.
       // Existing authenticated transports retain the installed SDK settings.
       ...(pairingAllowed() && !auth.state.creds.me?.id && syncOptions.pairingWebVersion ? { version: syncOptions.pairingWebVersion } : {}),
       markOnlineOnConnect: false, syncFullHistory: nativeBootstrap && !auth.state.creds.me?.id,
-       ...(nativeBootstrap && !auth.state.creds.me?.id ? { browser: Browsers.macOS("Desktop") } : {}),
+      // Keep the SDK Web/Chrome identity used by the working QR flow. Desktop
+      // + full history advertises DARWIN despite a WEB registration build.
       shouldSyncHistoryMessage: () => false,
       shouldIgnoreJid: (jid) => !jid.endsWith("@s.whatsapp.net") && !jid.endsWith("@lid"),
       connectTimeoutMs: 20_000, keepAliveIntervalMs: 30_000, qrTimeout: 60_000,
@@ -107,7 +126,9 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
     });
     callbacks.diagnostic?.("SOCKET_CREATED");
     socket.ws?.on("open", () => callbacks.diagnostic?.("WS_OPEN"));
-    socket.ws?.on("close", () => callbacks.diagnostic?.("WS_CLOSED"));
+    socket.ws?.once("frame", () => callbacks.diagnostic?.("HANDSHAKE_FRAME_RECEIVED"));
+    socket.ws?.on("CB:iq,type:set,pair-device", () => callbacks.diagnostic?.("PAIRING_OFFER_RECEIVED"));
+    socket.ws?.on("close", (code: number) => callbacks.diagnostic?.(code === 1006 ? "WS_CLOSED_ABNORMAL" : "WS_CLOSED"));
     socket.ws?.on("error", () => callbacks.diagnostic?.("WS_ERROR"));
     socket.ev.on("creds.update", (update) => {
       if (auth.isDisabled()) return;
@@ -115,9 +136,10 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
         auth.disable(); callbacks.connection({ state: "close", code: 401 }); return;
       }
       Object.assign(auth.state.creds, update);
-      void auth.saveCreds().catch(() => callbacks.failure());
+      void auth.saveCreds().then(() => callbacks.diagnostic?.("AUTH_PERSISTED")).catch(() => callbacks.failure());
     });
     socket.ev.on("connection.update", (update) => {
+      if (update.qr) callbacks.diagnostic?.("QR_RECEIVED");
       const reason = update.lastDisconnect?.error as { output?: { statusCode?: number }; message?: string; code?: string } | undefined;
       // Map known SDK observations only. Never publish exception messages,
       // handshake frames, URLs, IDs, QR, auth or Signal material.
@@ -339,7 +361,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
         const content = record.type === "IMAGE" ? { image: { stream }, mimetype: record.mimeType, caption: intent.body, jpegThumbnail: "" } : record.type === "VIDEO" ? { video: { stream }, mimetype: record.mimeType, caption: intent.body, jpegThumbnail: "" } : { audio: { stream }, mimetype: record.mimeType, ptt: record.type === "VOICE", seconds: record.seconds ?? 0, waveform: Buffer.alloc(0) };
         try { await socket.sendMessage(intent.destination, content, { messageId: intent.providerMessageId }); } finally { stream.destroy(); }
       }
-    }, history: (control) => importer.command(control), close: () => { clearTimeout(bootstrapTimer); importer.close(); downloads.abort(); auth.disable(); void socket.end(new Error("CONTROLLED_SHUTDOWN")).catch(() => callbacks.failure()); }, logout: async () => {
+    }, history: (control) => importer.command(control), close: () => { callbacks.diagnostic?.("LOCAL_SOCKET_CLOSE"); clearTimeout(bootstrapTimer); importer.close(); downloads.abort(); auth.disable(); void socket.end(new Error("CONTROLLED_SHUTDOWN")).catch(() => callbacks.failure()); }, logout: async () => {
       downloads.abort(); auth.disable(true);
       // RC14 logout() waits only for sendNode, not an acknowledgement. A query
       // of the same documented SDK IQ waits for a correlated server response.
