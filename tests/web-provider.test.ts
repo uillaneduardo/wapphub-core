@@ -741,6 +741,68 @@ test("B3 demand media revalidates tenant/visibility and keeps authenticated byte
   } finally { await mediaApp.close(); await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { mediaEnabled: false, outboundEnabled: false } }); }
 });
 
+test("P1 received media preserves HTTP errors, ranges, cookie CORS, RBAC and revalidation", async () => {
+  const payload = Buffer.from("synthetic received bytes"), hash = createHash("sha256").update(payload).digest("hex");
+  let failure: WebProviderError | undefined, downloads = 0, mimeType = "image/png", hook: (() => Promise<void>) | undefined, destroyed = 0;
+  const mediaProvider = new FakeProvider() as FakeProvider & Required<Pick<WebProviderPort, "readMedia">>;
+  mediaProvider.readMedia = async (_s, _id, signal) => {
+    signal?.throwIfAborted(); downloads++; if (failure) throw failure; await hook?.();
+    const stream = Readable.from([payload]); stream.once("close", () => destroyed++);
+    return { stream, size: payload.length, sha256: hash, mimeType };
+  };
+  const mediaApp = await buildApp({ ...config, PROVIDER_MEDIA_ENABLED: true }, db, redis, false, undefined, mediaProvider);
+  const thread = await db.conversation.findFirstOrThrow({ where: { organizationId: orgA, channelId, providerConversationId: "5581999999999@s.whatsapp.net" } });
+  await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { mediaEnabled: true } });
+  try {
+    for (const type of ["IMAGE", "AUDIO", "VOICE", "VIDEO"] as const) {
+      mimeType = type === "IMAGE" ? "image/png" : type === "VIDEO" ? "video/mp4" : "audio/ogg";
+      const message = await db.message.create({ data: { organizationId: orgA, channelId, conversationId: thread.id, type, direction: "INBOUND", mediaMetadata: { mediaId: randomUUID(), type, mimeType, fileName: "synthetic", size: payload.length, sha256: hash, state: "PENDING" } } });
+      const url = `/api/v1/conversations/${thread.id}/messages/${message.id}/media`, headers = { cookie: owner.cookie, origin };
+      const preflight = await mediaApp.inject({ method: "OPTIONS", url, headers: { origin, "access-control-request-method": "GET", "access-control-request-headers": "range" } }); assert.equal(preflight.statusCode,204); assert.match(String(preflight.headers["access-control-allow-headers"]), /range/i); assert.equal(preflight.headers["access-control-allow-credentials"],"true");
+      const unauthenticated = await mediaApp.inject({ url, headers: { origin } }); assert.equal(unauthenticated.statusCode,401);
+      const oldDownloads = downloads;
+      assert.equal((await mediaApp.inject({ url, headers: { cookie: denied.cookie, origin } })).statusCode,403); assert.equal(downloads,oldDownloads);
+      assert.equal((await mediaApp.inject({ url, headers: { cookie: other.cookie, origin } })).statusCode,403); assert.equal(downloads,oldDownloads);
+      const response = await mediaApp.inject({ url, headers }); assert.equal(response.statusCode,200,response.body); assert.deepEqual(response.rawPayload,payload); assert.equal(response.headers["access-control-allow-origin"],origin); assert.match(String(response.headers["access-control-expose-headers"]), /content-range/i);
+      for (const [range, expected] of [["bytes=0-0",payload.subarray(0,1)],["bytes=4-",payload.subarray(4)],["bytes=-3",payload.subarray(-3)],["bytes=0-999",payload]] as const) {
+        const partial = await mediaApp.inject({ url, headers: { ...headers, range } }); assert.equal(partial.statusCode,206); assert.deepEqual(partial.rawPayload,expected);
+      }
+      for (const range of ["bytes=-0","bytes=999-","bytes=5-1","bytes=0-1,3-4","bytes=9007199254740993-","invalid"]) {
+        const result = await mediaApp.inject({ url, headers: { ...headers, range } }); assert.equal(result.statusCode,416); assert.equal(result.headers["content-range"],`bytes */${payload.length}`);
+      }
+      for (const [code,status] of [["MEDIA_UNAVAILABLE",404],["MEDIA_EXPIRED",410],["MEDIA_INTEGRITY_FAILED",409],["MEDIA_TYPE_MISMATCH",415],["MEDIA_UNAVAILABLE",503],["SESSION_NOT_FOUND",404]] as const) {
+        failure = new WebProviderError(code,status); const result = await mediaApp.inject({ url, headers }); assert.equal(result.statusCode,code === "SESSION_NOT_FOUND" ? 503 : status); assert.equal(result.json().error.code,code === "SESSION_NOT_FOUND" ? "MEDIA_UNAVAILABLE" : code);
+      }
+      failure = undefined;
+      const beforeDestroyed = destroyed;
+      hook = async () => { await db.conversation.update({ where: { organizationId_id: { organizationId: orgA, id: thread.id } }, data: { assignedUserId: denied.userId } }); };
+      // Owner has supervise and still sees the conversation; membership revocation must block after fetch.
+      const membership = await db.membership.findFirstOrThrow({ where: { organizationId: orgA, userId: owner.userId } });
+      hook = async () => { await db.membership.update({ where: { id: membership.id }, data: { status: "SUSPENDED" } }); };
+      try { assert.equal((await mediaApp.inject({ url, headers })).statusCode,403); }
+      finally { await db.membership.update({ where: { id: membership.id }, data: { status: "ACTIVE" } }); hook = undefined; }
+      await new Promise(resolve => setImmediate(resolve)); assert.ok(destroyed > beforeDestroyed);
+      const session = await db.session.findUniqueOrThrow({ where: { id: owner.sessionId } }); await db.session.update({ where: { id: owner.sessionId }, data: { expiresAt: new Date(0) } });
+      try { assert.equal((await mediaApp.inject({ url, headers })).statusCode,401); }
+      finally { await db.session.update({ where: { id: owner.sessionId }, data: { expiresAt: session.expiresAt } }); }
+    }
+  } finally { await mediaApp.close(); await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { mediaEnabled: false } }); }
+});
+
+test("P1 browser disconnection cancels Core demand fetch before headers are available", async () => {
+  const mediaProvider = new FakeProvider() as FakeProvider & Required<Pick<WebProviderPort, "readMedia">>;
+  let started!: () => void, cancelled!: () => void; const downloading=new Promise<void>(resolve=>{started=resolve;}), cancellation=new Promise<void>(resolve=>{cancelled=resolve;});
+  mediaProvider.readMedia=async(_s,_id,signal)=>new Promise((_resolve,reject)=>{assert.ok(signal);started();signal.addEventListener("abort",()=>{cancelled();reject(new WebProviderError("MEDIA_UNAVAILABLE"));},{once:true});});
+  const mediaApp=await buildApp({...config,PROVIDER_MEDIA_ENABLED:true},db,redis,false,undefined,mediaProvider);
+  const thread=await db.conversation.findFirstOrThrow({where:{organizationId:orgA,channelId,providerConversationId:"5581999999999@s.whatsapp.net"}});
+  const message=await db.message.create({data:{organizationId:orgA,channelId,conversationId:thread.id,type:"IMAGE",direction:"INBOUND",mediaMetadata:{mediaId:randomUUID(),type:"IMAGE",mimeType:"image/png",fileName:"synthetic",size:1,sha256:"a".repeat(64),state:"PENDING"}}});
+  await db.providerConnection.update({where:{organizationId_channelId:{organizationId:orgA,channelId}},data:{mediaEnabled:true}});
+  try {
+    await mediaApp.listen({host:"127.0.0.1",port:0});const abort=new AbortController(), request=fetch(`${mediaApp.listeningOrigin}/api/v1/conversations/${thread.id}/messages/${message.id}/media`,{headers:{cookie:owner.cookie,origin},signal:abort.signal});const rejected=assert.rejects(request);
+    await downloading;abort.abort();await rejected;await cancellation;
+  } finally {await mediaApp.close();await db.providerConnection.update({where:{organizationId_channelId:{organizationId:orgA,channelId}},data:{mediaEnabled:false}});}
+});
+
 test("B4 delivered bootstrap uses scoped correlation without spending or replacing an ON_DEMAND grant", async () => {
   const before = await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } });
   const granted = before.historyOperation, calls = provider.calls.length;

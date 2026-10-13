@@ -675,3 +675,25 @@ Tempos reais observados antes do último rollout: três envios humanos2,695–4,
 ### 2026-10-13,17:43UTC — tráfego humano observado na versão final
 
 Três envios humanosCOMPLETED/attempts1 em1,110–2,192s até confirmaçãoProvider;3/3snapshots novos com body exato e separador único. IngressTEXT/IMAGE observado2,421/4,705s timestampWhatsApp→SQL; proxies não medem renderização/aparelho.48mensagens/12envios desde primeira retomada; filas0 por~558s uptime final. NovaIMAGE metadadosJPEG/153146bytes/SHA presentes, GETProvider404MEDIA_UNAVAILABLE268ms antes do download; mídia recebida continua pendente. Nenhuma ação real de envio pelo executor. Homologação visual/celular e novo contato permanecem pendentes; evidências traffic-final-version.json/media-final.json/verification.json.
+
+
+### 2026-10-13T17:53:37.214370+00:00 — P1 mídia recebida, A0/A1 em análise
+
+Usuário solicita diagnóstico/proposta A2 e aprovação antes de implementar. Sem merge/deploy/re-pareamento/limpeza/importação/envio real. Core fonte9435ed4 na branchfix/whatsapp-bootstrap-live-recovery; runtime41fdf6a, Providerda15c3b; Chatmain1b3219b/runtime dbab1ae. Working trees inicialmente limpas; seis serviços healthy e Compose/imagens conferidos, flagsmedia=true. Relatório de recuperação lido. Hipóteses a reproduzir: retain excluiquery no directPath silenciosamente, referência não chega ao Vault, clienteCore mascara errosProvider. Players atuais sob demanda porBlob, RangeCore já disponível. Diagnóstico em20261013-p1-received-media-a0-a2/. Só documentação de progresso alterada nesta fase; nenhum código funcional ou commit.
+
+
+### 2026-10-13T18:13:36.203085+00:00 — P1 mídia, A0/A1 concluídos; A2 aguardando aprovação
+
+16INBOUND4IMAGE/12VOICE com metadados/MIME/hash/size válidos;0registros/ref/cache correspondentes no Vault. GETProvider404 antes de download em record()/media.ts40, flags habilitadas. Reprodução isolada nos4tipos: plainpath200; querypath/URLonly normalizam mas são descartados por retain23 (8casos404), clienteCore mascara404como503. Envelopes originais recebidos indisponíveis; não presumir formato exato dessas16sem prova. Dois leaks de cancelamento do body simulados, sem rede. Core4/4/Provider14/14/Chat4/4 baselines aprovados.40containers IDs/imagens/StartedAt iguais, filas0, nenhuma mudança funcional/commit/PR/deploy/operaçãoWhatsApp real. Cache938654bytes/0part; ProviderCPU5,68%/90MiB num snapshot.
+
+Proposta objetiva: docs/WHATSAPP_WEB_RECEIVED_MEDIA_P1_A2.md. B1 retenção de pathcomquery/URLcanonical autorizado, erros permitidos e abort/cleanup; B2 playersCore comRange sob demanda em commit separado; B3negativas echecks completosisolados. Sem schema/filas/sync/auth/envio/assinatura. Antigassemref não recuperáveis por metadata/SHA; mídia comrefválida seguecompatível. Evidências20261013-p1-received-media-a0-a2/RELATORIO_A0_A1_A2.md. Usuário pediu gateA2 antes de implementação, agora pendente; somente documentação local alterada, Chatlimpo. Próximo: receber aprovação da proposta; nenhum deploy/merge automático.
+
+
+## 2026-10-13 — P1 implementação autorizada / etapa 0
+
+A2 aprovada integralmente pelo usuário, incluindo PRs, CI, merges e deploy. Worktrees isoladas Core fix/received-media-p1 (base 9435ed4, preserva 41fdf6a) e Chat fix/received-media-players-p1 (base 1b3219b). Baseline e backups em /home/uillan/homelab/deploy-records/wapphub-core/20261013-p1-received-media-implementation. Sem envio, logout, pareamento, limpeza ou alterações de sync. Homologação real será humana.
+
+
+## 2026-10-13 — P1 etapas 1–3 / validação
+
+Retenção query/URL-only com origem fixa implementada; cancelamento/erros/cache e Range/CORS no Core, players sob demanda no Chat. Detectado também helperHTTP Baileys rc14 ignorando signal/redirect; patch versionado de instalação com testes do SDK real. Core153/153 e lint/type/build/Prisma12/drift/OpenAPI aprovados antes do teste adicional de abort HTTP. Provider/Chat completos em andamento. PR38 integra recuperação/assinatura, workflows84/80 verdes, merge ca2a05f. Backup/restauração SQL/Vault isolados aprovados (425mensagens,26tabelas,12migrations;1identidade6caches). Nenhum dado excluído ou migration/envio/logout/QR executado. Próximo gate: testes finais/revisão/PRs P1.

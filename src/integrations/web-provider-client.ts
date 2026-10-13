@@ -1,4 +1,5 @@
 import { Readable } from "node:stream";
+import { createHash } from "node:crypto";
 import { mediaReferenceSchema } from "../../contracts/provider.js";
 import type { MediaUpload } from "../../contracts/provider-media.js";
 import { recipientResultSchema, sendResultSchema, type SendIntent, type SendResult } from "../../contracts/provider-outbound.js";
@@ -12,7 +13,7 @@ export type InternalAction = "connect" | "refresh" | "recover" | "disconnect" | 
 export type Delivery = z.infer<typeof providerDeliveriesSchema>["deliveries"][number];
 export interface WebProviderPort {
   uploadMedia?(scope: ProviderScope, meta: MediaUpload, stream: AsyncIterable<Uint8Array>): Promise<import("zod").infer<typeof mediaReferenceSchema>>;
-  readMedia?(scope: ProviderScope, id: string): Promise<{ stream: Readable; mimeType: string; size: number; sha256: string }>;
+  readMedia?(scope: ProviderScope, id: string, signal?: AbortSignal): Promise<{ stream: Readable; mimeType: string; size: number; sha256: string }>;
   resolveRecipient?(scope: ProviderScope, phone: string): Promise<{ state: "VALID" | "NOT_FOUND" | "UNKNOWN"; jid?: string }>;
   send?(scope: ProviderScope, intent: SendIntent): Promise<SendResult>;
   history?(scope: ProviderScope, control: HistoryControl): Promise<ProviderSession>;
@@ -27,6 +28,12 @@ export interface WebProviderPort {
 }
 export class WebProviderError extends Error {
   constructor(readonly code: string, readonly status = 503) { super(code); }
+}
+// Only these code/status pairs are safe to pass across the service boundary.
+export const mediaErrorStatuses: Readonly<Record<string, number>> = { MEDIA_UNAVAILABLE: 404, MEDIA_EXPIRED: 410, MEDIA_INTEGRITY_FAILED: 409, MEDIA_SIZE_MISMATCH: 413, MEDIA_TYPE_MISMATCH: 415, MEDIA_CODEC_INVALID: 415, MEDIA_BUSY: 429, MEDIA_MEMORY_PRESSURE: 429, MEDIA_CACHE_LIMIT: 429, MEDIA_TRANSFER_TIMEOUT: 408, MEDIA_CODEC_UNAVAILABLE: 503 };
+export function publicMediaError(error: unknown): { code: string; status: number } {
+  if (error instanceof WebProviderError && (mediaErrorStatuses[error.code] === error.status || error.code === "MEDIA_UNAVAILABLE" && error.status === 503)) return { code: error.code, status: error.status };
+  return { code: "MEDIA_UNAVAILABLE", status: 503 };
 }
 const prefix = (scope: ProviderScope) => `/internal/v1/organizations/${scope.organizationId}/connections/${scope.connectionId}`;
 export class WebProviderClient implements WebProviderPort {
@@ -60,14 +67,51 @@ export class WebProviderClient implements WebProviderPort {
     } catch (error) { if (error instanceof WebProviderError) throw error; throw new WebProviderError("MEDIA_UPLOAD_FAILED"); }
     finally { body.destroy(); }
   }
-  async readMedia(scope: ProviderScope, id: string) {
+  async readMedia(scope: ProviderScope, id: string, signal?: AbortSignal) {
     const path = `${prefix(scope)}/media/${id}`;
+    const cancellation = new AbortController(), transfer = AbortSignal.any([cancellation.signal, ...(signal ? [signal] : []), AbortSignal.timeout(60000)]);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     try {
-      const response = await fetch(this.url + path, { redirect: "error", signal: AbortSignal.timeout(60000), headers: signedHeaders(this.key, "GET", path) });
+      transfer.throwIfAborted();
+      const response = await fetch(this.url + path, { redirect: "error", signal: transfer, headers: signedHeaders(this.key, "GET", path) });
+      reader = response.body?.getReader();
+      if (!response.ok) {
+        let bytes = 0; const chunks: Uint8Array[] = [];
+        if (reader) for (;;) { const next = await reader.read(); if (next.done) break; bytes += next.value.length; if (bytes > 4096) break; chunks.push(next.value); }
+        const parsed = z.object({ error: z.object({ code: z.string() }) }).safeParse(JSON.parse(Buffer.concat(chunks).toString()));
+        const code = parsed.success ? parsed.data.error.code : "";
+        throw new WebProviderError(mediaErrorStatuses[code] === response.status || code === "MEDIA_UNAVAILABLE" && response.status === 503 ? code : "MEDIA_UNAVAILABLE", mediaErrorStatuses[code] === response.status ? response.status : 503);
+      }
       const size = Number(response.headers.get("content-length")), mimeType = response.headers.get("content-type") ?? "", sha256 = response.headers.get("x-media-sha256") ?? "";
-      if (!response.ok || !response.body || !Number.isSafeInteger(size) || size < 1 || size > 25 * 1024 * 1024 || !/^[a-f0-9]{64}$/.test(sha256)) throw new Error();
-      return { stream: Readable.from((async function* () { const reader = response.body!.getReader(); let bytes = 0; try { for (;;) { const value = await reader.read(); if (value.done) break; bytes += value.value.length; if (bytes > size) throw new WebProviderError("MEDIA_INTEGRITY_FAILED"); yield value.value; } if (bytes !== size) throw new WebProviderError("MEDIA_INTEGRITY_FAILED"); } finally { await reader.cancel(); } })()), size, mimeType, sha256 };
-    } catch { throw new WebProviderError("MEDIA_UNAVAILABLE"); }
+      if (!reader || !Number.isSafeInteger(size) || size < 1 || size > 25 * 1024 * 1024 || !/^[a-f0-9]{64}$/.test(sha256)) throw new Error();
+      const body = reader; let bytes = 0, reading = false; const hash = createHash("sha256");
+      const stream = new Readable({
+        read() {
+          if (reading) return; reading = true;
+          void (async () => {
+            try {
+              for (;;) {
+                const value = await body.read();
+                if (this.destroyed) break;
+                if (value.done) { if (bytes !== size || hash.digest("hex") !== sha256) throw new WebProviderError("MEDIA_INTEGRITY_FAILED", 409); this.push(null); break; }
+                bytes += value.value.length; if (bytes > size) throw new WebProviderError("MEDIA_INTEGRITY_FAILED", 409);
+                hash.update(value.value); if (!this.push(value.value)) break;
+              }
+            } catch (error) { this.destroy(error instanceof Error ? error : new WebProviderError("MEDIA_UNAVAILABLE")); }
+            finally { reading = false; }
+          })();
+        },
+        destroy(error, callback) { cancellation.abort(); void body.cancel().then(() => callback(error), () => callback(error)); },
+      });
+      const abort = () => stream.destroy();
+      transfer.addEventListener("abort", abort, { once: true }); stream.once("close", () => transfer.removeEventListener("abort", abort));
+      if (transfer.aborted) stream.destroy();
+      return { stream, size, mimeType, sha256 };
+    } catch (reason) {
+      cancellation.abort(); await reader?.cancel().catch(() => undefined);
+      if (reason instanceof WebProviderError) throw reason;
+      throw new WebProviderError("MEDIA_UNAVAILABLE");
+    }
   }
   async resolveRecipient(scope: ProviderScope, phone: string) { return recipientResultSchema.parse(await this.request("POST", `${prefix(scope)}/recipients/resolve`, { phone })); }
   async send(scope: ProviderScope, intent: SendIntent) { return sendResultSchema.parse(await this.request("POST", `${prefix(scope)}/messages`, intent)); }

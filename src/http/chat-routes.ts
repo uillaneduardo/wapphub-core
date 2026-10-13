@@ -258,8 +258,17 @@ export async function chatRoutes(
     async (r) => chat.messages(await principal(r), r.params.id, r.query),
   );
   app.post<{ Params: { id: string }; Querystring: MediaUpload }>("/api/v1/conversations/:id/media", { bodyLimit: 25 * 1024 * 1024, schema: schema(message.properties.media, true, { params: ids, querystring: z.toJSONSchema(mediaUploadSchema, { target: "draft-7" }), consumes: ["application/octet-stream"] }) }, async r => chat.uploadMedia(await principal(r), r.params.id, r.query, r.body as Readable));
-  app.get<{ Params: { id: string; messageId: string } }>("/api/v1/conversations/:id/messages/:messageId/media", { schema: { tags: ["M1 Internal Chat"], security: [{ webSession: [] }], params: obj({ id: uuid, messageId: uuid }), response: { ...errors, 416: error, 206: { type: "string", format: "binary" }, 200: { type: "string", format: "binary" } }, produces: ["image/jpeg", "image/png", "image/webp", "audio/ogg", "audio/mpeg", "audio/mp4", "video/mp4"] } }, async (r, reply) => {
-    const result = await chat.messageMedia(await principal(r), r.params.id, r.params.messageId);
+  app.get<{ Params: { id: string; messageId: string } }>("/api/v1/conversations/:id/messages/:messageId/media", { schema: { tags: ["M1 Internal Chat"], security: [{ webSession: [] }], params: obj({ id: uuid, messageId: uuid }), response: { ...errors, 408: error, 410: error, 413: error, 415: error, 416: error, 206: { type: "string", format: "binary" }, 200: { type: "string", format: "binary" } }, produces: ["image/jpeg", "image/png", "image/webp", "audio/ogg", "audio/mpeg", "audio/mp4", "audio/webm", "video/mp4"] } }, async (r, reply) => {
+    const cancellation = new AbortController();
+    const close = () => { if (!reply.raw.writableFinished) cancellation.abort(); cleanup(); };
+    const aborted = () => cancellation.abort();
+    const cleanup = () => { r.raw.removeListener("aborted", aborted); reply.raw.removeListener("close", close); reply.raw.removeListener("finish", cleanup); };
+    r.raw.once("aborted", aborted); reply.raw.once("close", close); reply.raw.once("finish", cleanup);
+    try {
+    const result = await chat.messageMedia(await principal(r), r.params.id, r.params.messageId, cancellation.signal);
+    const cancelStream = () => result.stream.destroy();
+    cancellation.signal.addEventListener("abort", cancelStream, { once: true });
+    result.stream.once("close", () => cancellation.signal.removeEventListener("abort", cancelStream));
     reply.header("cache-control", "no-store, private").header("content-type", result.mimeType).header("content-length", result.size).header("x-content-type-options", "nosniff").header("content-disposition", "inline");
     const range = r.headers.range;
     if (!range) return reply.header("accept-ranges", "bytes").send(result.stream);
@@ -267,9 +276,10 @@ export async function chatRoutes(
     const start = parsed?.[1] ? Number(parsed[1]) : parsed?.[2] ? Math.max(0, result.size - Number(parsed[2])) : -1;
     let end = parsed?.[1] && parsed?.[2] ? Number(parsed[2]) : result.size - 1;
     end = Math.min(end, result.size - 1);
-    if (!parsed || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start > end || start >= result.size) { result.stream.destroy(); throw new AppError(416, "INVALID_MEDIA_RANGE"); }
+    if (!parsed || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start > end || start >= result.size) { result.stream.destroy(); reply.removeHeader("content-length"); reply.header("content-range", `bytes */${result.size}`); throw new AppError(416, "INVALID_MEDIA_RANGE"); }
     reply.code(206).header("accept-ranges", "bytes").header("content-range", `bytes ${start}-${end}/${result.size}`).header("content-length", end - start + 1);
-    return reply.send(NodeReadable.from((async function* () { let offset = 0; try { for await (const chunk of result.stream) { const next = offset + chunk.length; if (next > start && offset <= end) yield chunk.subarray(Math.max(0, start - offset), Math.min(chunk.length, end - offset + 1)); offset = next; } } finally { result.stream.destroy(); } })()));
+    return reply.send(NodeReadable.from((async function* () { let offset = 0; try { for await (const chunk of result.stream) { const next = offset + chunk.length; if (next > start && offset <= end) yield chunk.subarray(Math.max(0, start - offset), Math.min(chunk.length, end - offset + 1)); offset = next; if (offset > end) break; } } finally { result.stream.destroy(); } })()));
+    } catch (error) { cleanup(); throw error; }
   });
   app.post<{
     Params: { id: string };
