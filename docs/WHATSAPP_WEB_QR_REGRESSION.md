@@ -1,6 +1,7 @@
 # Regressão de primeiro pareamento por QR — 13/10/2026
 
-Estado desta revisão: correção em validação; nenhuma homologação real presumida.
+**CORRECAO_PUBLICADA — AGUARDANDO_HOMOLOGACAO_REAL**: Providerqrfix-06fafb6
+e Chatqrfix-dbab1ae publicados em13/10/2026. Nenhuma homologação real presumida.
 Fonte canônica de avanço: [progresso](WHATSAPP_WEB_CONSOLIDATION_PROGRESS.md).
 
 ## Evidência histórica e alteração responsável
