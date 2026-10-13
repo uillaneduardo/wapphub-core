@@ -10,7 +10,7 @@ import { Sessions } from "./sessions.js";
 import { Vault } from "./vault.js";
 
 const logger = pino({ level: "info", base: undefined });
-const log = (code: string, fields?: { source: string; stage: string; count: number }) => logger.info({ code, ...fields }); // never log SDK errors/request bodies/IDs
+const log = (code: string, fields?: { source: string; stage: string; count: number; scopeHash?: string; generation?: number }) => logger.info({ code, ...fields }); // never log SDK errors/request bodies/IDs
 async function secret(path: string) {
   const value = (await readFile(path, "utf8")).trim();
   if (!/^[a-f0-9]{64}$/.test(value)) throw new Error("INVALID_SECRET");

@@ -16,7 +16,10 @@ pelo próprio SDK sem os limites por operação do WappHub.
 ## Correção proposta
 
 - Primeira vinculação por QR, sem identidade autenticada persistida:
-  `syncFullHistory: true` e identificação Desktop para solicitar o bootstrap.
+  `syncFullHistory: true` com a identificação Web padrão do SDK. O override
+  Desktop introduzido em49c2252 foi removido na correção QR de13/10/2026: ele
+  anunciava DARWIN com buildWEB e bloqueava o caminho de primeiro pareamento.
+  [Diagnóstico e limites](WHATSAPP_WEB_QR_REGRESSION.md).
 - `shouldSyncHistoryMessage: () => false` continua intencionalmente: a leitura
   dos arquivos é feita pelo adaptador com `readBoundedHistory`, e não pelo
   leitor ilimitado do SDK.

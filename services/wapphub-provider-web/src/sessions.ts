@@ -23,7 +23,7 @@ export class Sessions {
     private readonly factory: TransportFactory, readonly connectEnabled: boolean,
     private readonly schedule: Scheduler = defaultSchedule,
     private readonly now = Date.now,
-    private readonly log: (code: string, fields?: { source: string; stage: string; count: number }) => void = () => undefined,
+    private readonly log: (code: string, fields?: { source: string; stage: string; count: number; scopeHash?: string; generation?: number }) => void = () => undefined,
     private readonly syncOptions: { enabled: boolean; historyEnabled: boolean; initialHistoryEnabled?: boolean; approvedScope?: string; linkedRecoveryOnly?: boolean; outboundEnabled?: boolean } = { enabled: false, historyEnabled: false },
   ) {}
   private historyEnabled(scope: Scope) {
@@ -277,7 +277,7 @@ export class Sessions {
     try {
       let constructionCancel: (() => void) | undefined, timedOut = false;
       const construction = this.factory(scope, {
-        diagnostic: (code) => this.log(code),
+        diagnostic: (code) => this.log(code, { source: "BAILEYS", stage: "TRANSPORT", count: 1, scopeHash: createHash("sha256").update(scopeKey(scope)).digest("hex").slice(0, 16), generation }),
         connection: (update) => this.enqueue(scope, actor, generation, () => this.connection(scope, actor, update)),
         failure: () => this.enqueue(scope, actor, generation, async () => { throw new ServiceError("AUTH_PERSISTENCE_FAILED"); }),
         text: (message) => this.enqueue(scope, actor, generation, async () => {
