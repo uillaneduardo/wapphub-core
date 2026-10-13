@@ -828,7 +828,7 @@ export class Chat {
           : null,
     };
   }
-  async uploadMedia(p: Principal, conversationId: string, input: MediaUpload, source: AsyncIterable<Uint8Array>) {
+  async uploadMedia(p: Principal, conversationId: string, input: MediaUpload, source: AsyncIterable<Uint8Array>, requestId?: string) {
     const meta = mediaUploadSchema.safeParse(input);
     if (!meta.success || !validMediaKind(meta.data.type, meta.data.mimeType) || meta.data.size > mediaLimit(meta.data.type)) throw new AppError(415, "MEDIA_SIZE_OR_TYPE_DENIED");
     const c = await this.context(p, "messages.send"), conversation = await this.conversation(c, conversationId);
@@ -838,7 +838,7 @@ export class Chat {
     // Quotas are per actor and organization; aborted uploads expire in Provider.
     if (await this.db.media.count({ where: { organizationId: c.organizationId, expiresAt: { gt: new Date() }, messageId: null } }) >= 64) throw new AppError(429, "MEDIA_QUOTA_EXHAUSTED");
     let result;
-    try { result = await this.webProvider.uploadMedia({ organizationId: c.organizationId, connectionId: conversation.channelId }, meta.data, source); } catch (error) { if (error instanceof WebProviderError && ["MEDIA_BUSY", "MEDIA_MEMORY_PRESSURE", "MEDIA_CACHE_LIMIT", "MEDIA_INTEGRITY_FAILED", "MEDIA_SIZE_MISMATCH", "MEDIA_TYPE_MISMATCH", "MEDIA_CODEC_INVALID", "MEDIA_CODEC_UNAVAILABLE", "MEDIA_TRANSFER_TIMEOUT"].includes(error.code)) throw new AppError(error.status, error.code); throw new AppError(503, "MEDIA_UPLOAD_FAILED"); }
+    try { result = await this.webProvider.uploadMedia({ organizationId: c.organizationId, connectionId: conversation.channelId }, meta.data, source, requestId); } catch (error) { if (error instanceof WebProviderError && ["MEDIA_BUSY", "MEDIA_MEMORY_PRESSURE", "MEDIA_CACHE_LIMIT", "MEDIA_INTEGRITY_FAILED", "MEDIA_SIZE_MISMATCH", "MEDIA_TYPE_MISMATCH", "MEDIA_CODEC_INVALID", "MEDIA_CODEC_UNAVAILABLE", "MEDIA_TRANSFER_TIMEOUT"].includes(error.code)) throw new AppError(error.status, error.code); throw new AppError(503, "MEDIA_UPLOAD_FAILED"); }
     if (result.mediaId !== meta.data.mediaId || result.type !== meta.data.type || !result.sha256 || result.size > mediaLimit(meta.data.type) || result.state !== "READY") throw new AppError(409, "MEDIA_INTEGRITY_FAILED");
     return this.mutation(p, "messages.send", async (tx, current) => {
       if (current.organizationId !== c.organizationId) throw new AppError(403, "ORGANIZATION_ACCESS_DENIED");

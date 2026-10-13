@@ -12,7 +12,7 @@ export type ProviderScope = { organizationId: string; connectionId: string };
 export type InternalAction = "connect" | "refresh" | "recover" | "disconnect" | "logout" | "prepare_link";
 export type Delivery = z.infer<typeof providerDeliveriesSchema>["deliveries"][number];
 export interface WebProviderPort {
-  uploadMedia?(scope: ProviderScope, meta: MediaUpload, stream: AsyncIterable<Uint8Array>): Promise<import("zod").infer<typeof mediaReferenceSchema>>;
+  uploadMedia?(scope: ProviderScope, meta: MediaUpload, stream: AsyncIterable<Uint8Array>, requestId?: string): Promise<import("zod").infer<typeof mediaReferenceSchema>>;
   readMedia?(scope: ProviderScope, id: string, signal?: AbortSignal): Promise<{ stream: Readable; mimeType: string; size: number; sha256: string }>;
   resolveRecipient?(scope: ProviderScope, phone: string): Promise<{ state: "VALID" | "NOT_FOUND" | "UNKNOWN"; jid?: string }>;
   send?(scope: ProviderScope, intent: SendIntent): Promise<SendResult>;
@@ -53,11 +53,11 @@ export class WebProviderClient implements WebProviderPort {
       return result;
     } catch (reason) { if (reason instanceof WebProviderError) throw reason; throw new WebProviderError("PROVIDER_UNAVAILABLE"); }
   }
-  async uploadMedia(scope: ProviderScope, meta: MediaUpload, stream: AsyncIterable<Uint8Array>) {
+  async uploadMedia(scope: ProviderScope, meta: MediaUpload, stream: AsyncIterable<Uint8Array>, requestId?: string) {
     const path = `${prefix(scope)}/media`;
     const body = Readable.from(stream);
     try {
-      const response = await fetch(this.url + path, { method: "POST", redirect: "error", signal: AbortSignal.timeout(60000), headers: { ...signedHeaders(this.key, "POST", path, meta), "content-type": "application/octet-stream", "x-media-manifest": Buffer.from(JSON.stringify(meta)).toString("base64url") }, body: Readable.toWeb(body) as unknown as BodyInit, duplex: "half" } as RequestInit & { duplex: "half" });
+      const response = await fetch(this.url + path, { method: "POST", redirect: "error", signal: AbortSignal.timeout(60000), headers: { ...signedHeaders(this.key, "POST", path, meta), "content-type": "application/octet-stream", "x-media-manifest": Buffer.from(JSON.stringify(meta)).toString("base64url"), ...(requestId && /^[a-zA-Z0-9-]{1,64}$/.test(requestId) ? { "x-wapphub-request-id": requestId } : {}) }, body: Readable.toWeb(body) as unknown as BodyInit, duplex: "half" } as RequestInit & { duplex: "half" });
       const text = await response.text(); if (text.length > 4096) throw new Error();
       if (!response.ok) {
         const result = z.object({ error: z.object({ code: z.enum(["MEDIA_BUSY", "MEDIA_MEMORY_PRESSURE", "MEDIA_CACHE_LIMIT", "MEDIA_INTEGRITY_FAILED", "MEDIA_SIZE_MISMATCH", "MEDIA_TYPE_MISMATCH", "MEDIA_CODEC_INVALID", "MEDIA_CODEC_UNAVAILABLE", "MEDIA_TRANSFER_TIMEOUT"]) }) }).safeParse(JSON.parse(text));

@@ -1091,3 +1091,42 @@ test("whitespace echo equivalence never accepts omitted textual captions or chan
     assert.deepEqual(await db.message.findUniqueOrThrow({ where: { id: original.id } }), original);
   }
 });
+
+test('P1.2 provider receipts commit SQL + realtime, replay ordered checkpoints and REST confirms delivery', async () => {
+  const old = await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } });
+  const token = randomUUID(), providerId = 'p12-' + randomUUID();
+  const person = await db.contact.create({ data: { organizationId: orgA, name: 'Synthetic P12', primaryIdentifier: randomUUID() } });
+  const thread = await db.conversation.create({ data: { organizationId: orgA, channelId, contactId: person.id, assignedUserId: owner.userId, providerConversationId: 'p12@s.whatsapp.net' } });
+  const pending = await chat.integrationMutation(orgA, async tx => {
+    const message = await tx.message.create({ data: { organizationId: orgA, channelId, conversationId: thread.id, senderUserId: owner.userId, direction: 'OUTBOUND', body: 'Synthetic P12', providerMessageId: providerId, clientMessageId: randomUUID(), status: 'PENDING' } });
+    await chat.resourceEvent(tx, orgA, 'message.created', message.id, thread.id, message.sequence); return message;
+  });
+  const cursor = String((await db.realtimeEvent.findFirst({ where: { organizationId: orgA }, orderBy: { id: 'desc' } }))!.id);
+  const frames: { type: string; eventId?: string; lastEventId?: string; entityId?: string }[] = [];
+  const socket = new WebSocket(baseUrl.replace('http', 'ws') + '/api/v1/realtime?lastEventId=' + cursor, { headers: { origin, cookie: owner.cookie } });
+  socket.on('message', data => frames.push(JSON.parse(String(data))));
+  async function waitFor(predicate: () => boolean) { const until = Date.now() + 5000; while (!predicate() && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 10)); assert.ok(predicate()); }
+  try {
+    await waitFor(() => frames.some(frame => frame.type === 'sync.checkpoint'));
+    await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { leaseToken: token, leaseUntil: new Date(Date.now() + 60000) } });
+    for (const status of ['SENT', 'DELIVERED', 'READ'] as const) {
+      const receipt = event('message.updated', providerId, status);
+      await ingestion.apply(scope(), receipt, token); await ingestion.apply(scope(), receipt, token);
+      const row = await db.message.findUniqueOrThrow({ where: { id: pending.id } }); assert.equal(row.status, status);
+      const rest = (await request(owner, 'GET', `/conversations/${thread.id}/messages`)).json().items;
+      assert.equal(rest.find((item: { id: string }) => item.id === pending.id).status, status);
+      assert.equal(rest.find((item: { id: string }) => item.id === pending.id).clientMessageId, pending.clientMessageId);
+    }
+    await ingestion.apply(scope(), event('message.updated', providerId, 'SENT'), token);
+    assert.equal((await db.message.findUniqueOrThrow({ where: { id: pending.id } })).status, 'READ');
+    await waitFor(() => frames.filter(frame => frame.type === 'message.updated' && frame.entityId === pending.id).length === 3);
+    const updates = frames.filter(frame => frame.type === 'message.updated' && frame.entityId === pending.id);
+    assert.deepEqual(updates.map(frame => frame.eventId), [...updates.map(frame => frame.eventId!)].sort((a, b) => BigInt(a) < BigInt(b) ? -1 : 1));
+    const replay = (await request(owner, 'GET', `/realtime/events?lastEventId=${cursor}`)).json();
+    assert.deepEqual(replay.events.filter((frame: { entityId: string }) => frame.entityId === pending.id).map((frame: { eventId: string }) => frame.eventId), updates.map(frame => frame.eventId));
+    await request(await auth(orgB, chatPermissions), 'GET', `/conversations/${thread.id}/messages`, undefined, 404);
+    await request(denied, 'GET', `/conversations/${thread.id}/messages`, undefined, 403);
+  } finally {
+    socket.close(); await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { leaseToken: old.leaseToken, leaseUntil: old.leaseUntil } });
+  }
+});

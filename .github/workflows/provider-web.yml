@@ -33,3 +33,6 @@ jobs:
         run: docker run --rm --network none --read-only --memory 512m --cpus 1 --pids-limit 128 --tmpfs /tmp:size=96m,noexec,nosuid -e WAPPHUB_SYNTHETIC_MEDIA=true -v "${{ github.workspace }}/services/wapphub-provider-web/scripts/media-smoke.mjs:/app/media-smoke.mjs:ro" --entrypoint node provider-web-ci /app/media-smoke.mjs
         working-directory: .
       - run: PROVIDER_WEB_TEST_IMAGE=provider-web-ci sh scripts/compose-smoke.sh
+
+      - name: Streaming WebM voice upload regression (no network)
+        run: docker run --rm --network none --read-only --memory 512m --cpus 1 --pids-limit 128 --tmpfs /tmp:size=96m,noexec,nosuid -e WAPPHUB_SYNTHETIC_MEDIA=true -v "${{ github.workspace }}/services/wapphub-provider-web/scripts/voice-upload-smoke.mjs:/app/voice-upload-smoke.mjs:ro" --entrypoint node provider-web-ci /app/voice-upload-smoke.mjs
