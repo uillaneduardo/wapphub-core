@@ -164,8 +164,12 @@ export class WebSync {
             const authoredOutbound = old.direction === "OUTBOUND" && !!old.senderUserId;
             const expectedBody = authoredOutbound
               ? old.transmittedBody ?? old.body : old.body;
-            const wireBody = authoredOutbound && old.type !== "TEXT" && expectedBody === "" ? null : expectedBody;
-            if (old.conversationId !== thread.id || wireBody !== (data.content.originalBody ?? null) || old.direction !== data.direction || old.type !== data.content.type || data.content.transmittedBody !== undefined && old.transmittedBody !== data.content.transmittedBody) throw new AppError(409, "PROVIDER_IDEMPOTENCY_CONFLICT");
+            const echoBody = data.content.originalBody ?? null;
+            // The transport may omit a blank caption. Compare only; never
+            // normalize the stored original or transmitted snapshot.
+            const sameBody = expectedBody === echoBody || authoredOutbound && old.type !== "TEXT"
+              && !(expectedBody ?? "").trim() && !(echoBody ?? "").trim();
+            if (old.conversationId !== thread.id || !sameBody || old.direction !== data.direction || old.type !== data.content.type || data.content.transmittedBody !== undefined && old.transmittedBody !== data.content.transmittedBody) throw new AppError(409, "PROVIDER_IDEMPOTENCY_CONFLICT");
             if (data.content.type !== "TEXT" && old.mediaMetadata && typeof old.mediaMetadata === "object" && !Array.isArray(old.mediaMetadata)) {
               const previous = old.mediaMetadata;
               if (previous.sha256 && data.content.media.sha256 && previous.sha256 !== data.content.media.sha256 || previous.size !== undefined && previous.size !== data.content.media.size) throw new AppError(409, "PROVIDER_IDEMPOTENCY_CONFLICT");

@@ -597,3 +597,42 @@ Commit documental subsequente registra esses links e a retomada; conferir
 checks do head final antes de eventual integração. Resultados remotos finais
 serão preservados no relatório local e comunicados na entrega, sem executar
 publicação ou homologação. Testes/checks locais143/143+137/137 já encerrados.
+
+### 2026-10-13T14:40:39Z — PR37 revisão final de legenda em branco — início
+
+Usuário autoriza verificar/corrigir somente comparação de eco de mídia com
+autoria local, criar testes de whitespace/eco sem legenda/eco preservado/texto
+divergente/preservação/legados e repetir checks/CI. Provider/abstrações fora do
+escopo; PR deve permanecer draft e deploy proibido. Branch limpa
+feat/whatsapp-attendant-signature/d7f37f9 conferida; seis containers produtivos
+healthy com IDs/imagens/StartedAt iguais à entrega anterior. Comparação atual
+normaliza somente string vazia para null, deixando whitespace versus ausência
+de legenda em conflito. Próximo: reproduzir em testes sintéticos, correção
+restrita e validação em wapphub_m1_test/CI, sem operação WhatsApp real.
+
+### 2026-10-13T14:44:33Z — PR37 legenda em branco — correção e regressão
+
+Reproduzidos dois conflitos reais em testes (snapshot corrente e fallback legado).
+Correção de comparação apenas em WebSync para mídia OUTBOUND com autoria local:
+legendas sem texto por String.trim e eco ausente/vazio/whitespace equivalentes;
+igualdade textual, demais campos e snapshot explícito continuam estritos.
+Nenhum body/transmittedBody normalizado ou reescrito. Quatro cenários novos
+incluem snapshot legado vazio, IMAGE/VIDEO, whitespace Unicode, eco preservado,
+texto divergente, deduplicação e negativas DEVICE/local textual.
+Focados5/5 aprovados após correção (inclui criação inicial da fixture).
+Suítes completas/checks Core e Provider em execução; evidências antes/depois
+em20261013-attendant-whitespace-review/. Provider sem mudança de arquivo.
+
+### 2026-10-13T14:47:59Z — PR37 legenda em branco — validada localmente
+
+Core147/147 e Provider137/137, zero skips/falhas; lint/typecheck/build repetidos
+e aprovados nos dois pacotes. OpenAPI idêntico/Prisma válido/zero novo drift em
+wapphub_m1_test; nenhuma migration. Testes provam espaços simples/Unicode,
+eco omitido/vazio/preservado, divergência textual, body/transmittedBody e IDs
+intactos, sem duplicatas; legados com snapshot null/vazio e negativas de escopo.
+Mudança funcional restrita à comparação em web-sync.ts; provider/contratos/
+assinatura/enfileiramento/worker sem mudança desde d7f37f9. Documentos da entrega
+e ponteiro STATUS atualizados sem declarar publicação. Evidências de reprodução,
+correção e checks em20261013-attendant-whitespace-review/. Próxima ação: commit,
+push na mesma PR37 draft e confirmação da CI do novo head; nenhum merge/deploy.
+Resultados remotos finais serão preservados no relatório local da revisão.

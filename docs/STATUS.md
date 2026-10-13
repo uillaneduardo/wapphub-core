@@ -1,6 +1,8 @@
 > Alteração local em revisão, sem publicação: [assinatura automática do
 > atendente](WHATSAPP_WEB_ATTENDANT_SIGNATURE.md). Resultados técnicos e rollback
 > estão no documento da entrega; os registros de publicação abaixo são preservados.
+> Revisão PR37 também cobre ecos sem legenda para mídia local com whitespace,
+> preservando snapshots e conflitos textuais; nenhuma publicação nesta revisão.
 
 # Regressão QR — correção publicada em 13/10/2026
 

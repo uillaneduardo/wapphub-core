@@ -960,3 +960,47 @@ test("legacy queued messages retain unsigned snapshots and body fallback after u
   }
   assert.equal(f.frames.length, 2);
 });
+
+for (const snapshot of ["queued snapshot", "legacy body fallback", "legacy empty snapshot"] as const) test(`local media whitespace captions accept absent/preserved echoes and reject text conflicts (${snapshot})`, async t => {
+  const f = await signatureHarness(t), thread = await f.thread();
+  for (const type of ["IMAGE", "VIDEO"] as const) for (const body of ["   ", " \t\r\n\u00a0\u2028\u2029 "]) {
+    const media = await db.media.create({ data: { id: randomUUID(), organizationId: orgA, channelId, conversationId: thread.id, actorUserId: owner.userId, type, mimeType: type === "IMAGE" ? "image/png" : "video/mp4", fileName: "synthetic", size: 12, sha256: "b".repeat(64), expiresAt: new Date(Date.now() + 3600000) } });
+    const sent = await f.post(owner, thread.id, { body, mediaId: media.id, clientMessageId: randomUUID() });
+    if (snapshot !== "queued snapshot") await db.message.update({ where: { id: sent.id }, data: { transmittedBody: snapshot === "legacy body fallback" ? null : "" } });
+    const original = await db.message.findUniqueOrThrow({ where: { id: sent.id } });
+    assert.equal(original.body, body); assert.equal(original.transmittedBody, snapshot === "queued snapshot" ? body : snapshot === "legacy body fallback" ? null : "");
+    await f.activeWorker.runConnection(scope()); const frame = f.frames.at(-1)!.intent;
+    assert.equal(frame.body, snapshot === "legacy empty snapshot" ? "" : body); assert.equal(frame.messageId, sent.id);
+    for (const caption of [undefined, body, "", "Texto realmente divergente"]) {
+      const echo = event("message.sent", frame.providerMessageId); assert.ok(echo.type === "message.sent");
+      echo.deduplicationId = randomBytes(32).toString("hex"); echo.capabilities.contentTypes = ["TEXT", "IMAGE", "VIDEO"];
+      echo.data.providerConversationId = thread.providerConversationId!; echo.data.sender.externalId = thread.providerConversationId!;
+      echo.data.content = { type, ...(caption === undefined ? {} : { originalBody: caption }), media: { ...frame.media!, state: "PENDING" } };
+      if (caption === "Texto realmente divergente") await assert.rejects(leased(token => ingestion.apply(scope(), echo, token)), /PROVIDER_IDEMPOTENCY_CONFLICT/);
+      else await leased(async token => {
+        assert.equal(await ingestion.apply(scope(), echo, token), true);
+        assert.equal(await ingestion.apply(scope(), { ...echo, eventId: randomUUID() }, token), false);
+      });
+      const after = await db.message.findUniqueOrThrow({ where: { id: sent.id } });
+      for (const key of ["body", "transmittedBody", "senderUserId", "senderContactId", "clientMessageId", "providerMessageId", "historical"] as const) assert.equal(after[key], original[key]);
+      assert.equal(await db.message.count({ where: { organizationId: orgA, channelId, providerMessageId: original.providerMessageId } }), 1);
+    }
+    const after = await db.message.findUniqueOrThrow({ where: { id: sent.id } }); assert.equal(after.status, "SENT"); assert.ok(after.providerOccurredAt);
+  }
+});
+
+test("whitespace echo equivalence never accepts omitted textual captions or changes external media comparison", async t => {
+  const f = await signatureHarness(t), thread = await f.thread();
+  for (const local of [false, true]) {
+    const media = { mediaId: randomUUID(), type: "IMAGE" as const, mimeType: "image/png", fileName: "synthetic", size: 12, state: "PENDING" as const };
+    const original = await db.message.create({ data: { organizationId: orgA, channelId, conversationId: thread.id, direction: "OUTBOUND", type: "IMAGE", senderUserId: local ? owner.userId : null, providerMessageId: randomUUID().replaceAll("-", "").toUpperCase(), body: local ? "Legenda original" : "   ", transmittedBody: local ? "*Ana*\n\nLegenda original" : null, mediaMetadata: media } });
+    for (const caption of [undefined, "", " \t ", "Legenda realmente divergente"]) {
+      const echo = event("message.sent", original.providerMessageId!); assert.ok(echo.type === "message.sent");
+      echo.deduplicationId = randomBytes(32).toString("hex"); echo.capabilities.contentTypes = ["TEXT", "IMAGE"];
+      echo.data.providerConversationId = thread.providerConversationId!; echo.data.sender.externalId = thread.providerConversationId!;
+      echo.data.content = { type: "IMAGE", ...(caption === undefined ? {} : { originalBody: caption }), media };
+      await assert.rejects(leased(token => ingestion.apply(scope(), echo, token)), /PROVIDER_IDEMPOTENCY_CONFLICT/);
+    }
+    assert.deepEqual(await db.message.findUniqueOrThrow({ where: { id: original.id } }), original);
+  }
+});

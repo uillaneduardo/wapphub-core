@@ -228,8 +228,8 @@ Worker, DTO, schema e contrato outbound permanecem iguais à base.
 
 WebSync utiliza o snapshot somente para Message OUTBOUND já persistida com
 senderUserId; as demais origens continuam comparadas com body. A equivalência
-entre snapshot vazio e ausência de legenda é igualmente restrita a essa autoria
-local e tipo de mídia. Identidade, conversa, direção, tipo, hash/size de mídia e
+entre legenda sem texto (ausente, vazia ou somente whitespace) e eco sem texto
+é igualmente restrita a essa autoria local e tipo de mídia. Identidade, conversa, direção, tipo, hash/size de mídia e
 transmittedBody explícito continuam verificados; corpo e autoria não são
 reescritos na reconciliação live ou histórica.
 
@@ -248,7 +248,7 @@ dispatch/retry, sem nova chamada de transporte no replay. O teste do adapter
 instalado verifica texto assinado após restart e caption/IDs/bytes exatos usando
 socket SDK e mídia privados inteiramente sintéticos.
 
-## Resultados finais locais
+## Resultados locais da implementação inicial
 
 | Check | Resultado |
 | --- | --- |
@@ -293,3 +293,31 @@ executado. Não declarar esta feature publicada ou homologada.
 
 Próximo passo: revisão/CI antes da publicação;
 deploy e homologação real não são autorizados por esta implementação.
+
+## Ajuste final PR37 — legenda somente whitespace
+
+Revisão solicitada pelo usuário após aprovação da implementação principal.
+O caso foi reproduzido: snapshot/body com espaços versus eco sem legenda
+retornava PROVIDER_IDEMPOTENCY_CONFLICT. A correção altera somente a comparação
+em WebSync para Message OUTBOUND com senderUserId e tipo de mídia: ausência,
+string vazia e whitespace reconhecido por String.trim são equivalentes quando
+ambos os lados não contêm texto. Igualdade exata continua aceita; qualquer
+legenda textual divergente permanece em conflito. Não há sanitização/escrita
+de body/transmittedBody nem relaxamento dos demais campos de identidade/mídia.
+
+Quatro cenários de integração novos cobrem IMAGE/VIDEO com espaços e whitespace
+Unicode, eco omitido/vazio/espaços originais, texto divergente, deduplicação,
+IDs/autoria e campos originais preservados. Legados têm provas separadas para
+transmittedBody null (fallback body) e snapshot vazio. Negativas comprovam que
+eco omitido de legenda textual local e mídia DEVICE sem autoria local continuam
+rejeitados. Provider e contratos não foram alterados nesta revisão.
+
+Evidências da revisão: `~/homelab/deploy-records/wapphub-provider-web/20261013-attendant-whitespace-review/`.
+regression-before.log registra dois conflitos reproduzidos; regression-after.log
+registra5/5 (inclui bootstrap da fixture). Revalidação completa da revisão:
+**Core147/147 e Provider137/137**, sem skips/falhas; lint/typecheck/build dos dois
+pacotes, OpenAPI/Prisma/drift aprovados novamente. Logs core-full.log,
+provider-full.log e core/provider-{lint,typecheck,build}.log preservados no
+diretório da revisão. Provider sem alteração de arquivo em relação ao head d7f37f9.
+PR continua draft; CI será conferida no head atualizado e os resultados finais
+preservados no relatório local, sem merge/deploy ou interação real WhatsApp.
