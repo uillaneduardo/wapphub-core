@@ -159,7 +159,13 @@ export class WebSync {
           const data = item.message, old = messages.get(data.providerMessageId);
           if (old) {
             progress.duplicateItems++;
-            if (old.conversationId !== thread.id || old.body !== (data.content.originalBody ?? null) || old.direction !== data.direction || old.type !== data.content.type || data.content.transmittedBody !== undefined && old.transmittedBody !== data.content.transmittedBody) throw new AppError(409, "PROVIDER_IDEMPOTENCY_CONFLICT");
+            // A locally authored echo carries the exact wire snapshot, not the
+            // operator's original body. Never infer authorship from a prefix.
+            const authoredOutbound = old.direction === "OUTBOUND" && !!old.senderUserId;
+            const expectedBody = authoredOutbound
+              ? old.transmittedBody ?? old.body : old.body;
+            const wireBody = authoredOutbound && old.type !== "TEXT" && expectedBody === "" ? null : expectedBody;
+            if (old.conversationId !== thread.id || wireBody !== (data.content.originalBody ?? null) || old.direction !== data.direction || old.type !== data.content.type || data.content.transmittedBody !== undefined && old.transmittedBody !== data.content.transmittedBody) throw new AppError(409, "PROVIDER_IDEMPOTENCY_CONFLICT");
             if (data.content.type !== "TEXT" && old.mediaMetadata && typeof old.mediaMetadata === "object" && !Array.isArray(old.mediaMetadata)) {
               const previous = old.mediaMetadata;
               if (previous.sha256 && data.content.media.sha256 && previous.sha256 !== data.content.media.sha256 || previous.size !== undefined && previous.size !== data.content.media.size) throw new AppError(409, "PROVIDER_IDEMPOTENCY_CONFLICT");

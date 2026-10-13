@@ -1,4 +1,5 @@
 import { createWebContact } from "./web-contact.js";
+import { outboundSignature } from "./outbound-signature.js";
 import { mediaUploadSchema, mediaLimit, validMediaKind, type MediaUpload } from "../../contracts/provider-media.js";
 import { mediaReferenceSchema } from "../../contracts/provider.js";
 import { randomUUID } from "node:crypto";
@@ -924,7 +925,9 @@ export class Chat {
             media = mediaReferenceSchema.parse({ mediaId: record.id, type: record.type, mimeType: record.mimeType, fileName: record.fileName, size: record.size, sha256: record.sha256, state: "READY" });
           }
           const providerMessageId = randomUUID().replaceAll("-", "").toUpperCase();
-          const message = await tx.message.create({ include: messageAuthors, data: { organizationId: c.organizationId, conversationId: id, channelId: channel.id, senderUserId: c.userId, clientMessageId: data.clientMessageId, providerMessageId, direction: "OUTBOUND", body: media && !data.body ? null : data.body, transmittedBody: data.body, status: "PENDING", ...(media ? { type: media.type, mediaMetadata: media } : {}) } });
+          const attendant = await tx.user.findUniqueOrThrow({ where: { id: c.userId }, select: { name: true } });
+          const transmittedBody = outboundSignature(data.body, attendant.name, !!media);
+          const message = await tx.message.create({ include: messageAuthors, data: { organizationId: c.organizationId, conversationId: id, channelId: channel.id, senderUserId: c.userId, clientMessageId: data.clientMessageId, providerMessageId, direction: "OUTBOUND", body: media && !data.body ? null : data.body, transmittedBody, status: "PENDING", ...(media ? { type: media.type, mediaMetadata: media } : {}) } });
           if (media) await tx.media.update({ where: { id: media.mediaId }, data: { messageId: message.id } });
           await tx.providerCommand.create({ data: { id: randomUUID(), organizationId: c.organizationId, channelId: channel.id, actorUserId: c.userId, sessionId: p.session.id, action: "send", payload: { messageId: message.id, expiresAt: new Date(Date.now() + 6 * 86400000).toISOString() } } });
           await tx.conversation.update({ where: { organizationId_id: { organizationId: c.organizationId, id } }, data: { lastMessageAt: message.createdAt } });

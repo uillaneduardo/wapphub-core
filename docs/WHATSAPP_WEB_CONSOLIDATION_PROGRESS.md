@@ -468,3 +468,120 @@ Rollback preparado, não executado: Chat anterior preservado; Provider antigo re
 Evidências verificáveis em `~/homelab/deploy-records/wapphub-provider-web/20261013-qr-regression/`: RELATORIO/DEPLOY/TESTES/BACKUPS/ROLLBACK/HOMOLOGACAO, baseline/source-events-before/commands-before/protocol-projection/runtime-sdk/integration/ci-main/images/deploy-result/postdeploy/qa-after/public-bundle/qa-identity-preservation/backups/restore-result/vault-startup-final.json e logs. Segredos apenas private/backup700/600. Documentação final não requer imagem ou restart.
 
 Próximo gesto humano: abrir chat.wapphub.com.br → selecionar WappHub QA → Configurações/Provedores/WhatsApp → Vincular WhatsApp uma única vez → visualizar QR real → escanear pelo celular → aguardar Conectado confirmado. Se falhar, informar somente código/horário; scopeHash/geração/etapas dos logs publicados permitem localizar handshake/frame/registro/offer/QR/persistência/finalização sem reconstruir tentativas anteriores. Não acionar logout/clear/recovery como workaround.
+
+### 2026-10-13T13:01:32Z — assinatura automática — A0/A1 e início A2
+
+Estado desta entrega: `A0/A1 AUDITADOS — A2 EM_ANDAMENTO`. Autor: Codex no
+homelab. Escopo solicitado: assinatura automática do atendente em saída WhatsApp
+Web, testes sintéticos e proposta mínima antes de implementar. Deploy e envios
+reais expressamente excluídos; autorizações de entregas anteriores não são
+reutilizadas para esta publicação.
+
+Base limpa ao iniciar: Core `main` local/remoto
+`701f634e545898c4690e9b01241938dc9266f821` (confirmado por `git ls-remote`).
+Branch documental: `docs/a2-attendant-signature-20261013`. AGENTS, documentos
+mandatórios, contrato de execução/progresso e relatório local QR lidos; fonte,
+outbox, Worker, deduplicação/eco e adapter instalado inspecionados.
+
+Produção conferida por Docker/labels/Compose e consultas SQL somente leitura:
+API `firstqr-686a852`, Worker `p0link-e6aa1c6`, Provider `qrfix-06fafb6`, Chat
+`qrfix-dbab1ae`; seis serviços WappHub healthy. Arquivos solicitados e `web-sync.ts`
+idênticos em Git entre main e revisões da API/Worker; hashes dos três artefatos
+compilados solicitados também iguais entre API e Worker. Divergências de código
+em main se concentram no pareamento/diagnóstico do Provider, não no envio Core.
+
+Leitura atual às 13:00Z supera o baseline histórico de 04:42Z: uma conexão
+`CONNECTED` com outbound/media habilitados e outra `FAILED` com capacidades
+desabilitadas; dez comandos send preexistentes (oito COMPLETED, dois FAILED),
+nenhum comando PENDING/PROCESSING e zero mensagens históricas. Gates globais
+Core/Worker: web/outbound/media true, execução histórica false. Esses dados
+não comprovam homologação do usuário nem autorizam operações reais pelo Codex.
+Não foram lidos/expostos corpos, nomes de usuários, telefones, QR ou credenciais.
+
+Achado que amplia minimamente o diff: `web-sync.ts` compara eco remoto com
+`Message.body`; após assinar, o eco contém `transmittedBody` e seria rejeitado.
+A2 incluirá comparação estrita com o texto transmitido somente para saída já
+persistida com autoria interna, sem reescrever corpo/autoria/histórico.
+
+Baseline sintético executado nesta rodada: `tsx --test
+tests/provider-contract.test.ts`, **9/9 aprovados**, Node22.22.1, sem DB/Provider
+real. Ainda não há implementação nem testes novos da assinatura. `STATUS.md`
+mantido porque esta fase não publica nem homologa funcionalidade. Próxima ação:
+finalizar proposta A2 e solicitar uma aprovação conforme AGENTS/contrato.
+
+### 2026-10-13T13:04:56Z — assinatura automática — A2 concluída para revisão
+
+Estado desta entrega: `AGUARDANDO_APROVACAO_A2`. Proposta concreta em
+[WHATSAPP_WEB_ATTENDANT_SIGNATURE.md](WHATSAPP_WEB_ATTENDANT_SIGNATURE.md),
+incluindo comparação main/runtime, achado do eco, matriz de requisitos/testes,
+normalização, snapshot, limite contratual e rollback compatível com a fila.
+Diff funcional previsto: helper pequeno na application + criação Web em
+`chat.ts` + comparação de eco em `web-sync.ts`; Worker e contrato outbound
+existentes não precisam de mudança funcional. Assinaturas e legendas usam
+User.name autorizado e transmittedBody persistido, sem alterar body/senderName.
+
+Mudanças desta rodada são exclusivamente os dois documentos desta proposta;
+nenhum código/teste novo, commit/push/PR/merge, deploy, restart, migration,
+pareamento ou envio real foi executado. Baseline contratual9/9 e
+`git diff --check` aprovados; demais gates e testes novos serão executados após
+aprovação, sem alegar implementação/homologação. STATUS permanece intacto.
+Próxima ação: uma aprovação do usuário desta A2, como exigido pelo AGENTS e
+contrato de execução; após ela, implementar/testar sem microaprovações técnicas.
+
+### 2026-10-13T14:03:32Z — assinatura automática — A2 aprovada, B2/B4 em andamento
+
+Usuário aprovou expressamente A2 e autorizou implementação/testes conforme
+WHATSAPP_WEB_ATTENDANT_SIGNATURE.md. Requisitos adicionais reforçam preservação
+de autoria/IDs, snapshot em retries/rename, limite8000 final, normalização,
+eco sem duplicatas/conflitos mascarados e exclusão de outras origens.
+Sem autorização para deploy, migrations produtivas, pareamento/envios reais.
+Branch documental e alterações anteriores preservadas; base701f634 inalterada.
+Docker conferido: seis serviços produtivos healthy, mesmas imagens/inícios da
+auditoria; ambiente wapphub-m1-test separado disponível. Próxima ação: helper,
+criação Web, comparação estrita de eco e testes sintéticos; sem alterar provider
+ou contrato outbound desnecessariamente.
+
+### 2026-10-13T14:15:41Z — assinatura automática — B2 implementada, B4 finalizando
+
+Diff funcional mínimo implementado no helper/application Chat e na comparação
+de eco WebSync. Worker/contratos/DTOs/schema/provider produtivo intactos.
+Provider137/137, lint/typecheck/build aprovados. Core integral142/142 e
+lint/typecheck/build/OpenAPI/Prisma12/drift aprovados em primeira validação final.
+Adicionados depois um teste de fila legada sem assinatura e a asserção negativa
+de eco histórico divergente; nova rodada integral Core/checks finais em execução.
+
+Correção da premissa A2: código instalado Zod4.6.5 mede max8000 em code points
+Unicode; o helper reutiliza o validador existente e os testes de 8000/8001 com
+emoji foram corrigidos, sem mudar contrato ou aceitar mais que8000caracteres.
+Falhas preliminares: filtro focado omitia o teste que cria channelId; fixture
+Media não tinha id obrigatório; tipagem do helper SyncItem precisava retornar
+variante message. Todos corrigidos ou invocação corrigida sem retirar asserções.
+core-web-first.log preserva45/46 antes da correção da fixture, core-full.log
+preserva142/142 posterior; não houve falha funcional ocultada ou mudança de
+timeout/limite. Ambiente de teste separado/schema_test; nenhuma migration
+necessária (12 já aplicadas), nenhuma ação produtiva ou envio real pelo executor.
+
+### 2026-10-13T14:20:18Z — assinatura automática — B2/B4 validadas localmente
+
+Estado: `VALIDADO_TECNICAMENTE_LOCAL — EM_REVISAO`. Core final143/143,
+Provider137/137, nenhum skip/falha; lint/typecheck/build dos dois pacotes
+aprovados. OpenAPI idêntico/Prisma válido/12 migrations já aplicadas no schema
+isolado/zero novo drift; cinco diferenças legadas de FK intactas. Diff check
+aprovado. Corpo/senderName/autoria/IDs originais conservados, snapshot usado
+em rename/retry, limite final8000codepoints, texto/legendas/eco strict/conflictos
+e tenancy provados por testes sintéticos. Assinatura não aplicada em internos,
+Demo, recebidos/DEVICE/históricos ou fila legada. Worker/contrato/schema intactos.
+
+Evidências em `~/homelab/deploy-records/wapphub-provider-web/20261013-attendant-signature/`:
+core-full-final.log143/143, provider-full.log137/137, core-checks finais,
+core-contract-schema.log; primeiras falhas e sucesso142/142 preservados.
+Revisão manual do diff funcional/conflitos concluída. Produção às14:19:21Z:
+seiscontainers healthy, IDs/imagens/StartedAt iguais ao início da implementação;
+nenhum serviço produtivo reiniciado/reconfigurado e nenhuma migration nova.
+
+Documento da entrega atualizado com comportamento/validação/riscos/rollback;
+STATUS recebe apenas ponteiro informativo da alteração local em revisão, sem
+substituir registros publicados ou afirmar homologação. Próxima ação: commit/PR
+de revisão e CI conforme fluxo do repositório, sem merge/publicação automática.
+Deploy, migrations em produção, pareamento/envio real e homologação humana
+permanecem fora da autorização desta implementação.
