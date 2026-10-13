@@ -1,12 +1,13 @@
 import { Readable } from "node:stream";
 import { createHash } from "node:crypto";
 import { bootstrapCorrelationId } from "../contracts/provider-internal.js";
+import { intentDigest, type SendIntent } from "../contracts/provider-outbound.js";
 import { Sessions } from "../services/wapphub-provider-web/src/sessions.js";
 import { createHttp } from "../services/wapphub-provider-web/src/http.js";
 import { InternalAuth } from "../services/wapphub-provider-web/src/auth.js";
 import { WebProviderClient } from "../src/integrations/web-provider-client.js";
 import type { TransportCallbacks } from "../services/wapphub-provider-web/src/transport.js";
-import { before, after, test } from "node:test";
+import { before, after, test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
@@ -208,7 +209,7 @@ test("provider outage is visible without faking lifecycle and recovers without a
 });
 
 const now = () => new Date(Date.now() - 1000).toISOString();
-function syncMessage(externalId: string, id: string, occurredAt = now(), outbound = false): SyncItem {
+function syncMessage(externalId: string, id: string, occurredAt = now(), outbound = false): Extract<SyncItem, { kind: "message" }> {
   return { kind: "message", identity: { externalId }, occurredAt, message: { providerMessageId: id, providerConversationId: externalId, sender: { origin: outbound ? "DEVICE" : "CONTACT", externalId }, direction: outbound ? "OUTBOUND" : "INBOUND", status: "SENT", content: { type: "TEXT", originalBody: "  *Maria:* conteúdo original\n😀  " } } };
 }
 function syncBatch(items: SyncItem[], historical = true): ProviderEvent {
@@ -633,7 +634,8 @@ test("B2/B3 HTTP Core -> SQL outbox -> signed Provider -> durable journal -> SQL
   const directory = await mkdtemp(join(tmpdir(), "wapphub-b23-synthetic-")), key = randomBytes(32), vault = new Vault(join(directory, "sessions"), key); await vault.initialize();
   const journal = new EventJournal(vault), internalKey = randomBytes(32), auth = new InternalAuth(internalKey, join(directory, "nonces")); await auth.initialize();
   let callbacks!: TransportCallbacks, sends = 0, resolves = 0, unknown = false; let resolveHook: (() => Promise<void>) | undefined; let releaseSlow: (() => void) | undefined;
-  const sessions = new Sessions(vault, journal, async (_scope, cb) => { callbacks = cb; return { close() {}, logout: async () => undefined, resolveRecipient: async phone => { resolves++; await resolveHook?.(); return phone === "+5581999999999" ? { state: "VALID", jid: "5581999999999@s.whatsapp.net" } : { state: "UNKNOWN" }; }, send: async intent => { sends++; if (intent.body === "Synthetic slow") await new Promise<void>(resolve => { releaseSlow = resolve; }); if (unknown) throw new Error("synthetic uncertainty"); callbacks.receipt(intent.providerMessageId, "READ", intent.destination); } }; }, true, () => () => undefined, Date.now, () => undefined, { enabled: false, historyEnabled: false, outboundEnabled: true });
+  const transmitted: SendIntent[] = [], originalName = (await db.user.findUniqueOrThrow({ where: { id: owner.userId } })).name;
+  const sessions = new Sessions(vault, journal, async (_scope, cb) => { callbacks = cb; return { close() {}, logout: async () => undefined, resolveRecipient: async phone => { resolves++; await resolveHook?.(); return phone === "+5581999999999" ? { state: "VALID", jid: "5581999999999@s.whatsapp.net" } : { state: "UNKNOWN" }; }, send: async intent => { sends++; transmitted.push(intent); if (intent.body === `*Renamed attendant*\n\nSynthetic slow`) await new Promise<void>(resolve => { releaseSlow = resolve; }); if (unknown) throw new Error("synthetic uncertainty"); callbacks.receipt(intent.providerMessageId, "READ", intent.destination); } }; }, true, () => () => undefined, Date.now, () => undefined, { enabled: false, historyEnabled: false, outboundEnabled: true });
   const source = createHttp(sessions, journal, auth), sourceUrl = await source.listen({ host: "127.0.0.1", port: 0 }), client = new WebProviderClient(sourceUrl, internalKey);
   const activeConfig = { ...config, PROVIDER_OUTBOUND_ENABLED: true, PROVIDER_MEDIA_ENABLED: true };
   const activeApp = await buildApp(activeConfig, db, redis, false, undefined, client);
@@ -663,13 +665,15 @@ test("B2/B3 HTTP Core -> SQL outbox -> signed Provider -> durable journal -> SQL
     assert.equal((await inject(owner, "POST", `/conversations/${opened.id}/messages`, body)).json().id, queued.id);
     await inject(owner, "POST", `/conversations/${opened.id}/messages`, { ...body, body: "changed" }, 409);
     await inject(other, "POST", `/conversations/${opened.id}/messages`, body, 403);
-    const persisted = await db.message.findUniqueOrThrow({ where: { id: queued.id } }); assert.equal(persisted.body, body.body);
+    const persisted = await db.message.findUniqueOrThrow({ where: { id: queued.id } }); assert.equal(persisted.body, body.body); assert.equal(persisted.transmittedBody, `*${originalName}*\n\n${body.body}`); assert.equal(queued.senderName, originalName);
+    await db.user.update({ where: { id: owner.userId }, data: { name: "Renamed attendant" } });
+    const repeated = (await inject(owner, "POST", `/conversations/${opened.id}/messages`, body)).json(); assert.equal(repeated.id, queued.id); assert.equal(repeated.body, body.body); assert.equal(repeated.senderName, "Renamed attendant");
     assert.equal(await db.providerCommand.count({ where: { organizationId: orgA, channelId, action: "send", payload: { path: "$.messageId", equals: queued.id } } }), 1);
     await activeWorker.runConnection(scope()); await sessions.settle(scope()); await activeWorker.runConnection(scope());
-    assert.equal(sends, 1); const confirmed = await db.message.findUniqueOrThrow({ where: { id: queued.id } }); assert.equal(confirmed.status, "READ"); assert.equal(confirmed.senderUserId, owner.userId); assert.equal(confirmed.deliveryOutcome, null);
+    assert.equal(sends, 1); assert.equal(transmitted[0]!.body, persisted.transmittedBody); assert.equal(transmitted[0]!.providerMessageId, persisted.providerMessageId); const confirmed = await db.message.findUniqueOrThrow({ where: { id: queued.id } }); assert.equal(confirmed.status, "READ"); assert.equal(confirmed.senderUserId, owner.userId); assert.equal(confirmed.deliveryOutcome, null);
     callbacks.text({ id: "b23-live", chatId: "5581999999999@s.whatsapp.net", body: "Synthetic live", fromMe: false, timestamp: Date.now() }); await sessions.settle(scope()); await activeWorker.runConnection(scope());
     const received = await db.message.findFirstOrThrow({ where: { organizationId: orgA, channelId, providerMessageId: "b23-live" } }); assert.equal(received.conversationId, opened.id); assert.equal(received.senderUserId, null); assert.equal(received.senderContactId, opened.contactId);
-    callbacks.text({ id: persisted.providerMessageId!, chatId: "5581999999999@s.whatsapp.net", body: body.body, fromMe: true, timestamp: Date.now() }); await sessions.settle(scope()); await activeWorker.runConnection(scope());
+    callbacks.text({ id: persisted.providerMessageId!, chatId: "5581999999999@s.whatsapp.net", body: persisted.transmittedBody!, fromMe: true, timestamp: Date.now() }); await sessions.settle(scope()); await activeWorker.runConnection(scope());
     const echoed = await db.message.findUniqueOrThrow({ where: { id: queued.id } }); assert.equal(echoed.senderUserId, owner.userId); assert.equal(echoed.createdAt.toISOString(), persisted.createdAt.toISOString()); assert.ok(echoed.providerOccurredAt);
     const slow = (await inject(owner, "POST", `/conversations/${opened.id}/messages`, { body: "Synthetic slow", clientMessageId: randomUUID() })).json();
     const inflight = activeWorker.runConnection(scope());
@@ -687,10 +691,15 @@ test("B2/B3 HTTP Core -> SQL outbox -> signed Provider -> durable journal -> SQL
     assert.equal((await db.message.findUniqueOrThrow({ where: { id: uncertain.id } })).deliveryOutcome, "UNKNOWN"); await activeWorker.runConnection(scope()); assert.equal(sends, 4);
     const ownerMembership = await db.membership.findFirstOrThrow({ where: { organizationId: orgA, userId: owner.userId } }), sendPermission = await db.permission.findUniqueOrThrow({ where: { code: "messages.send" } });
     const retryBody = { body: "Synthetic revoked before transmission", clientMessageId: randomUUID() }, rejected = (await inject(owner, "POST", `/conversations/${opened.id}/messages`, retryBody)).json();
+    const retrySnapshot = await db.message.findUniqueOrThrow({ where: { id: rejected.id } });
+    const retryCommand = await db.providerCommand.findFirstOrThrow({ where: { organizationId: orgA, channelId, action: "send", payload: { path: "$.messageId", equals: rejected.id } } });
     await db.membershipPermissionOverride.create({ data: { organizationId: orgA, membershipId: ownerMembership.id, permissionId: sendPermission.id, effect: "REVOKE" } });
     await activeWorker.runConnection(scope()); assert.equal(sends, 4); assert.equal((await db.message.findUniqueOrThrow({ where: { id: rejected.id } })).deliveryOutcome, "NOT_SENT");
     await db.membershipPermissionOverride.deleteMany({ where: { organizationId: orgA, membershipId: ownerMembership.id, permissionId: sendPermission.id } });
+    await db.user.update({ where: { id: owner.userId }, data: { name: "Changed before retry" } });
     const retried = (await inject(owner, "POST", `/conversations/${opened.id}/messages`, retryBody)).json(); assert.equal(retried.id, rejected.id); assert.equal(retried.status, "PENDING"); unknown = false; await activeWorker.runConnection(scope()); await sessions.settle(scope()); await activeWorker.runConnection(scope()); assert.equal(sends, 5);
+    assert.equal(transmitted[4]!.body, retrySnapshot.transmittedBody); assert.equal(transmitted[4]!.commandId, retryCommand.id); assert.equal(transmitted[4]!.providerMessageId, retrySnapshot.providerMessageId); assert.equal(retried.clientMessageId, retryBody.clientMessageId);
+    assert.equal(intentDigest(transmitted[4]!), vault.get(scope())!.sends!.find(x => x.id === retryCommand.id)!.digest);
 
     await inject(owner, "PUT", `${route}/${channelId}/capabilities`, { outboundEnabled: false, mediaEnabled: false });
     await inject(owner, "POST", `/conversations/${opened.id}/messages`, { body: "blocked", clientMessageId: randomUUID() }, 409); assert.equal(sends, 5);
@@ -698,6 +707,7 @@ test("B2/B3 HTTP Core -> SQL outbox -> signed Provider -> durable journal -> SQL
   } finally {
     releaseSlow?.(); await activeApp.close(); await sessions.shutdown(); await source.close(); await rm(directory, { recursive: true, force: true });
     await db.session.update({ where: { id: owner.sessionId }, data: { currentOrganizationId: orgA } });
+    await db.user.update({ where: { id: owner.userId }, data: { name: originalName } });
     await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { outboundEnabled: original.outboundEnabled, mediaEnabled: original.mediaEnabled, historyOperation: original.historyOperation ?? Prisma.DbNull, state: original.state, providerRevision: original.providerRevision, errorCode: original.errorCode, lastCheckedAt: original.lastCheckedAt, leaseToken: null, leaseUntil: null } });
   }
 });
@@ -788,4 +798,209 @@ test("B5 lifecycle HTTP/outbox/Worker/HMAC authorizes one recovery, fences stops
   await api.close(); await sessions.shutdown(); await source.close(); await db.providerCommand.deleteMany({ where: { organizationId: orgA, id: { in: ids } } });
   await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { state: original.state, errorCode: original.errorCode, providerRevision: original.providerRevision, pairingPhase: original.pairingPhase, version: original.version, providerSync: original.providerSync ?? Prisma.DbNull, historyOperation: original.historyOperation ?? Prisma.DbNull, outboundEnabled: original.outboundEnabled, mediaEnabled: original.mediaEnabled } }); await db.channel.update({ where: { organizationId_id: { organizationId: orgA, id: channelId } }, data: { status: originalChannel.status } }); await rm(directory, { recursive: true, force: true });
  }
+});
+
+async function signatureHarness(t: TestContext) {
+  const original = await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } });
+  const originalName = (await db.user.findUniqueOrThrow({ where: { id: owner.userId } })).name;
+  const fake = new FakeProvider(), frames: { scope: ProviderScope; intent: SendIntent }[] = [];
+  const client = Object.assign(fake, { send: async (scope: ProviderScope, intent: SendIntent) => { frames.push({ scope, intent }); return { outcome: "DISPATCHED" as const, providerMessageId: intent.providerMessageId }; } });
+  const activeConfig = { ...config, PROVIDER_OUTBOUND_ENABLED: true, PROVIDER_MEDIA_ENABLED: true, PROVIDER_HISTORY_EXECUTION_ENABLED: false };
+  const api = await buildApp(activeConfig, db, redis, false, undefined, client);
+  const activeChat = new Chat(db, activeConfig, async () => undefined, new DemoProvider(), new MessageIngestionService());
+  const activeWorker = new WebProviderWorker(db, activeChat, client);
+  const enable = async (organizationId: string, connectionId: string) => {
+    fake.views.set(connectionId, { state: "CONNECTED", revision: 1000, qrRevision: 0, attempts: 0, connectEnabled: true });
+    await db.providerConnection.upsert({ where: { organizationId_channelId: { organizationId, channelId: connectionId } }, create: { organizationId, channelId: connectionId, state: "CONNECTED", providerRevision: 1000, lastCheckedAt: new Date(), outboundEnabled: true, mediaEnabled: true }, update: { state: "CONNECTED", providerRevision: 1000, errorCode: null, lastCheckedAt: new Date(), outboundEnabled: true, mediaEnabled: true, historyOperation: Prisma.DbNull } });
+    await db.channel.update({ where: { id: connectionId }, data: { status: "ENABLED" } });
+  };
+  await enable(orgA, channelId);
+  t.after(async () => {
+    await api.close();
+    await db.user.update({ where: { id: owner.userId }, data: { name: originalName } });
+    await db.session.update({ where: { id: owner.sessionId }, data: { currentOrganizationId: orgA } });
+    await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { state: original.state, providerRevision: original.providerRevision, errorCode: original.errorCode, lastCheckedAt: original.lastCheckedAt, outboundEnabled: original.outboundEnabled, mediaEnabled: original.mediaEnabled, historyOperation: original.historyOperation ?? Prisma.DbNull } });
+  });
+  const post = async (actor: Auth, conversationId: string, payload: { body: string; clientMessageId: string; mediaId?: string }, status = 200) => {
+    const response = await api.inject({ method: "POST", url: `/api/v1/conversations/${conversationId}/messages`, payload, headers: { cookie: actor.cookie, origin, "x-csrf-token": actor.csrf } });
+    assert.equal(response.statusCode, status, response.body); return response.json();
+  };
+  const thread = async (organizationId = orgA, connectionId = channelId) => {
+    const jid = `${randomBytes(6).readUIntBE(0, 6)}@lid`;
+    const person = await db.contact.create({ data: { organizationId, name: "Synthetic signature contact", primaryIdentifier: jid } });
+    await db.contactIdentity.create({ data: { organizationId, channelId: connectionId, contactId: person.id, externalId: jid } });
+    return db.conversation.create({ data: { organizationId, channelId: connectionId, contactId: person.id, providerConversationId: jid } });
+  };
+  return { api, post, thread, enable, frames, activeWorker, activeChat };
+}
+
+test("signed wire echoes reconcile live/history without changing originals or accepting genuine conflicts", async t => {
+  const f = await signatureHarness(t), thread = await f.thread();
+  const rawName = " \n*Ana* _Silva_\u202e ";
+  await db.user.update({ where: { id: owner.userId }, data: { name: rawName } });
+  const payload = { body: "  *Ana*\n\nOriginal 😀  ", clientMessageId: randomUUID() };
+  const [first, duplicate] = await Promise.all([f.post(owner, thread.id, payload), f.post(owner, thread.id, payload)]);
+  assert.equal(first.id, duplicate.id); assert.equal(first.body, payload.body); assert.equal(first.senderName, rawName); assert.equal(first.senderUserId, owner.userId);
+  const stored = await db.message.findUniqueOrThrow({ where: { id: first.id } });
+  assert.equal(stored.transmittedBody, `*Ana Silva*\n\n${payload.body}`);
+  assert.equal(await db.providerCommand.count({ where: { organizationId: orgA, action: "send", payload: { path: "$.messageId", equals: stored.id } } }), 1);
+  await f.activeWorker.runConnection(scope()); assert.equal(f.frames.length, 1); assert.equal(f.frames[0]!.intent.body, stored.transmittedBody);
+  const echo = event("message.sent", stored.providerMessageId!, stored.transmittedBody!);
+  assert.ok(echo.type === "message.sent"); echo.data.providerConversationId = thread.providerConversationId!; echo.data.sender.externalId = thread.providerConversationId!; delete echo.data.content.transmittedBody;
+  await leased(async token => {
+    assert.equal(await ingestion.apply(scope(), echo, token), true);
+    assert.equal(await ingestion.apply(scope(), { ...echo, eventId: randomUUID() }, token), false);
+    const item = syncMessage(thread.providerConversationId!, stored.providerMessageId!, now(), true);
+    item.message.content = { type: "TEXT", originalBody: stored.transmittedBody! };
+    const batch = syncBatch([item]); assert.equal(await ingestion.apply(scope(), batch, token), true);
+    assert.equal(syncProgress((await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } })).syncProgress).lastBatch?.rejectedItems, 0);
+    const wrongHistory = structuredClone(item); wrongHistory.message.content = { type: "TEXT", originalBody: payload.body };
+    await ingestion.apply(scope(), syncBatch([wrongHistory]), token);
+    assert.equal(syncProgress((await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } })).syncProgress).lastBatch?.rejectedItems, 1);
+    for (const change of ["body", "snapshot", "direction", "conversation", "type"] as const) {
+      const invalid = { ...event(change === "direction" ? "message.received" : "message.sent", stored.providerMessageId!), data: structuredClone(echo.data) } as ProviderEvent;
+      assert.ok(invalid.type === "message.sent" || invalid.type === "message.received"); invalid.deduplicationId = "a".repeat(63) + String(["body", "snapshot", "direction", "conversation", "type"].indexOf(change));
+      if (change === "body") invalid.data.content.originalBody = payload.body;
+      if (change === "snapshot") invalid.data.content.transmittedBody = "changed snapshot";
+      if (change === "direction") { invalid.data.direction = "INBOUND"; invalid.data.sender.origin = "CONTACT"; }
+      if (change === "conversation") { invalid.data.providerConversationId = "123456789@lid"; invalid.data.sender.externalId = "123456789@lid"; }
+      if (change === "type") { invalid.capabilities.contentTypes = ["TEXT", "IMAGE"]; invalid.data.content = { type: "IMAGE", originalBody: stored.transmittedBody!, media: { mediaId: randomUUID(), type: "IMAGE", mimeType: "image/png", fileName: "synthetic.png", size: 12, state: "PENDING" } }; }
+      await assert.rejects(ingestion.apply(scope(), invalid, token), /PROVIDER_IDEMPOTENCY_CONFLICT/);
+    }
+  });
+  const after = await db.message.findUniqueOrThrow({ where: { id: stored.id } });
+  for (const key of ["body", "transmittedBody", "senderUserId", "senderContactId", "clientMessageId", "providerMessageId", "historical"] as const) assert.equal(after[key], stored[key]);
+  assert.ok(after.providerOccurredAt); assert.equal(after.status, "SENT");
+  assert.equal(await db.message.count({ where: { organizationId: orgA, channelId, providerMessageId: stored.providerMessageId } }), 1);
+  await f.post(owner, thread.id, { ...payload, body: "altered" }, 409);
+  await f.post(denied, thread.id, payload, 403);
+  // New external history/received/device content is never signed or assigned to the operator.
+  const history = syncMessage(thread.providerConversationId!, "signature-history"), device = syncMessage(thread.providerConversationId!, "signature-device", now(), true);
+  await leased(token => ingestion.apply(scope(), syncBatch([history, device]), token));
+  const originals = await db.message.findMany({ where: { channelId, providerMessageId: { in: ["signature-history", "signature-device"] } } });
+  assert.equal(originals.length, 2); for (const row of originals) { assert.equal(row.body, "  *Maria:* conteúdo original\n😀  "); assert.equal(row.senderUserId, null); assert.equal(row.transmittedBody, null); assert.equal(row.historical, true); }
+  const session = await db.session.findUniqueOrThrow({ where: { id: owner.sessionId } }), user = await db.user.findUniqueOrThrow({ where: { id: owner.userId } });
+  assert.equal((await f.activeChat.createNote({ session, user }, thread.id, "Nota original")).body, "Nota original");
+  const internal = await db.conversation.create({ data: { organizationId: orgA, contactId: thread.contactId } });
+  const internalMessage = await f.post(owner, internal.id, { body: "Interna original", clientMessageId: randomUUID() });
+  const internalRow = await db.message.findUniqueOrThrow({ where: { id: internalMessage.id } }); assert.equal(internalRow.direction, "INTERNAL"); assert.equal(internalRow.body, "Interna original"); assert.equal(internalRow.transmittedBody, null);
+});
+
+test("signature caption limits roll back before enqueue and media echoes keep exact text and integrity", async t => {
+  const f = await signatureHarness(t), thread = await f.thread();
+  await db.user.update({ where: { id: owner.userId }, data: { name: "A" } });
+  const upload = (type: "IMAGE" | "VIDEO" = "IMAGE") => db.media.create({ data: { id: randomUUID(), organizationId: orgA, channelId, conversationId: thread.id, actorUserId: owner.userId, type, mimeType: type === "IMAGE" ? "image/png" : "video/mp4", fileName: "synthetic", size: 12, sha256: "b".repeat(64), expiresAt: new Date(Date.now() + 3600000) } });
+  for (const media of [false, true]) {
+    const record = media ? await upload() : undefined, clientMessageId = randomUUID();
+    const oversized = await f.post(owner, thread.id, { body: "x".repeat(7996), clientMessageId, ...(record ? { mediaId: record.id } : {}) }, 400);
+    assert.equal(oversized.error.code, "MESSAGE_PRESENTATION_TOO_LONG");
+    assert.equal(await db.message.count({ where: { organizationId: orgA, conversationId: thread.id, clientMessageId } }), 0);
+    assert.equal(await db.providerCommand.count({ where: { organizationId: orgA, action: "send", status: "PENDING" } }), 0);
+    if (record) assert.equal((await db.media.findUniqueOrThrow({ where: { id: record.id } })).messageId, null);
+    const accepted = await f.post(owner, thread.id, { body: "😀" + "x".repeat(7994), clientMessageId, ...(record ? { mediaId: record.id } : {}) });
+    await f.activeWorker.runConnection(scope()); assert.equal([...f.frames.at(-1)!.intent.body].length, 8000); assert.equal(f.frames.at(-1)!.intent.messageId, accepted.id);
+  }
+  for (const type of ["IMAGE", "VIDEO"] as const) for (const body of ["Legenda\n😀", "", " \t "]) {
+    const record = await upload(type), sent = await f.post(owner, thread.id, { body, mediaId: record.id, clientMessageId: randomUUID() });
+    const stored = await db.message.findUniqueOrThrow({ where: { id: sent.id } });
+    assert.equal(stored.body, body || null); assert.equal(stored.transmittedBody, body.trim() ? `*A*\n\n${body}` : body);
+    await f.activeWorker.runConnection(scope()); const frame = f.frames.at(-1)!.intent;
+    assert.equal(frame.body, stored.transmittedBody); assert.equal(frame.media!.mediaId, record.id);
+    const echo = event("message.sent", stored.providerMessageId!); assert.ok(echo.type === "message.sent");
+    echo.capabilities.contentTypes = ["TEXT", "IMAGE", "VIDEO"];
+    echo.data.providerConversationId = thread.providerConversationId!; echo.data.sender.externalId = thread.providerConversationId!;
+    echo.data.content = { type, ...(frame.body ? { originalBody: frame.body } : {}), media: { ...frame.media!, state: "PENDING" } };
+    await leased(token => ingestion.apply(scope(), echo, token));
+    const after = await db.message.findUniqueOrThrow({ where: { id: sent.id } }); assert.equal(after.body, stored.body); assert.equal(after.transmittedBody, stored.transmittedBody); assert.equal(after.senderUserId, owner.userId); assert.equal(after.status, "SENT");
+    const invalid = structuredClone(echo); invalid.eventId = randomUUID(); invalid.deduplicationId = randomBytes(32).toString("hex");
+    assert.ok(invalid.data.content.type !== "TEXT"); invalid.data.content.media.sha256 = "c".repeat(64);
+    await assert.rejects(leased(token => ingestion.apply(scope(), invalid, token)), /PROVIDER_IDEMPOTENCY_CONFLICT/);
+  }
+  await db.user.update({ where: { id: owner.userId }, data: { name: "*_~`\u202e" } });
+  const invalidName = await f.post(owner, thread.id, { body: "Oi", clientMessageId: randomUUID() }, 400); assert.equal(invalidName.error.code, "INVALID_ATTENDANT_NAME");
+  const emptyMedia = await upload(); await f.post(owner, thread.id, { body: "", mediaId: emptyMedia.id, clientMessageId: randomUUID() }); await f.activeWorker.runConnection(scope()); assert.equal(f.frames.at(-1)!.intent.body, "");
+});
+
+test("signatures bind the authenticated author and tenant even with shared client IDs and organization switches", async t => {
+  const f = await signatureHarness(t), threadA = await f.thread(), actorB = await auth(orgB, [...chatPermissions, "providers.manage"]);
+  await db.user.update({ where: { id: owner.userId }, data: { name: "Author A" } }); await db.user.update({ where: { id: actorB.userId }, data: { name: "Author B" } });
+  const channelB = await db.channel.create({ data: { organizationId: orgB, provider: "WHATSAPP_WEB", status: "ENABLED" } }); await f.enable(orgB, channelB.id); const threadB = await f.thread(orgB, channelB.id);
+  const payload = { body: "Same original", clientMessageId: randomUUID() };
+  await db.conversation.update({ where: { id: threadA.id }, data: { assignedUserId: denied.userId } });
+  const a = await f.post(owner, threadA.id, payload), b = await f.post(actorB, threadB.id, payload); assert.notEqual(a.id, b.id);
+  assert.equal(a.senderName, "Author A"); assert.equal(a.senderUserId, owner.userId); assert.equal(b.senderName, "Author B"); assert.equal(b.senderUserId, actorB.userId);
+  assert.equal((await db.message.findUniqueOrThrow({ where: { id: a.id } })).transmittedBody, "*Author A*\n\nSame original"); assert.equal((await db.message.findUniqueOrThrow({ where: { id: b.id } })).transmittedBody, "*Author B*\n\nSame original");
+  await f.post(actorB, threadA.id, payload, 404); await f.post(owner, threadB.id, payload, 404);
+  await f.activeWorker.runConnection(scope()); await f.activeWorker.runConnection({ organizationId: orgB, connectionId: channelB.id });
+  assert.deepEqual(f.frames.map(x => [x.scope.organizationId, x.intent.messageId, x.intent.body]), [[orgA, a.id, "*Author A*\n\nSame original"], [orgB, b.id, "*Author B*\n\nSame original"]]);
+  const membership = await db.membership.findFirstOrThrow({ where: { userId: owner.userId, organizationId: orgA } });
+  await db.membership.create({ data: { organizationId: orgB, userId: owner.userId, roleId: membership.roleId } });
+  await db.session.update({ where: { id: owner.sessionId }, data: { currentOrganizationId: orgB } });
+  await f.post(owner, threadB.id, payload, 409); // same tenant/client ID belongs to another author
+  const switched = await f.post(owner, threadB.id, { ...payload, clientMessageId: randomUUID() }); assert.equal(switched.senderUserId, owner.userId);
+  await f.activeWorker.runConnection({ organizationId: orgB, connectionId: channelB.id }); assert.equal(f.frames.at(-1)!.intent.body, "*Author A*\n\nSame original"); assert.equal(f.frames.at(-1)!.scope.organizationId, orgB);
+  await db.membership.update({ where: { id: membership.id }, data: { status: "SUSPENDED" } });
+  try { await db.session.update({ where: { id: owner.sessionId }, data: { currentOrganizationId: orgA } }); await f.post(owner, threadA.id, { ...payload, clientMessageId: randomUUID() }, 403); }
+  finally { await db.membership.update({ where: { id: membership.id }, data: { status: "ACTIVE" } }); }
+});
+
+test("legacy queued messages retain unsigned snapshots and body fallback after user renaming", async t => {
+  const f = await signatureHarness(t), thread = await f.thread();
+  for (const transmittedBody of [null, "Legacy original"] as const) {
+    const message = await db.message.create({ data: { organizationId: orgA, channelId, conversationId: thread.id, senderUserId: owner.userId, clientMessageId: randomUUID(), providerMessageId: randomUUID().replaceAll("-", "").toUpperCase(), direction: "OUTBOUND", status: "PENDING", body: "Legacy original", transmittedBody } });
+    const commandId = randomUUID();
+    await db.providerCommand.create({ data: { id: commandId, organizationId: orgA, channelId, actorUserId: owner.userId, sessionId: owner.sessionId, action: "send", payload: { messageId: message.id, expiresAt: new Date(Date.now() + 3600000).toISOString() } } });
+    await db.user.update({ where: { id: owner.userId }, data: { name: "Changed after legacy enqueue" } });
+    const repeated = await f.post(owner, thread.id, { body: message.body!, clientMessageId: message.clientMessageId! }); assert.equal(repeated.id, message.id); assert.equal(repeated.senderName, "Changed after legacy enqueue");
+    await f.activeWorker.runConnection(scope()); const frame = f.frames.at(-1)!.intent;
+    assert.equal(frame.body, "Legacy original"); assert.equal(frame.commandId, commandId); assert.equal(frame.providerMessageId, message.providerMessageId);
+    const echo = event("message.sent", frame.providerMessageId, frame.body); assert.ok(echo.type === "message.sent"); echo.data.providerConversationId = thread.providerConversationId!; echo.data.sender.externalId = thread.providerConversationId!; delete echo.data.content.transmittedBody;
+    await leased(token => ingestion.apply(scope(), echo, token));
+    const after = await db.message.findUniqueOrThrow({ where: { id: message.id } }); assert.equal(after.body, message.body); assert.equal(after.transmittedBody, transmittedBody); assert.equal(after.senderUserId, owner.userId); assert.equal(after.status, "SENT");
+  }
+  assert.equal(f.frames.length, 2);
+});
+
+for (const snapshot of ["queued snapshot", "legacy body fallback", "legacy empty snapshot"] as const) test(`local media whitespace captions accept absent/preserved echoes and reject text conflicts (${snapshot})`, async t => {
+  const f = await signatureHarness(t), thread = await f.thread();
+  for (const type of ["IMAGE", "VIDEO"] as const) for (const body of ["   ", " \t\r\n\u00a0\u2028\u2029 "]) {
+    const media = await db.media.create({ data: { id: randomUUID(), organizationId: orgA, channelId, conversationId: thread.id, actorUserId: owner.userId, type, mimeType: type === "IMAGE" ? "image/png" : "video/mp4", fileName: "synthetic", size: 12, sha256: "b".repeat(64), expiresAt: new Date(Date.now() + 3600000) } });
+    const sent = await f.post(owner, thread.id, { body, mediaId: media.id, clientMessageId: randomUUID() });
+    if (snapshot !== "queued snapshot") await db.message.update({ where: { id: sent.id }, data: { transmittedBody: snapshot === "legacy body fallback" ? null : "" } });
+    const original = await db.message.findUniqueOrThrow({ where: { id: sent.id } });
+    assert.equal(original.body, body); assert.equal(original.transmittedBody, snapshot === "queued snapshot" ? body : snapshot === "legacy body fallback" ? null : "");
+    await f.activeWorker.runConnection(scope()); const frame = f.frames.at(-1)!.intent;
+    assert.equal(frame.body, snapshot === "legacy empty snapshot" ? "" : body); assert.equal(frame.messageId, sent.id);
+    for (const caption of [undefined, body, "", "Texto realmente divergente"]) {
+      const echo = event("message.sent", frame.providerMessageId); assert.ok(echo.type === "message.sent");
+      echo.deduplicationId = randomBytes(32).toString("hex"); echo.capabilities.contentTypes = ["TEXT", "IMAGE", "VIDEO"];
+      echo.data.providerConversationId = thread.providerConversationId!; echo.data.sender.externalId = thread.providerConversationId!;
+      echo.data.content = { type, ...(caption === undefined ? {} : { originalBody: caption }), media: { ...frame.media!, state: "PENDING" } };
+      if (caption === "Texto realmente divergente") await assert.rejects(leased(token => ingestion.apply(scope(), echo, token)), /PROVIDER_IDEMPOTENCY_CONFLICT/);
+      else await leased(async token => {
+        assert.equal(await ingestion.apply(scope(), echo, token), true);
+        assert.equal(await ingestion.apply(scope(), { ...echo, eventId: randomUUID() }, token), false);
+      });
+      const after = await db.message.findUniqueOrThrow({ where: { id: sent.id } });
+      for (const key of ["body", "transmittedBody", "senderUserId", "senderContactId", "clientMessageId", "providerMessageId", "historical"] as const) assert.equal(after[key], original[key]);
+      assert.equal(await db.message.count({ where: { organizationId: orgA, channelId, providerMessageId: original.providerMessageId } }), 1);
+    }
+    const after = await db.message.findUniqueOrThrow({ where: { id: sent.id } }); assert.equal(after.status, "SENT"); assert.ok(after.providerOccurredAt);
+  }
+});
+
+test("whitespace echo equivalence never accepts omitted textual captions or changes external media comparison", async t => {
+  const f = await signatureHarness(t), thread = await f.thread();
+  for (const local of [false, true]) {
+    const media = { mediaId: randomUUID(), type: "IMAGE" as const, mimeType: "image/png", fileName: "synthetic", size: 12, state: "PENDING" as const };
+    const original = await db.message.create({ data: { organizationId: orgA, channelId, conversationId: thread.id, direction: "OUTBOUND", type: "IMAGE", senderUserId: local ? owner.userId : null, providerMessageId: randomUUID().replaceAll("-", "").toUpperCase(), body: local ? "Legenda original" : "   ", transmittedBody: local ? "*Ana*\n\nLegenda original" : null, mediaMetadata: media } });
+    for (const caption of [undefined, "", " \t ", "Legenda realmente divergente"]) {
+      const echo = event("message.sent", original.providerMessageId!); assert.ok(echo.type === "message.sent");
+      echo.deduplicationId = randomBytes(32).toString("hex"); echo.capabilities.contentTypes = ["TEXT", "IMAGE"];
+      echo.data.providerConversationId = thread.providerConversationId!; echo.data.sender.externalId = thread.providerConversationId!;
+      echo.data.content = { type: "IMAGE", ...(caption === undefined ? {} : { originalBody: caption }), media };
+      await assert.rejects(leased(token => ingestion.apply(scope(), echo, token)), /PROVIDER_IDEMPOTENCY_CONFLICT/);
+    }
+    assert.deepEqual(await db.message.findUniqueOrThrow({ where: { id: original.id } }), original);
+  }
 });

@@ -1,3 +1,9 @@
+> Alteração local em revisão, sem publicação: [assinatura automática do
+> atendente](WHATSAPP_WEB_ATTENDANT_SIGNATURE.md). Resultados técnicos e rollback
+> estão no documento da entrega; os registros de publicação abaixo são preservados.
+> Revisão PR37 também cobre ecos sem legenda para mídia local com whitespace,
+> preservando snapshots e conflitos textuais; nenhuma publicação nesta revisão.
+
 # Regressão QR — correção publicada em 13/10/2026
 
 **CORRECAO_PUBLICADA — AGUARDANDO_HOMOLOGACAO_REAL.** Provider `wapphub-provider-web:qrfix-06fafb6` e Chat `wapphub-chat:qrfix-dbab1ae` publicados após CI e backup/restauração isolada verificados. [Core PR36](https://github.com/uillaneduardo/wapphub-core/pull/36) e [Chat PR27](https://github.com/uillaneduardo/wapphub-chat/pull/27), merges06fafb6/dbab1ae. Core134/134, Provider136/136, Chat332/332 e lint/typecheck/build/Prisma12/OpenAPI/drift sem novos desvios aprovados. APIfirstqr-686a852/Workerp0link-e6aa1c6/DB/Redis/demais aplicações preservados, nenhuma migration.
