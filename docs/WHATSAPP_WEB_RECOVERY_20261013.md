@@ -1,0 +1,35 @@
+# Recuperação rápida WhatsApp Web — 2026-10-13
+
+Autorização explícita: descartar filas/dados do canal afetado, reiniciar processos e reconectar por QR se necessário. Organizações, equipe, memberships, RBAC, outros canais/tenants e credenciais alheias permanecem preservados. Sem envio real automático.
+
+Diagnóstico confirmou 81 lotes bootstrap historical=true em dead-letter, cinco tentativas cada. Core guarda 405 falhas; 32 códigos ativos HISTORY_EXECUTION_DISABLED. A UI mascarava 64 ocorrências como PERSISTENCE_FAILED. Provider aceita bootstrap nativo, mas o Core aplicava o flag on-demand antes da distinção pela correlação scoped. PR37/main41861c4 já estava em produção.
+
+Correção mínima: bootstrapCorrelationId do escopo autenticado permite a ingestão nativa; histórico on-demand mantém flag, grant, permissões e limites existentes. Isolamento, lease, transação e deduplicação permanecem. Novos contactos/conversas live são criados pela ingestão atual. Prioridade live no journal e outbound no Worker já existentes, conservadas. Código HISTORY_EXECUTION_DISABLED permanece específico no diagnóstico.
+
+Regressão reproduzida antes da correção (bootstrap não acked); Core148/148 passaram depois, incluindo Worker com execução histórica desativada, live/bootstrap, replay deduplicado, operação arbitrária/tenant errado rejeitados e lease inválido. Checks lint/typecheck/build/Prisma/contratos em registro local. Nenhuma migration necessária.
+
+Limpeza planejada: snapshot SQL transacional e Vault quiescente; remover apenas eventos/dead letters/checkpoints bootstrap do canal CONNECTED. Preservar auth/Signal/sends/command receipts, mídia, mensagens, contatos/conversas e outros tenants. Comandos outbound pendentes serão explicitamente falhados com resultado incerto se já em PROCESSING; nenhuma retransmissão automática. Sem docker volume rm. Só imagem Core muda; Provider reinicia usando a imagem anterior e identidade vinculada.
+
+Mídia: Core possui metadados de IMAGE/VOICE recebidas, mas Vault contém só três uploads sem referência remota. Consulta a IMAGE recebida retornou404 MEDIA_UNAVAILABLE no Provider, antes de qualquer download. Falha de reprodução não comprovada; a ausência da referência é um impedimento anterior. A validação de directPath no retainer exclui query strings; hipótese para investigar com captura sanitizada de nova mídia, sem expor chaves/URL. Metadados atuais não contêm referência suficiente para recuperar esses downloads. Não se declara conserto de mídia por este ajuste de ingestão.
+
+Emoji picker: melhoria independente, não bloqueia recuperação.
+
+Evidências e entrega operacional: `/home/uillan/homelab/deploy-records/wapphub-core/20261013-whatsapp-recovery/`. Homologação de recebimento/envio e latência ponta a ponta depende de ação humana; nenhuma mensagem automática será enviada. Atualizar relatório após publicação.
+
+## Gargalo restante e correção complementar
+
+Após reset, três entradas e quatro envios humanos foram observados; envios confirmados em6,27–9,81s, uma tentativa cada, sem filas/retries. Amostra CPU5s mostrou1.247ms em GC e667ms em structuredClone: Sessions.view copiava Vault várias vezes para calcular lifecycle/history. Alteração complementar reutiliza uma única cópia defensiva da sessão; Provider138/138, lint/typecheck/build aprovados. Worker percorria duas conexões e consumia a próxima volta apenas ao esgotar o cursor; wrap agora ocorre dentro do mesmo tick, preservando janela/take2/tenancy e removendo dois segundos vazios do ciclo. Teste específico e checks Core em execução. O encerramento da inspeção coincidiu com saída do processo Provider; restart=no manteve-o parado até a publicação seguinte (~16:56–17:07UTC). Incidente operacional comunicado ao usuário; causa específica da saída não estabelecida. Provider76bf571 voltou CONNECTED sem QR e inspector fechado.
+
+
+Diagnóstico complementar reduz o snapshot de status às informações utilizadas por lifecycle/history, excluindo da cópia chaves Signal, credenciais aposentadas e comprovantes de envio. Esses campos continuam persistidos, e a leitura completa usada pelo transporte não muda. Regressão prova uma única cópia defensiva, identidade/lifecycle/isolation e manutenção de2000keys e credenciais aposentadas. Provider138/138 e lint/typecheck/build aprovados. Intervalo Worker ativo reduzido de2000ms para500ms; Core lint/typecheck/build aprovados, sem alterar concorrência, transações ou contratos. Última publicação76bf571 já observou três envios humanos em2,695–4,673s; todas filas0. Próxima publicação avalia o intervalo menor e snapshot reduzido.
+
+
+## Publicação final e limites — 13/10/2026,17:34UTC
+
+Core API/Worker `wapphub-core:recovery-41fdf6a`, source41fdf6a4a3c0991dd04faba2ea79742733a66b89; Provider `wapphub-provider-web:recovery-da15c3b`, sourceda15c3b04e90fdace32dcf7977336a3bcda4358d. Última publicação22,13s com SQL/Vault consistentes e restore SQL isolado375mensagens/12migrations. Seishealthy,4HTTP200 local/público, CONNECTED/PROCESSED, pending/dead/syncDead/syncQueued e SQLpendentes0 por~5min. Sem QR/logout/envio automático/migrations/segunda limpeza. Config/env/mounts/ports/restart conferidos;37outros containers iguais. Identidade/chaves/QR/credenciais aposentadas preservadas. Outro canal recebeu disconnect por ação humana autenticada17:35UTC, sem comando do executor, preservando credenciais e fence de recibos.
+
+Core149/149+lint/typecheck/build/Prisma/drift/OpenAPI e Provider138/138 recuperação+14/14 assinatura aprovados localmente. Três envios humanos na versão76 confirmados2,695–4,673s; amostra final posteriormente observada em três envios humanos1,110–2,192s e ingressTEXT/IMAGE2,421/4,705s por proxies de timestamps; renderização/aparelho pendentes. Mídia recebida404por referência ausente investigada, download/reprodução não homologados; emoji independente. Branch fix/whatsapp-bootstrap-live-recovery enviada; fixes ainda não integrados à main, sem PR/CI novo comprovado.
+
+Relatório operacional completo, imagens IDs/SHA, dados descartados, incidentes, backups e rollback: `/home/uillan/homelab/deploy-records/wapphub-core/20261013-whatsapp-recovery/RELATORIO.md`. Rollback de aplicação conserva dados/sessão e usa imagens76; não restaurar filas descartadas automaticamente. Progresso técnico publicado, homologação humana permanece pendente.
+
+Amostra final17:43UTC: três comandos humanosCOMPLETED/attempts1,3/3snapshots com separador único e body preservado; filas0 por~558s uptime. NovaIMAGE recebida tem metadadosJPEG/153146bytes/SHA, mas GET autenticado ainda404MEDIA_UNAVAILABLE em268ms, antes do download. Essa limitação permanece pendente; não atribuir problema à reprodução sem bytes disponíveis.

@@ -22,13 +22,13 @@ const intent = () => ({ commandId: randomUUID(), messageId: randomUUID(), provid
 test("B2 signed HTTP -> Sessions -> SDK send preserves ID; Vault restart never retransmits", async t => {
   const f = await fixture(t), ev = makeEventBuffer(pino({ level: "silent" })); let calls = 0, resolutions = 0;
   const options = { enabled: true, historyEnabled: false, outboundEnabled: true };
-  const sessions = new Sessions(f.vault, f.journal, baileysFactory(f.vault, () => ({ ev, end: async () => undefined, logout: async () => undefined, onWhatsApp: async phone => { resolutions++; assert.equal(phone, "+5581999999999"); return [{ jid: "5581999999999@s.whatsapp.net", exists: true }]; }, sendMessage: async (jid, content, options) => { calls++; assert.equal(jid, "5581999999999@s.whatsapp.net"); assert.equal("text" in content && content.text, "*Ana*\n\nSynthetic only"); assert.equal(options?.messageId?.length, 32); return undefined; } }), options), true, () => () => undefined, Date.now, () => undefined, options);
+  const sessions = new Sessions(f.vault, f.journal, baileysFactory(f.vault, () => ({ ev, end: async () => undefined, logout: async () => undefined, onWhatsApp: async phone => { resolutions++; assert.equal(phone, "+5581999999999"); return [{ jid: "5581999999999@s.whatsapp.net", exists: true }]; }, sendMessage: async (jid, content, options) => { calls++; assert.equal(jid, "5581999999999@s.whatsapp.net"); assert.equal("text" in content && content.text, "*Ana*\nSynthetic only"); assert.equal(options?.messageId?.length, 32); return undefined; } }), options), true, () => () => undefined, Date.now, () => undefined, options);
   const app = createHttp(sessions, f.journal, f.auth); t.after(async () => { await sessions.shutdown(); await app.close(); });
   await sessions.create(f.scope); await sessions.command(f.scope, "connect", randomUUID()); ev.emit("connection.update", { connection: "open" }); await sessions.settle(f.scope);
   assert.equal(calls, 0); assert.equal(resolutions, 0);
   const resolve = { phone: "+5581999999999" }, resolvePath = f.path + "/recipients/resolve";
   assert.equal((await app.inject({ method: "POST", url: resolvePath, payload: resolve, headers: signedHeaders(f.internalKey, "POST", resolvePath, resolve) })).json().state, "VALID");
-  const request = { ...intent(), body: "*Ana*\n\nSynthetic only" }, path = f.path + "/messages";
+  const request = { ...intent(), body: "*Ana*\nSynthetic only" }, path = f.path + "/messages";
   const send = (body = request) => app.inject({ method: "POST", url: path, payload: body, headers: signedHeaders(f.internalKey, "POST", path, body) });
   assert.equal((await app.inject({ method: "POST", url: path, payload: request })).statusCode, 401);
   assert.equal((await send()).json().outcome, "DISPATCHED"); assert.equal((await send()).json().outcome, "DISPATCHED"); assert.equal(calls, 1);
@@ -61,7 +61,7 @@ test("signed image/video captions and empty captions pass unchanged through the 
   } }), { enabled: false, historyEnabled: false, mediaEnabled: true });
   await f.sessions.create(f.scope);
   const transport = await factory(f.scope, { connection() {}, text() {}, receipt() {}, failure() {} }); t.after(() => transport.close());
-  for (const type of ["IMAGE", "VIDEO"] as const) for (const body of ["*Ana*\n\nLegenda original\n😀", ""]) {
+  for (const type of ["IMAGE", "VIDEO"] as const) for (const body of ["*Ana*\nLegenda original\n😀", "*Ana*\n\nLegenda original\n😀", ""]) {
     const mediaId = randomUUID(), bytes = Buffer.from(`synthetic ${type}`), sha256 = createHash("sha256").update(bytes).digest("hex");
     const meta = { id: mediaId, type, mimeType: type === "IMAGE" ? "image/png" : "video/mp4", fileName: "synthetic", size: bytes.length, sha256, expiresAt: Date.now() + 3600000 };
     await f.vault.privateFiles().put(f.scope, mediaId, Readable.from([bytes]), meta);
@@ -69,7 +69,7 @@ test("signed image/video captions and empty captions pass unchanged through the 
     const request = { ...intent(), body, media: { mediaId, type, mimeType: meta.mimeType, fileName: meta.fileName, size: meta.size, sha256, state: "READY" as const } };
     await transport.send!(request); assert.equal(frames.at(-1)!.caption, body); assert.equal(frames.at(-1)!.id, request.providerMessageId); assert.deepEqual(frames.at(-1)!.bytes, bytes);
   }
-  assert.equal(frames.length, 4);
+  assert.equal(frames.length, 6);
 });
 test("B2 history above 500 conversations/1000 messages advances durable pages across restart without remote requests", async t => {
   const f = await fixture(t); await f.sessions.create(f.scope); const now = Date.now(), window = { from: new Date(now - 30 * 86400000).toISOString(), to: new Date(now).toISOString() }, digest = "a".repeat(64);

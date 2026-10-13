@@ -21,7 +21,7 @@ try {
   while (!stopping) {
     try { await worker?.tick(); } catch { log("PROVIDER_WORKER_TICK_FAILED"); }
     await writeFile("/tmp/wapphub-worker-heartbeat", String(Date.now()), { mode: 0o600 });
-    await delay(worker ? 2000 : 10000, undefined, { signal: abort.signal }).catch(() => undefined);
+    await delay(worker ? 500 : 10000, undefined, { signal: abort.signal }).catch(() => undefined);
   }
 } catch { log("WORKER_STARTUP_FAILED"); process.exitCode = 1; }
 finally { await resources.close(); }

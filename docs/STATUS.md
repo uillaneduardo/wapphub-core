@@ -1,3 +1,5 @@
+> Atualização13/10,17:34UTC: Core `recovery-41fdf6a` e Provider `recovery-da15c3b` publicados; CONNECTED, seishealthy, health/readiness200, todas filas0, identidade/QR e37containers alheios preservados. [Recuperação e evidências](WHATSAPP_WEB_RECOVERY_20261013.md). [Assinatura](WHATSAPP_WEB_ATTENDANT_SIGNATURE.md) com uma quebra em novas mensagens/legendas, snapshots antigos/autoria/IDs intactos. Core149/149 e checks, Provider138/138 recuperação+14/14 afetados aprovados. Três envios humanos finais1,110–2,192s, snapshots corretos e ingressTEXT/IMAGE observados; homologação visual/aparelho e mídia recebida404 pendentes. Registros abaixo são históricos.
+
 > Alteração local em revisão, sem publicação: [assinatura automática do
 > atendente](WHATSAPP_WEB_ATTENDANT_SIGNATURE.md). Resultados técnicos e rollback
 > estão no documento da entrega; os registros de publicação abaixo são preservados.

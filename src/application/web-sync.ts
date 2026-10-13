@@ -10,7 +10,7 @@ import { MessageIngestionService } from "./message-ingestion.js";
 
 type Scope = { organizationId: string; connectionId: string };
 export type SyncOccurrence = { id: string; correlationId: string; code: string; status: "ACTIVE" | "RECOVERED" | "REJECTED" | "DEAD_LETTER"; stage: "PERSISTENCE" | "VALIDATION"; component: "CORE"; severity: "ERROR"; occurredAt: string; lastAttemptAt: string; attempts: number; items: number; recoveredAt?: string };
-const diagnosticCodes = new Set(["PERSISTENCE_FAILED", "PROVIDER_IDEMPOTENCY_CONFLICT", "IDENTITY_MAPPING_CONFLICT", "PROVIDER_IDENTITY_CONFLICT", "UNSUPPORTED_PROVIDER_EVENT", "INVALID_PROVIDER_TIMESTAMP", "HISTORY_RETENTION_LIMIT", "STALE_PROVIDER_LEASE"]);
+const diagnosticCodes = new Set(["PERSISTENCE_FAILED", "PROVIDER_IDEMPOTENCY_CONFLICT", "IDENTITY_MAPPING_CONFLICT", "PROVIDER_IDENTITY_CONFLICT", "UNSUPPORTED_PROVIDER_EVENT", "INVALID_PROVIDER_TIMESTAMP", "HISTORY_RETENTION_LIMIT", "HISTORY_EXECUTION_DISABLED", "STALE_PROVIDER_LEASE"]);
 export const safeDiagnosticCode = (code: string) => diagnosticCodes.has(code) ? code : "PERSISTENCE_FAILED";
 export function occurrences(value: unknown): SyncOccurrence[] {
   if (!Array.isArray(value)) return [];
@@ -55,12 +55,15 @@ export class WebSync {
   async apply(scope: Scope, input: ProviderEvent, leaseToken: string, original?: ProviderEvent) {
     const event = parseProviderEvent(input);
     if (event.type !== "sync.batch" || event.provider !== "WHATSAPP_WEB" || event.organizationId !== scope.organizationId || event.connectionId !== scope.connectionId) throw new AppError(403, "PROVIDER_EVENT_SCOPE_MISMATCH");
-    if (event.data.historical && !this.chat.historyExecutionEnabled) throw new AppError(403, "HISTORY_EXECUTION_DISABLED");
+    // Protocol-delivered bootstrap is ingestion, not an on-demand history
+    // request. The correlation is deterministic for this authenticated scope.
+    const bootstrap = event.correlationId === bootstrapCorrelationId(scope);
+    if (event.data.historical && !bootstrap && !this.chat.historyExecutionEnabled) throw new AppError(403, "HISTORY_EXECUTION_DISABLED");
     const hash = createHash("sha256").update(JSON.stringify(original ? [original.type, original.data] : event.data)).digest("hex");
     return this.chat.integrationMutation(scope.organizationId, async (tx) => {
       const connection = await tx.providerConnection.findFirst({ where: { organizationId: scope.organizationId, channelId: scope.connectionId, leaseToken, leaseUntil: { gt: new Date() }, channel: { provider: "WHATSAPP_WEB" } } });
       if (!connection) throw new AppError(409, "STALE_PROVIDER_LEASE");
-      const history = event.data.historical && event.correlationId !== bootstrapCorrelationId(scope) ? historyRecord(connection.historyOperation) : undefined;
+      const history = event.data.historical && !bootstrap ? historyRecord(connection.historyOperation) : undefined;
       const tracked = history?.id === event.correlationId ? history : undefined;
       if (history && !tracked) throw new AppError(409, "HISTORY_OPERATION_MISMATCH");
       const beforeProgress = syncProgress(connection.syncProgress);

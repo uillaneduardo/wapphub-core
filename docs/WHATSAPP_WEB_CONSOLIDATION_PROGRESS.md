@@ -636,3 +636,42 @@ e ponteiro STATUS atualizados sem declarar publicação. Evidências de reprodu�
 correção e checks em20261013-attendant-whitespace-review/. Próxima ação: commit,
 push na mesma PR37 draft e confirmação da CI do novo head; nenhum merge/deploy.
 Resultados remotos finais serão preservados no relatório local da revisão.
+
+
+### 2026-10-13T16:35:37.404260+00:00 — recuperação rápida autorizada — fases1/2
+
+Usuário autoriza correção/publicação, limpeza escopada e reconexão/QR se necessários, preservando organizações/RBAC/outros tenants e sem envio automático. PR37/main41861c4 efetivamente publicada em API/Worker; Providerqrfix-06fafb6. Sessão afetada CONNECTED. Diagnóstico confirmou81 bootstrap historical=true/dead/attempts5,405 tentativas Core,32 failedBatches com HISTORY_EXECUTION_DISABLED;64 occurrences mascaradas como PERSISTENCE_FAILED. ProviderinitialHistory=true; Core/Worker/Providerexecution=false. Vault afetado848487bytes/13 referências bootstrap pendentes e CPU do Provider101% num snapshot; Core/DB sem saturação. Nenhum comando pendente. Correção mínima separa bootstrap scoped de on-demand; on-demand permanece desativado. Regressão reproduzida no banco isolado; teste novo prova Worker/live/bootstrap/dedup/tenant/lease. Evidências em20261013-whatsapp-recovery/. Próximos passos: checks, backup consistente mínimo, limpeza somente do canal ativo e deploy Core/restart Provider conservando identidade.
+
+
+### 2026-10-13T16:39:55.035920+00:00 — recuperação fase2 validada
+
+Regressão reproduzida (bootstrap não acked quando execution=false), corrigida pela correlação scoped em WebSync. Core148/148, lint/typecheck/build/Prisma aprovados. On-demand continua bloqueado; Worker prioriza send e journal prioriza live por comportamento já existente. Diagnóstico preserva HISTORY_EXECUTION_DISABLED em vez de mascará-lo. Mídia recebida com metadados válidos não tem referência no Vault; GET Provider404 antes do download/reprodução. Sem mudanças Provider nesta fase, sem ativar histórico irrestrito. Próximos: commit/imagem Core, backup quiescente, reset de filas/checkpoints somente do canal ativo e retomada autenticada.
+
+
+### 2026-10-13T17:01:46.201845+00:00 — fase3/4 aplicada; latência restante localizada
+
+Backup SQL/Vault quiescente e restore SQL isolado aprovados. Descartados81 dead-letter bootstrap/1615itens/14referências somente do canal ativo; nenhum registro de domínio apagado, inboxSQL/sends/receipts/identidade preservados. Core708443e publicado, Provider06fafb6 reiniciado sem QR; CONNECTED/PROCESSED, todas filas0, seis healthy,37outros containers intactos. Uma falha de auditoria na primeira tentativa SQL foi revertida pela transação; corrigido campo obrigatório de ator. Vault regravado com uid0 impediu primeiro startup; restaurado uid/gid1000/mode600 do backup antes da reconexão. Identidade/key material/QR preservados; lastAccountSyncTimestamp/lastPropHash atualizados normalmente pelo protocolo. Controles/sessões de outro tenant preservados.
+
+Tráfego humano observado:3INBOUND/4OUTBOUND, sendsCOMPLETED/attempts1, cerca6–10s até confirmação Provider. Não homologar rapidez ainda. Profile5s confirma clones repetidos+GC; Provider138testes/checagens aprovados para snapshot único. CursorWorker tinha volta vazia; wrap corrigido e Core em validação. Sem ativar histórico, envio automático ou nova aprovação. Próximo: publicar somente imagens afetadas pela correção complementar e medir novamente. Mídia404por referência ausente e emoji picker registrados independentemente.
+
+
+### 2026-10-13 — recuperação complementar validada; ajuste de assinatura iniciado
+
+Core/Provider76bf571 publicados e CONNECTED, sem novo QR. Filas0; três envios humanos confirmados em2,695–4,673s, uma tentativa; nove entradasTEXT+umaVOICE observadas. Snapshot de status agora exclui da cópia diagnóstica material volumoso não utilizado; Vault original e get completo preservados. Provider138/138 e lint/typecheck/build; Core lint/typecheck/build aprovados. Worker ativo500ms substitui2000ms, mantendo fluxo/isolamento existentes. Inspector fechado; interrupção operacional do Provider ao terminar profiling (~16:56–17:07UTC) registrada e comunicada. Demais37containers preservados. Usuário pediu adicionalmente separador único na assinatura; implementação/testes em commit separado, sem reescrever snapshots já persistidos. Próximos: checks da assinatura, imagens finais, backup e publicação controlada.
+
+
+### 2026-10-13 — assinatura sem linha extra validada
+
+Única linha funcional alterada em outbound-signature.ts: `*nome*\n\nbody` → `*nome*\nbody`. Body/senderName/autoria/IDs e snapshots persistidos intactos, mídia sem texto sem assinatura. Unitários5/5, Core149/149 e Provider14/14 dos testes afetados aprovados; legendas IMAGE/VIDEO, limite8000, snapshots antigos com duas quebras, retry/eco/tenancy e renomeação validados. Correção de desempenho em commit separado da assinatura. Próximo: finalizar checks, commitar, imagem Core da assinatura e Providerda15c3b, backup e publicação nos três serviços autorizados.
+
+
+### 2026-10-13 — recuperação/assinatura publicadas; homologação pendente
+
+Core41fdf6a/Providerda15c3b publicados17:34:21UTC, rollout22,13s. SQL/Vault quiescentes antes, restauração SQL isolada375mensagens/12migrations; sem segunda limpeza. CONNECTED/PROCESSED, seishealthy/4HTTP200 e filasSQL/journal/sync/dead0, logs sem retries persistentes; identidade/chaves/QR e37demais containers preservados. Initial reset81dead/1615itens/14referências,0registros domínio apagados. Outro canal teve disconnect humano autenticado17:35UTC e rotação normal256recibos; executor não enviou comando. Inspector fechado. Core149/149/checks e Provider138/138 recuperação+14/14 assinatura aprovados. Fonte remota fix/whatsapp-bootstrap-live-recovery; main41861c4 preservada, revisão/integração adicionais pendentes.
+
+Tempos reais observados antes do último rollout: três envios humanos2,695–4,673s e entradasTEXT/VOICE, uma tentativa; proxies e limites no relatório. Na versão final sem tráfego novo observado, não marcar HOMOLOGADO/latência eliminada. Pendências: ação humana para recebimento/envio/novo contato/renderização, mídia recebida404referência ausente/download/playback, emoji independente. Nenhum envio automático/novo QR/logout/migration/volume removido. Relatório completo com imagens IDs, SHAs, incidentes, backups e rollback `/home/uillan/homelab/deploy-records/wapphub-core/20261013-whatsapp-recovery/RELATORIO.md`. Próximo: homologação humana e revisão dos fixes; não executar operação WhatsApp real automaticamente.
+
+
+### 2026-10-13,17:43UTC — tráfego humano observado na versão final
+
+Três envios humanosCOMPLETED/attempts1 em1,110–2,192s até confirmaçãoProvider;3/3snapshots novos com body exato e separador único. IngressTEXT/IMAGE observado2,421/4,705s timestampWhatsApp→SQL; proxies não medem renderização/aparelho.48mensagens/12envios desde primeira retomada; filas0 por~558s uptime final. NovaIMAGE metadadosJPEG/153146bytes/SHA presentes, GETProvider404MEDIA_UNAVAILABLE268ms antes do download; mídia recebida continua pendente. Nenhuma ação real de envio pelo executor. Homologação visual/celular e novo contato permanecem pendentes; evidências traffic-final-version.json/media-final.json/verification.json.
