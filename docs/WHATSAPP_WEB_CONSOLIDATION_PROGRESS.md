@@ -636,3 +636,13 @@ e ponteiro STATUS atualizados sem declarar publicação. Evidências de reprodu�
 correção e checks em20261013-attendant-whitespace-review/. Próxima ação: commit,
 push na mesma PR37 draft e confirmação da CI do novo head; nenhum merge/deploy.
 Resultados remotos finais serão preservados no relatório local da revisão.
+
+
+### 2026-10-13T16:35:37.404260+00:00 — recuperação rápida autorizada — fases1/2
+
+Usuário autoriza correção/publicação, limpeza escopada e reconexão/QR se necessários, preservando organizações/RBAC/outros tenants e sem envio automático. PR37/main41861c4 efetivamente publicada em API/Worker; Providerqrfix-06fafb6. Sessão afetada CONNECTED. Diagnóstico confirmou81 bootstrap historical=true/dead/attempts5,405 tentativas Core,32 failedBatches com HISTORY_EXECUTION_DISABLED;64 occurrences mascaradas como PERSISTENCE_FAILED. ProviderinitialHistory=true; Core/Worker/Providerexecution=false. Vault afetado848487bytes/13 referências bootstrap pendentes e CPU do Provider101% num snapshot; Core/DB sem saturação. Nenhum comando pendente. Correção mínima separa bootstrap scoped de on-demand; on-demand permanece desativado. Regressão reproduzida no banco isolado; teste novo prova Worker/live/bootstrap/dedup/tenant/lease. Evidências em20261013-whatsapp-recovery/. Próximos passos: checks, backup consistente mínimo, limpeza somente do canal ativo e deploy Core/restart Provider conservando identidade.
+
+
+### 2026-10-13T16:39:55.035920+00:00 — recuperação fase2 validada
+
+Regressão reproduzida (bootstrap não acked quando execution=false), corrigida pela correlação scoped em WebSync. Core148/148, lint/typecheck/build/Prisma aprovados. On-demand continua bloqueado; Worker prioriza send e journal prioriza live por comportamento já existente. Diagnóstico preserva HISTORY_EXECUTION_DISABLED em vez de mascará-lo. Mídia recebida com metadados válidos não tem referência no Vault; GET Provider404 antes do download/reprodução. Sem mudanças Provider nesta fase, sem ativar histórico irrestrito. Próximos: commit/imagem Core, backup quiescente, reset de filas/checkpoints somente do canal ativo e retomada autenticada.

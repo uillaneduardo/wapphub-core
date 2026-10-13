@@ -753,6 +753,31 @@ test("B4 delivered bootstrap uses scoped correlation without spending or replaci
   assert.equal(thread.status, "OPEN"); assert.equal(await db.message.count({ where: { conversationId: thread.id } }), 0);
 });
 
+test("disabled on-demand history still ingests scoped bootstrap and live messages through Worker", async () => {
+ const disabledChat = new Chat(db, loadConfig({ ...process.env, NODE_ENV: "test", PROVIDER_HISTORY_EXECUTION_ENABLED: "false" }), async () => {}, new DemoProvider(), new MessageIngestionService());
+ const disabledIngestion = new WebIngestion(disabledChat), disabledWorker = new WebProviderWorker(db, disabledChat, provider);
+ const before = await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } });
+ const bootstrap = syncBatch([syncMessage("recovery-bootstrap@lid", "recovery-bootstrap")]);
+ bootstrap.correlationId = bootstrapCorrelationId(scope());
+ const live = syncBatch([syncMessage("recovery-live@lid", "recovery-live")], false);
+ provider.events = [live, bootstrap].map(event => ({ event, leaseId: randomUUID(), attempt: 1 }));
+ await disabledWorker.runConnection(scope());
+ assert.ok(provider.acked.includes(live.eventId)); assert.ok(provider.acked.includes(bootstrap.eventId));
+ assert.ok(!provider.nacked.includes(live.eventId)); assert.ok(!provider.nacked.includes(bootstrap.eventId));
+ assert.equal(await db.message.count({ where: { organizationId: orgA, channelId, providerMessageId: "recovery-bootstrap", historical: true } }), 1);
+ assert.equal(await db.message.count({ where: { organizationId: orgA, channelId, providerMessageId: "recovery-live", historical: false } }), 1);
+ const after = await db.providerConnection.findUniqueOrThrow({ where: { organizationId_channelId: { organizationId: orgA, channelId } } });
+ assert.deepEqual(after.historyOperation, before.historyOperation);
+ await leased(async token => {
+  assert.equal(await disabledIngestion.apply(scope(), bootstrap, token), false);
+  await assert.rejects(disabledIngestion.apply(scope(), { ...bootstrap, correlationId: randomUUID() }, token), /HISTORY_EXECUTION_DISABLED/);
+  await assert.rejects(disabledIngestion.apply(scope(), { ...bootstrap, correlationId: bootstrapCorrelationId({ organizationId: orgB, connectionId: channelId }) }, token), /HISTORY_EXECUTION_DISABLED/);
+  await assert.rejects(disabledIngestion.apply({ organizationId: orgB, connectionId: channelId }, bootstrap, token), /PROVIDER_EVENT_SCOPE_MISMATCH/);
+  await assert.rejects(disabledIngestion.apply(scope(), bootstrap, randomUUID()), /STALE_PROVIDER_LEASE/);
+ });
+ assert.equal(await db.message.count({ where: { organizationId: orgA, channelId, providerMessageId: "recovery-bootstrap" } }), 1);
+});
+
 test("B5 lifecycle HTTP/outbox/Worker/HMAC authorizes one recovery, fences stops and reports unconfirmed unlink", async () => {
  const directory = await mkdtemp(join(tmpdir(), "b5-lifecycle-")), vaultKey = randomBytes(32), vault = new Vault(join(directory, "sessions"), vaultKey); await vault.initialize();
  const journal = new EventJournal(vault), key = randomBytes(32), auth = new InternalAuth(key, join(directory, "nonces")); await auth.initialize();
