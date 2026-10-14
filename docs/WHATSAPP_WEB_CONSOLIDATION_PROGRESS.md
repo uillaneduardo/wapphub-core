@@ -756,3 +756,34 @@ Rollback e checklist nos relatórios VOICE_P11, REALTIME_P12 e ChatP1_2_MEDIA.
 Limitações: exceção histórica req-1uw não foi persistida; os bytes MediaRecorder
 humanos e reload real/decodificação no navegador não estão homologados. Diagnóstico
 sanitizado novo permite correlação futura; não solicitar cookies/conteúdo de voz.
+
+### P1.1/P1.2 — implementação e regressão concluídas; publicação pendente
+
+PRs drafts preparados: Core#41 (voz97b9d79), Core#42 (GET/readScope),
+Chat#30 (realtimeeab33a7), Chat#31 (retryvoz1ff5d7a), Chat#32
+(autoload/lightboxae3f480). Bases: Core#42→#41→main;
+Chat#32→#31→#30→main. Dependências de review explícitas, nenhum merge/deploy.
+
+Checks completos locais: Core156/156; Provider151/151; Chat realtime365/365,
+voz370/370 e mídia382/382. Lint/typecheck/build/OpenAPI aprovados, Prisma12/zero
+novo drift. CI dos heads finais deve ser conferido antes da publicação; registro
+final de runs/conclusões e SHAs em `/home/uillan/homelab/deploy-records/wapphub-core/20261013-p12-consistency/FINAL.md`.
+Core teste inicial155/156 era somente inventário da nova rota no OpenAPI,
+corrigido e repetido156/156. Runtime sintético: VOICE/AUDIOcurto/longo200,
+corrompido/encoder/overlong415, cancel499/cleanup; SDK5enviosmockados/0reais.
+
+Build Chat integrado JS538,04kB/gzip169,05kB, CSS52,25kB/gzip9,62kB;
+aviso Vite >500kB preexistente. Autoload1concorrente/32MiB declarados em voo,
+Blob URLs32MiB retidos, download transitório≤25MiB; sem LRU/persistência de bytes.
+Benchmarks e limitações de RSS/rede nos relatórios; não medido ganho produtivo.
+
+Riscos/checklist/rollback: relatório CoreVOICE_P11 e REALTIME_P12;
+ChatP1_1_VOICE, P1_2_REALTIME, P1_2_MEDIA. Homologação no notebook pendente:
+status/replay/foco/recibos reais, transferência/permissões, draft/scroll/player,
+MediaRecorder real, Range/seek, viewport/metadata, imagem/vídeo modal e mobile.
+Exceção históricareq-1uw não foi persistida; defeitos reproduzidos e sanitização
+nova não substituem prova dos bytes humanos. Reload de documento humano também
+permanece não comprovado; remount por sessão igual corrigido e diagnóstico distingue.
+Nenhuma fila/histórico/sessão WhatsApp alterados, nenhuma gravação/cookie/token
+solicitados ou registrados. Próximo: revisão humana dos PRs e autorização de
+publicação, seguida de homologação; executor não publica automaticamente.
