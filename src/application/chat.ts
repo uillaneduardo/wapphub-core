@@ -2,7 +2,7 @@ import { createWebContact } from "./web-contact.js";
 import { outboundSignature } from "./outbound-signature.js";
 import { mediaUploadSchema, mediaLimit, validMediaKind, type MediaUpload } from "../../contracts/provider-media.js";
 import { mediaReferenceSchema } from "../../contracts/provider.js";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { WebProviderError, publicMediaError, type WebProviderPort } from "../integrations/web-provider-client.js";
 import { internationalPhoneSchema, directJidSchema } from "../../contracts/provider-outbound.js";
 import { externalContactPresentation, trustedContactName, type PresentationIdentity } from "../integrations/provider-contact-presentation.js";
@@ -90,6 +90,12 @@ export const conversationDTO = (
     outboundEnabled: r.channel?.provider !== "WHATSAPP_WEB" || !!(c.webOutboundEnabled && r.channel.webConnection?.outboundEnabled && r.channel.webConnection.state === "CONNECTED" && !r.channel.webConnection.errorCode && r.channel.webConnection.lastCheckedAt && r.channel.webConnection.lastCheckedAt.getTime() > Date.now() - 30000),
     mediaEnabled: !!(c.webMediaEnabled && r.channel?.webConnection?.mediaEnabled),
     visibility: r.visibility,
+    // Cache invalidation only, never an authorization token. Uses effective
+    // message/note boundaries, not mutable lastMessageAt or status metadata.
+    readScope: createHash('sha256').update(JSON.stringify([c.organizationId, c.userId, r.id, r.channelId, floor?.toString() ?? null,
+      c.permissions.includes('notes.read') ? c.permissions.includes('conversations.supervise') ? '0' : r.visibleFromEvent.toString() : null,
+      c.permissions.includes('conversations.supervise') || r.visibility === 'FULL' ? null : r.historyBoundaryAt?.toISOString() ?? null,
+      c.permissions.includes('contacts.read')])).digest('hex'),
     tagIds: r.tags?.map((t) => t.tagId) ?? [],
     provider: r.channel?.provider ?? null,
     contactName: r.contact ? contactDisplayName(r.contact, c.permissions.includes("contacts.read")) : null,
@@ -782,6 +788,19 @@ export class Chat {
       },
     );
   }
+  private historicalMessageScope(c: ChatContext, r: Awaited<ReturnType<Chat['conversation']>>): Prisma.MessageWhereInput {
+    return r.channel?.provider === 'WHATSAPP_WEB' && !c.permissions.includes('conversations.supervise') && r.visibility !== 'FULL'
+      ? { OR: [{ historical: false }, { historical: true, importedAt: { lte: r.historyBoundaryAt ?? new Date(0) } }] } : {};
+  }
+  async getMessage(p: Principal, conversationId: string, messageId: string) {
+    const c = await this.context(p, 'messages.read'), r = await this.conversation(c, conversationId);
+    const floor = messageReadFloor(c, r);
+    if (floor === null) throw new AppError(403, 'PERMISSION_DENIED');
+    const row = await this.db.message.findFirst({ where: { id: messageId, organizationId: c.organizationId, conversationId, sequence: { gte: floor }, AND: [this.historicalMessageScope(c, r)] }, include: messageAuthors });
+    if (!row) throw new AppError(404, 'MESSAGE_NOT_FOUND');
+    if (c.permissions.includes('conversations.supervise')) await this.audit(this.db, c, 'MESSAGES_SUPERVISED');
+    return messageDTO(row, c.permissions.includes('contacts.read'));
+  }
   async messages(p: Principal, id: string, q: PageQuery) {
     const c = await this.context(p, "messages.read"),
       r = await this.conversation(c, id);
@@ -806,7 +825,7 @@ export class Chat {
         conversationId: id,
         sequence: { gte: floor, ...(!web && before ? { lt: decimal(before) } : {}) },
         AND: [
-          ...(web && !c.permissions.includes("conversations.supervise") && r.visibility !== "FULL" ? [{ OR: [{ historical: false }, { historical: true, importedAt: { lte: r.historyBoundaryAt ?? new Date(0) } }] }] : []),
+          this.historicalMessageScope(c, r),
           ...(timeCursor ? [{ OR: [{ createdAt: { lt: timeCursor.createdAt } }, { createdAt: timeCursor.createdAt, id: { lt: timeCursor.id } }] }] : []),
         ],
       },

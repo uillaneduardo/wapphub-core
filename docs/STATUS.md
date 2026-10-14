@@ -1,3 +1,5 @@
+> P1.2 consulta pontual em revisão: Core156/156 + checks/OpenAPI aprovados; [contrato, segurança e rollback](WHATSAPP_WEB_REALTIME_P12.md). Sem merge/deploy.
+
 > P1.1/P1.2 em revisão, sem publicação: Core155/155, Provider151/151 e correção de voz/diagnóstico sanitizado; Chat em PRs separadas. [Evidências, limites e rollback](WHATSAPP_WEB_VOICE_P11.md). Homologação humana pendente.
 
 > P1 mídias recebidas publicado em 13/10,19:33UTC: Core/Provider763981a,Chatbaaee36. **PUBLICADO — AGUARDANDO HOMOLOGAÇÃO REAL DE MÍDIA.** Core154/154,Provider150/150,Chat346/346 e CI completos aprovados; seishealthy, health/readiness200, conexão/identidade/QR preservados, filas0. Sem migration/reset/envio/logout. [Entrega e rollback](WHATSAPP_WEB_RECEIVED_MEDIA_P1.md). Registros anteriores abaixo são históricos.

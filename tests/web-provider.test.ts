@@ -1115,6 +1115,7 @@ test('P1.2 provider receipts commit SQL + realtime, replay ordered checkpoints a
       const row = await db.message.findUniqueOrThrow({ where: { id: pending.id } }); assert.equal(row.status, status);
       const rest = (await request(owner, 'GET', `/conversations/${thread.id}/messages`)).json().items;
       assert.equal(rest.find((item: { id: string }) => item.id === pending.id).status, status);
+      const targeted = (await request(owner, 'GET', `/conversations/${thread.id}/messages/${pending.id}`)).json(); assert.equal(targeted.status, status); assert.equal(targeted.clientMessageId, pending.clientMessageId);
       assert.equal(rest.find((item: { id: string }) => item.id === pending.id).clientMessageId, pending.clientMessageId);
     }
     await ingestion.apply(scope(), event('message.updated', providerId, 'SENT'), token);
@@ -1126,6 +1127,8 @@ test('P1.2 provider receipts commit SQL + realtime, replay ordered checkpoints a
     assert.deepEqual(replay.events.filter((frame: { entityId: string }) => frame.entityId === pending.id).map((frame: { eventId: string }) => frame.eventId), updates.map(frame => frame.eventId));
     await request(await auth(orgB, chatPermissions), 'GET', `/conversations/${thread.id}/messages`, undefined, 404);
     await request(denied, 'GET', `/conversations/${thread.id}/messages`, undefined, 403);
+    await request(denied, 'GET', `/conversations/${thread.id}/messages/${pending.id}`, undefined, 403);
+    await request(await auth(orgB, chatPermissions), 'GET', `/conversations/${thread.id}/messages/${pending.id}`, undefined, 404);
   } finally {
     socket.close(); await db.providerConnection.update({ where: { organizationId_channelId: { organizationId: orgA, channelId } }, data: { leaseToken: old.leaseToken, leaseUntil: old.leaseUntil } });
   }
