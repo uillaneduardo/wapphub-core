@@ -721,3 +721,19 @@ Pedido adicional P1.1 autoriza diagnóstico/correção localizada de voz e PRs s
 HAR fornecido sem arquivo completo: req-1uw21:11:47Z/VOICEaudio-webm49459bytes/503MEDIA_UPLOAD_FAILED/1529ms/preflight204/semPOSTmessages. Core erro21:11:49.182Z correlacionado temporalmente a ProviderREQUEST_FAILED21:11:49.180Z. Exceção antiga não persistida, não atribuir causa exata desses bytes sem evidência. Reproduzidos ffprobeexit0+EPIPE→503REQUEST_FAILED e duração WebM ausente antes de conversão; corrigidos com validação completa, Oggfinal/duração/MIME/hash e arquivo privado. Handler de encoder falho não produz unhandled rejection, cancelamento limpa arquivos e stderr é classificado sem logging bruto. Não alterado recebimento, WhatsApp/sync/filas/schema.
 
 Core155/155+Provider151/151, lint/typecheck/build, OpenAPIidêntico,Prisma12/zero novo drift aprovados em banco isolado. Scripts da imagem real com fonte compilada montada, networknone/CPU1/RAM512/read-only: seis VOICE/AUDIO0,04/5/60s HMAC200/Ogg/hash/duração corretos,601s415, falha/corrompido415/cancel499 ecleanup. SDKmedia IMAGE/AUDIO/VOICE/VIDEO5enviosmockados/0reais aprovados. Chatvoz360/360+checks, gravação e retryclientMessageId/mediaId preservados,UNKNOWNapenasconsultaREST. Relatório WHATSAPP_WEB_VOICE_P11.md; evidências20261013-p12-consistency/. PR30ChatRealtime ePR31ChatVoz drafts comCI54/55 verdes nos heads iniciais; revisão final de autoridade/replay doPR30 em validação. Autoload/lightbox em branchseparada,27testesfocados+checks aprovados, suitecompleta em andamento. Nada publicado/mergeado/homologado, produção preservada. Próximo: commits/PRCore, CI final e revisão/homologação futura pelo usuário.
+
+
+### P1.2 — revisão da janela REST e contrato pontual
+
+Chat PR30/31 e Core PR41 permanecem drafts. Nova corrida reproduzida: janela
+REST avança e remove mensagem/player já carregados; atualização de status
+antigo precisa ler por ID. Branch Core fix/p12-point-message-read adiciona GET
+pontual e readScope opaco de cache, com os mesmos pisos/RBAC/tenancy/histórico.
+Contratos aditivos, nenhuma migração. Chat preserva histórico somente com escopo
+confirmado igual e invalida em mudança real; legado conserva fallback anterior.
+Suíte Core inicial155/156: único erro era inventário OpenAPI de rotas ainda sem
+novo GET; atualizado e suíte completa repetida. Checks locais aprovados.
+Produção/filas/WhatsApp intactos. Relatório WHATSAPP_WEB_REALTIME_P12.md.
+
+P1.2 Core final156/156, lint/typecheck/build/OpenAPI aprovados. Sem novo schema;
+validação Prisma12/zero novo drift permanece válida, schema não foi alterado.

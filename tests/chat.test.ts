@@ -648,6 +648,12 @@ for (const mode of ["FULL", "LIMITED", "NONE"] as const)
       messages.items.length,
       mode === "FULL" ? 4 : mode === "LIMITED" ? 2 : 0,
     );
+    for (let i = 0; i < ids.length; i++) {
+      const allowed = mode === 'FULL' || mode === 'LIMITED' && i >= 2;
+      await request(recipient, 'GET', `/conversations/${c.id}/messages/${ids[i]}`, undefined, allowed ? 200 : 404);
+      await request(supervisor, 'GET', `/conversations/${c.id}/messages/${ids[i]}`);
+      await request(agent, 'GET', `/conversations/${c.id}/messages/${ids[i]}`, undefined, 404);
+    }
     const expectedPreview = mode === "NONE" ? null : "history-3";
     assert.equal((await request(recipient, "GET", `/conversations/${c.id}`)).lastMessagePreview, expectedPreview);
     const inbox = await request(recipient, "GET", "/conversations?scope=mine&limit=1");
@@ -1411,4 +1417,19 @@ test("contact presentation prioritizes internal/external names and verified alia
  await db.contact.update({ where: { id: c.contactId }, data: { name: "80595094880359@lid", providerName: "80595094880359@lid" } });
  assert.equal((await request(tenantA, "GET", `/conversations/${c.id}`)).contactName, `Contato ${c.contactId.slice(0, 8)}`);
  assert.equal(await db.contact.count({ where: { organizationId: orgA, primaryIdentifier: raw } }), 1);
+});
+
+
+test('P1.2 readScope is stable across messages/status, changes with actual read boundaries and preserves masking', async () => {
+  const c = await conversation(); await request(supervisor, 'POST', `/conversations/${c.id}/assign`, { userId: agent.userId });
+  const first = await request(agent, 'GET', `/conversations/${c.id}`), sent = await send(agent, c.id, 'Synthetic read scope');
+  const after = await request(agent, 'GET', `/conversations/${c.id}`); assert.match(first.readScope, /^[a-f0-9]{64}$/); assert.equal(first.readScope, after.readScope);
+  assert.equal((await request(agent, 'GET', `/conversations/${c.id}/messages/${sent.id}`)).clientMessageId, sent.clientMessageId);
+  await request(tenantB, 'GET', `/conversations/${c.id}/messages/${sent.id}`, undefined, 404);
+  await request(denied, 'GET', `/conversations/${c.id}/messages/${sent.id}`, undefined, 403);
+  const supervisorScope = (await request(supervisor, 'GET', `/conversations/${c.id}`)).readScope;
+  await request(agent, 'POST', `/conversations/${c.id}/transfer`, { userId: recipient.userId, visibility: 'NONE' });
+  assert.equal((await request(supervisor, 'GET', `/conversations/${c.id}`)).readScope, supervisorScope);
+  assert.notEqual((await request(recipient, 'GET', `/conversations/${c.id}`)).readScope, first.readScope);
+  await request(recipient, 'GET', `/conversations/${c.id}/messages/${sent.id}`, undefined, 404);
 });

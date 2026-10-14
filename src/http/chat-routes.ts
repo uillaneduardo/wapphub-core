@@ -48,6 +48,7 @@ const conversation = obj({
   updatedAt: date,
   lastMessageAt: date,
   visibility: { type: "string", enum: ["FULL", "LIMITED", "NONE"] },
+  readScope: { type: "string", pattern: "^[a-f0-9]{64}$" },
 });
 const message = obj({
   deliveryOutcome: { type: ["string", "null"], enum: [null, "UNKNOWN", "NOT_SENT"] },
@@ -256,6 +257,11 @@ export async function chatRoutes(
       }),
     },
     async (r) => chat.messages(await principal(r), r.params.id, r.query),
+  );
+  app.get<{ Params: { id: string; messageId: string } }>(
+    '/api/v1/conversations/:id/messages/:messageId',
+    { schema: schema(message, false, { params: obj({ id: uuid, messageId: uuid }) }) },
+    async r => chat.getMessage(await principal(r), r.params.id, r.params.messageId),
   );
   app.post<{ Params: { id: string }; Querystring: MediaUpload }>("/api/v1/conversations/:id/media", { bodyLimit: 25 * 1024 * 1024, schema: schema(message.properties.media, true, { params: ids, querystring: z.toJSONSchema(mediaUploadSchema, { target: "draft-7" }), consumes: ["application/octet-stream"] }) }, async r => loggedOperation(r, "media.upload", async () => chat.uploadMedia(await principal(r), r.params.id, r.query, r.body as Readable, r.id)));
   app.get<{ Params: { id: string; messageId: string } }>("/api/v1/conversations/:id/messages/:messageId/media", { schema: { tags: ["M1 Internal Chat"], security: [{ webSession: [] }], params: obj({ id: uuid, messageId: uuid }), response: { ...errors, 408: error, 410: error, 413: error, 415: error, 416: error, 206: { type: "string", format: "binary" }, 200: { type: "string", format: "binary" } }, produces: ["image/jpeg", "image/png", "image/webp", "audio/ogg", "audio/mpeg", "audio/mp4", "audio/webm", "video/mp4"] } }, async (r, reply) => {

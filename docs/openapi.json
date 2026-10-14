@@ -3949,6 +3949,10 @@
                               "LIMITED",
                               "NONE"
                             ]
+                          },
+                          "readScope": {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
                           }
                         },
                         "required": [
@@ -3966,7 +3970,8 @@
                           "createdAt",
                           "updatedAt",
                           "lastMessageAt",
-                          "visibility"
+                          "visibility",
+                          "readScope"
                         ]
                       }
                     },
@@ -4424,6 +4429,10 @@
                         "NONE"
                       ]
                     },
+                    "readScope": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
                     "reused": {
                       "type": "boolean"
                     }
@@ -4443,7 +4452,8 @@
                     "createdAt",
                     "updatedAt",
                     "lastMessageAt",
-                    "visibility"
+                    "visibility",
+                    "readScope"
                   ]
                 }
               }
@@ -5274,6 +5284,10 @@
                         "NONE"
                       ]
                     },
+                    "readScope": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
                     "reused": {
                       "type": "boolean"
                     }
@@ -5293,7 +5307,8 @@
                     "createdAt",
                     "updatedAt",
                     "lastMessageAt",
-                    "visibility"
+                    "visibility",
+                    "readScope"
                   ]
                 }
               }
@@ -5727,6 +5742,10 @@
                         "LIMITED",
                         "NONE"
                       ]
+                    },
+                    "readScope": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
                     }
                   },
                   "required": [
@@ -5744,7 +5763,8 @@
                     "createdAt",
                     "updatedAt",
                     "lastMessageAt",
-                    "visibility"
+                    "visibility",
+                    "readScope"
                   ]
                 }
               }
@@ -6179,6 +6199,10 @@
                         "LIMITED",
                         "NONE"
                       ]
+                    },
+                    "readScope": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
                     }
                   },
                   "required": [
@@ -6196,7 +6220,8 @@
                     "createdAt",
                     "updatedAt",
                     "lastMessageAt",
-                    "visibility"
+                    "visibility",
+                    "readScope"
                   ]
                 }
               }
@@ -6631,6 +6656,10 @@
                         "LIMITED",
                         "NONE"
                       ]
+                    },
+                    "readScope": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
                     }
                   },
                   "required": [
@@ -6648,7 +6677,8 @@
                     "createdAt",
                     "updatedAt",
                     "lastMessageAt",
-                    "visibility"
+                    "visibility",
+                    "readScope"
                   ]
                 }
               }
@@ -7591,6 +7621,525 @@
           {
             "webSession": [],
             "csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "deliveryOutcome": {
+                      "type": "string",
+                      "enum": [
+                        null,
+                        "UNKNOWN",
+                        "NOT_SENT"
+                      ],
+                      "nullable": true
+                    },
+                    "id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "conversationId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "senderUserId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "nullable": true
+                    },
+                    "senderContactId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "nullable": true
+                    },
+                    "senderName": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "clientMessageId": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "direction": {
+                      "type": "string",
+                      "enum": [
+                        "INTERNAL",
+                        "INBOUND",
+                        "OUTBOUND"
+                      ]
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "TEXT",
+                        "IMAGE",
+                        "AUDIO",
+                        "VOICE",
+                        "VIDEO",
+                        "DOCUMENT"
+                      ]
+                    },
+                    "historical": {
+                      "type": "boolean"
+                    },
+                    "media": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "mediaId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "IMAGE",
+                            "AUDIO",
+                            "VOICE",
+                            "VIDEO",
+                            "DOCUMENT"
+                          ]
+                        },
+                        "mimeType": {
+                          "type": "string"
+                        },
+                        "fileName": {
+                          "type": "string"
+                        },
+                        "size": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 26214400
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "PENDING",
+                            "TRANSFERRING",
+                            "READY",
+                            "FAILED"
+                          ]
+                        },
+                        "sha256": {
+                          "type": "string"
+                        },
+                        "thumbnailMediaId": {
+                          "type": "string",
+                          "format": "uuid"
+                        }
+                      },
+                      "required": [
+                        "mediaId",
+                        "type",
+                        "mimeType",
+                        "fileName",
+                        "size",
+                        "state"
+                      ],
+                      "nullable": true
+                    },
+                    "body": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "PENDING",
+                        "SENT",
+                        "DELIVERED",
+                        "READ",
+                        "FAILED"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "updatedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "deliveryOutcome",
+                    "id",
+                    "conversationId",
+                    "senderUserId",
+                    "senderContactId",
+                    "senderName",
+                    "clientMessageId",
+                    "direction",
+                    "type",
+                    "historical",
+                    "media",
+                    "body",
+                    "status",
+                    "createdAt",
+                    "updatedAt"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/messages/{messageId}": {
+      "get": {
+        "tags": [
+          "M1 Internal Chat"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "messageId",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "webSession": []
           }
         ],
         "responses": {
@@ -12255,6 +12804,10 @@
                         "LIMITED",
                         "NONE"
                       ]
+                    },
+                    "readScope": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
                     }
                   },
                   "required": [
@@ -12272,7 +12825,8 @@
                     "createdAt",
                     "updatedAt",
                     "lastMessageAt",
-                    "visibility"
+                    "visibility",
+                    "readScope"
                   ]
                 }
               }
@@ -12747,6 +13301,10 @@
                         "LIMITED",
                         "NONE"
                       ]
+                    },
+                    "readScope": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
                     }
                   },
                   "required": [
@@ -12764,7 +13322,8 @@
                     "createdAt",
                     "updatedAt",
                     "lastMessageAt",
-                    "visibility"
+                    "visibility",
+                    "readScope"
                   ]
                 }
               }
