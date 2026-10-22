@@ -16,9 +16,9 @@ export const publicUser = (u: User) => ({
   email: u.email,
 });
 function cleanProfileName(value: string, maxLength: number): string {
-  const name = value.normalize("NFC").trim().replace(/\\s+/gu, " ");
+  const name = value.normalize("NFC").trim().replace(/\s+/gu, " ");
   // Attendant names also appear in WhatsApp Markdown signatures.
-  if (name.length < 2 || name.length > maxLength || /[\\p{Cc}\\p{Cf}*_~`]/u.test(name))
+  if (name.length < 2 || name.length > maxLength || /[\p{Cc}\p{Cf}*_~`]/u.test(name))
     throw new AppError(400, "INVALID_PROFILE_NAME");
   return name;
 }
