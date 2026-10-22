@@ -329,7 +329,7 @@ export async function buildApp(
     {
       schema: {
         ...mutable,
-        body: object({ displayName: { anyOf: [{ type: "string", minLength: 2, maxLength: 80 }, { type: "null" }] } }),
+        body: object({ displayName: { type: ["string", "null"], minLength: 2, maxLength: 80 } }),
         response: { ...responses, 200: object({ displayName: { type: ["string", "null"] }, effectiveDisplayName: string }) },
       },
     },
