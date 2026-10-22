@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { Readable, PassThrough } from "node:stream";
-import { readdir } from "node:fs/promises";
+import { readdir, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BufferJSON, type WAMessage } from "baileys";
 import { ProviderMedia } from "../src/media.js";
@@ -118,4 +118,16 @@ test("closing the signed HTTP request cancels Provider download and removes inco
   assert.equal(signal?.aborted,true); assert.equal(source.destroyed,true);
   for(let i=0;i<100 && (await readdir(join(f.vault.directory,"files")).catch(() => [] as string[])).some(f=>f.endsWith(".part"));i++) await new Promise(resolve => setTimeout(resolve,5));
   assert.ok((await readdir(join(f.vault.directory,"files")).catch(() => [] as string[])).every(f=>!f.endsWith(".part")));
+});
+
+
+test('P1.1 successful probe closing stdin early must not fail a verified upload with EPIPE', async t => {
+  const f = await fixture(t); await f.sessions.create(f.scope);
+  const bin = join(f.vault.directory, 'probe-bin'); await mkdir(bin, { mode: 0o700 });
+  await writeFile(join(bin, 'ffprobe'), `#!/bin/sh\nprintf '%s' '{"streams":[{"codec_type":"video","codec_name":"png"}],"format":{"duration":"0"}}'\n`, { mode: 0o700 });
+  const oldPath = process.env.PATH; process.env.PATH = `${bin}:${oldPath}`; t.after(() => { process.env.PATH = oldPath; });
+  const bytes = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(1024 * 1024)]);
+  const meta = { mediaId: randomUUID(), type: 'IMAGE' as const, mimeType: 'image/png' as const, fileName: 'synthetic.png', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') };
+  const media = new ProviderMedia(f.vault, true), result = await media.upload(f.scope, meta, Readable.from(bytes));
+  assert.equal(result.state, 'READY'); assert.equal(result.sha256, meta.sha256);
 });

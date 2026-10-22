@@ -27,7 +27,7 @@ async function start() {
   const syncOptions = { mediaEnabled: process.env.PROVIDER_MEDIA_ENABLED === "true", outboundEnabled: process.env.PROVIDER_OUTBOUND_ENABLED === "true", initialHistoryEnabled: process.env.PROVIDER_INITIAL_HISTORY_ENABLED !== "false", scopedHistoryAuthorization: process.env.PROVIDER_HISTORY_SCOPED_AUTHORIZATION === "true", historyExecutionEnabled: process.env.PROVIDER_HISTORY_EXECUTION_ENABLED === "true", enabled: process.env.PROVIDER_SYNC_ENABLED !== "false", historyEnabled: process.env.PROVIDER_HISTORY_ENABLED === "true", approvedScope: process.env.PROVIDER_HISTORY_APPROVED_SCOPE, linkedRecoveryOnly: process.env.PROVIDER_LINKED_RECOVERY_ONLY === "true" };
   const sessions = new Sessions(vault, journal, baileysFactory(vault, undefined, { ...syncOptions, pairingWebVersion: pairingWebVersion(process.env.PROVIDER_PAIRING_WEB_VERSION) }), process.env.ALLOW_SESSION_CONNECT === "true", undefined, undefined, log, syncOptions);
   await sessions.recover();
-  const app = createHttp(sessions, journal, auth, log, new ProviderMedia(vault, syncOptions.mediaEnabled));
+  const app = createHttp(sessions, journal, auth, log, new ProviderMedia(vault, syncOptions.mediaEnabled, (code, fields) => logger.info({ code, ...fields })));
   await app.listen({ host: "0.0.0.0", port: 3000 });
   log("SERVICE_READY");
   let stopping = false;

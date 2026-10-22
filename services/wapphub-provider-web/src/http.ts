@@ -46,10 +46,15 @@ export function createHttp(sessions: Sessions, journal: EventJournal, auth: Inte
   app.put(prefix, async (request) => sessions.create(scopeSchema.parse(request.params)));
   app.get(prefix, async (request) => sessions.view(scopeSchema.parse(request.params)));
   app.get(`${prefix}/qr`, async (request) => sessions.qr(scopeSchema.parse(request.params)));
-  app.post(`${prefix}/media`, { bodyLimit: 25 * 1024 * 1024 }, async request => {
+  app.post(`${prefix}/media`, { bodyLimit: 25 * 1024 * 1024 }, async (request, reply) => {
     if (!media || request.headers["content-type"] !== "application/octet-stream") throw new ServiceError("MEDIA_DISABLED", 403);
     const manifest = mediaUploadSchema.parse(JSON.parse(Buffer.from(String(request.headers["x-media-manifest"]), "base64url").toString()));
-    return media.upload(scopeSchema.parse(request.params), manifest, request.body as Readable);
+    const previousTimeout = request.raw.socket.timeout; request.raw.setTimeout(60_000);
+    const cancellation = new AbortController();
+    const cancel = () => { if (!reply.raw.writableFinished) cancellation.abort(); };
+    request.raw.once('aborted', cancel); reply.raw.once('close', cancel);
+    try { return await media.upload(scopeSchema.parse(request.params), manifest, request.body as Readable, cancellation.signal, typeof request.headers['x-wapphub-request-id'] === 'string' ? request.headers['x-wapphub-request-id'] : undefined); }
+    finally { request.raw.removeListener('aborted', cancel); reply.raw.removeListener('close', cancel); request.raw.setTimeout(previousTimeout ?? 0); }
   });
   app.get(`${prefix}/media/:id`, async (request, reply) => {
     if (!media) throw new ServiceError("MEDIA_DISABLED", 403);
