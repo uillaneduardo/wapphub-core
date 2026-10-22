@@ -40,6 +40,8 @@ const context = object({
     permissionVersion: { type: "integer", minimum: 0 },
     role: string,
     consumesSeat: { type: "boolean" },
+    displayName: { type: ["string", "null"] },
+    effectiveDisplayName: string,
   }),
   permissions: { type: "array", items: string },
   resources: { type: "array", items: { type: "object", additionalProperties: false, properties: {
@@ -311,6 +313,30 @@ export async function buildApp(
         currentOrganizationId: principal.session.currentOrganizationId,
         csrfToken: foundation.restoreCsrf(principal, req.cookies.wapphub_csrf),
       };
+    },
+  );
+  app.patch<{ Body: { name: string } }>(
+    "/api/v1/me/profile",
+    { schema: { ...mutable, body: object({ name: { type: "string", minLength: 2, maxLength: 120 } }), response: { ...responses, 200: user } } },
+    async (req) => {
+      const principal = await foundation.authenticate(req.cookies[sessionCookie], false);
+      foundation.csrf(principal, req.headers["x-csrf-token"] as string | undefined);
+      return foundation.updateProfile(principal, req.body.name);
+    },
+  );
+  app.patch<{ Body: { displayName: string | null } }>(
+    "/api/v1/me/organization-profile",
+    {
+      schema: {
+        ...mutable,
+        body: object({ displayName: { anyOf: [{ type: "string", minLength: 2, maxLength: 80 }, { type: "null" }] } }),
+        response: { ...responses, 200: object({ displayName: { type: ["string", "null"] }, effectiveDisplayName: string }) },
+      },
+    },
+    async (req) => {
+      const principal = await authenticate(req);
+      foundation.csrf(principal, req.headers["x-csrf-token"] as string | undefined);
+      return foundation.updateOrganizationProfile(principal, req.body.displayName);
     },
   );
   app.get(
