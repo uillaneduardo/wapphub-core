@@ -67,7 +67,8 @@ test("catalog is unique, base resources automatic, future resources unlaunched a
   assert.ok(resourceCatalog.filter((r) => r.availability !== "AVAILABLE").every((r) => r.permissions.length === 0));
   const catalog = await request(agent, "GET", "/api/v1/resources"); assert.equal(catalog.items.length, resourceCatalog.length);
   const a = await bootstrap(agent), s = await bootstrap(supervisor), o = await bootstrap(owner);
-  assert.ok(a.permissions.includes("conversations.assign") && a.permissions.includes("conversations.transfer"));
+  assert.ok(!a.permissions.includes("conversations.create") && !a.permissions.includes("conversations.assign") && !a.permissions.includes("conversations.transfer"));
+  assert.ok(a.permissions.includes("conversations.read") && a.permissions.includes("messages.send"));
   assert.ok(!a.permissions.includes("conversations.supervise") && !a.permissions.includes("team.read"));
   assert.ok(s.permissions.includes("conversations.supervise") && s.permissions.includes("team.read"));
   assert.ok(!s.permissions.includes("team.permissions.manage") && !s.permissions.includes("providers.manage"));
