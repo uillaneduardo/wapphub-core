@@ -1479,3 +1479,25 @@ test("AGENT waits for OWNER/SUPERVISOR assignment and cannot self-claim, inspect
   await request(assignedOnlyAgent, "GET", `/conversations/${free.id}/messages`, undefined, 404);
   await request(assignedOnlyAgent, "POST", `/conversations/${free.id}/messages`, { body: "After transfer", clientMessageId: randomUUID() }, 404);
 });
+
+test("message author display names are immutable per organization, even when alias changes", async () => {
+  const thread = await conversation(supervisor);
+  try {
+    const firstUpdate = await request(supervisor, "PATCH", "/me/organization-profile", { displayName: "Ana Vendas" });
+    assert.equal(firstUpdate.effectiveDisplayName, "Ana Vendas");
+    const first = await send(supervisor, thread.id, "Primeiro envio");
+    assert.equal(first.senderName, "Ana Vendas");
+    await request(supervisor, "PATCH", "/me/organization-profile", { displayName: "Ana Suporte" });
+    const second = await send(supervisor, thread.id, "Segundo envio");
+    assert.equal(second.senderName, "Ana Suporte");
+    const history = await request(supervisor, "GET", `/conversations/${thread.id}/messages`);
+    assert.equal(history.items.find((item: { id: string }) => item.id === first.id)?.senderName, "Ana Vendas");
+    assert.equal(history.items.find((item: { id: string }) => item.id === second.id)?.senderName, "Ana Suporte");
+    const firstStored = await db.message.findFirstOrThrow({ where: { id: first.id, organizationId: orgA } });
+    assert.equal(firstStored.senderDisplayName, "Ana Vendas");
+    const otherMember = await db.membership.findUniqueOrThrow({ where: { userId_organizationId: { userId: supervisor.userId, organizationId: orgC } } });
+    assert.equal(otherMember.displayName, null);
+  } finally {
+    await request(supervisor, "PATCH", "/me/organization-profile", { displayName: null });
+  }
+});
