@@ -42,6 +42,7 @@ model Organization {
 
 model Membership {
   permissionVersion Int @default(0)
+  displayName String? @db.VarChar(80)
   permissionOverrides MembershipPermissionOverride[]
   id             String       @id @default(uuid()) @db.Char(36)
   userId         String       @db.Char(36)
@@ -230,6 +231,7 @@ model Message {
   organizationId  String        @db.Char(36)
   conversationId  String        @db.Char(36)
   senderUserId    String?       @db.Char(36)
+  senderDisplayName String?     @db.VarChar(80)
   senderContactId String?       @db.Char(36)
   channelId       String?       @db.Char(36)
   providerMessageId String?     @db.VarChar(160)
