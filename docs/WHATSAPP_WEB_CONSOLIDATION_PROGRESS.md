@@ -721,3 +721,69 @@ Pedido adicional P1.1 autoriza diagnóstico/correção localizada de voz e PRs s
 HAR fornecido sem arquivo completo: req-1uw21:11:47Z/VOICEaudio-webm49459bytes/503MEDIA_UPLOAD_FAILED/1529ms/preflight204/semPOSTmessages. Core erro21:11:49.182Z correlacionado temporalmente a ProviderREQUEST_FAILED21:11:49.180Z. Exceção antiga não persistida, não atribuir causa exata desses bytes sem evidência. Reproduzidos ffprobeexit0+EPIPE→503REQUEST_FAILED e duração WebM ausente antes de conversão; corrigidos com validação completa, Oggfinal/duração/MIME/hash e arquivo privado. Handler de encoder falho não produz unhandled rejection, cancelamento limpa arquivos e stderr é classificado sem logging bruto. Não alterado recebimento, WhatsApp/sync/filas/schema.
 
 Core155/155+Provider151/151, lint/typecheck/build, OpenAPIidêntico,Prisma12/zero novo drift aprovados em banco isolado. Scripts da imagem real com fonte compilada montada, networknone/CPU1/RAM512/read-only: seis VOICE/AUDIO0,04/5/60s HMAC200/Ogg/hash/duração corretos,601s415, falha/corrompido415/cancel499 ecleanup. SDKmedia IMAGE/AUDIO/VOICE/VIDEO5enviosmockados/0reais aprovados. Chatvoz360/360+checks, gravação e retryclientMessageId/mediaId preservados,UNKNOWNapenasconsultaREST. Relatório WHATSAPP_WEB_VOICE_P11.md; evidências20261013-p12-consistency/. PR30ChatRealtime ePR31ChatVoz drafts comCI54/55 verdes nos heads iniciais; revisão final de autoridade/replay doPR30 em validação. Autoload/lightbox em branchseparada,27testesfocados+checks aprovados, suitecompleta em andamento. Nada publicado/mergeado/homologado, produção preservada. Próximo: commits/PRCore, CI final e revisão/homologação futura pelo usuário.
+
+
+### P1.2 — revisão da janela REST e contrato pontual
+
+Chat PR30/31 e Core PR41 permanecem drafts. Nova corrida reproduzida: janela
+REST avança e remove mensagem/player já carregados; atualização de status
+antigo precisa ler por ID. Branch Core fix/p12-point-message-read adiciona GET
+pontual e readScope opaco de cache, com os mesmos pisos/RBAC/tenancy/histórico.
+Contratos aditivos, nenhuma migração. Chat preserva histórico somente com escopo
+confirmado igual e invalida em mudança real; legado conserva fallback anterior.
+Suíte Core inicial155/156: único erro era inventário OpenAPI de rotas ainda sem
+novo GET; atualizado e suíte completa repetida. Checks locais aprovados.
+Produção/filas/WhatsApp intactos. Relatório WHATSAPP_WEB_REALTIME_P12.md.
+
+P1.2 Core final156/156, lint/typecheck/build/OpenAPI aprovados. Sem novo schema;
+validação Prisma12/zero novo drift permanece válida, schema não foi alterado.
+
+### P1.1/P1.2 — PRs de revisão preparados (sem publicação)
+
+Core#41 voz (97b9d79) e Core#42 consulta pontual (d0bbb67) são drafts;
+Core#42 base fix/p11-voice-send. Chat#30 realtime (eab33a7) é draft contra main;
+Chat#31 voz é draft empilhado sobre#30, com limpeza de descarte e proteção de
+nova gravação. Branch feat/p12-visible-media integra ambas e será PR separada.
+Core156/156, Provider151/151, Chat realtime365/365 e respectivos checks locais
+aprovados. CI Core#41 Core90/Provider86 verdes; Chat#30 Frontend59 verde;
+Core#42 Provider87 verde, Core91 em execução no registro desta fase.
+Suítes finais Chat voz/mídia e respectivos CI continuarão até conclusão.
+
+Produção conferida novamente: Core/API/Worker/Provider763981a e Chatbaaee36,
+healthy/restarts0, StartedAt originais19:32–19:33UTC; main Core205077e e
+Chat446d0b2 iguais remotos. Nenhum deploy/merge/envio real/re-pareamento/limpeza.
+Rollback e checklist nos relatórios VOICE_P11, REALTIME_P12 e ChatP1_2_MEDIA.
+Limitações: exceção histórica req-1uw não foi persistida; os bytes MediaRecorder
+humanos e reload real/decodificação no navegador não estão homologados. Diagnóstico
+sanitizado novo permite correlação futura; não solicitar cookies/conteúdo de voz.
+
+### P1.1/P1.2 — implementação e regressão concluídas; publicação pendente
+
+PRs drafts preparados: Core#41 (voz97b9d79), Core#42 (GET/readScope),
+Chat#30 (realtimeeab33a7), Chat#31 (retryvoz1ff5d7a), Chat#32
+(autoload/lightboxae3f480). Bases: Core#42→#41→main;
+Chat#32→#31→#30→main. Dependências de review explícitas, nenhum merge/deploy.
+
+Checks completos locais: Core156/156; Provider151/151; Chat realtime365/365,
+voz370/370 e mídia382/382. Lint/typecheck/build/OpenAPI aprovados, Prisma12/zero
+novo drift. CI dos heads finais deve ser conferido antes da publicação; registro
+final de runs/conclusões e SHAs em `/home/uillan/homelab/deploy-records/wapphub-core/20261013-p12-consistency/FINAL.md`.
+Core teste inicial155/156 era somente inventário da nova rota no OpenAPI,
+corrigido e repetido156/156. Runtime sintético: VOICE/AUDIOcurto/longo200,
+corrompido/encoder/overlong415, cancel499/cleanup; SDK5enviosmockados/0reais.
+
+Build Chat integrado JS538,04kB/gzip169,05kB, CSS52,25kB/gzip9,62kB;
+aviso Vite >500kB preexistente. Autoload1concorrente/32MiB declarados em voo,
+Blob URLs32MiB retidos, download transitório≤25MiB; sem LRU/persistência de bytes.
+Benchmarks e limitações de RSS/rede nos relatórios; não medido ganho produtivo.
+
+Riscos/checklist/rollback: relatório CoreVOICE_P11 e REALTIME_P12;
+ChatP1_1_VOICE, P1_2_REALTIME, P1_2_MEDIA. Homologação no notebook pendente:
+status/replay/foco/recibos reais, transferência/permissões, draft/scroll/player,
+MediaRecorder real, Range/seek, viewport/metadata, imagem/vídeo modal e mobile.
+Exceção históricareq-1uw não foi persistida; defeitos reproduzidos e sanitização
+nova não substituem prova dos bytes humanos. Reload de documento humano também
+permanece não comprovado; remount por sessão igual corrigido e diagnóstico distingue.
+Nenhuma fila/histórico/sessão WhatsApp alterados, nenhuma gravação/cookie/token
+solicitados ou registrados. Próximo: revisão humana dos PRs e autorização de
+publicação, seguida de homologação; executor não publica automaticamente.

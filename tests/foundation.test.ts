@@ -486,6 +486,7 @@ test("OpenAPI preserves every foundation and M1 route and adds M2.1 permissions 
     "/conversations/{id}/archive",
     "/conversations/{id}/unarchive",
     "/conversations/{id}/messages",
+    "/conversations/{id}/messages/{messageId}",
     "/conversations/{id}/messages/{messageId}/status",
     "/conversations/{id}/assign",
     "/conversations/{id}/transfer",
