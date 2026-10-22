@@ -37,6 +37,7 @@ export class Permissions {
       if (member.userId === c.userId) throw new AppError(403, "SELF_PERMISSION_CHANGE_DENIED");
       if (member.permissionVersion !== input.expectedVersion) throw new AppError(409, "PERMISSION_VERSION_CONFLICT");
       const grants = restore ? [] : input.grants, revocations = restore ? [] : input.revocations;
+      if (member.role.code === "AGENT" && grants.some((code) => ["conversations.create", "conversations.assign", "conversations.transfer", "conversations.supervise"].includes(code))) throw new AppError(400, "AGENT_ASSIGNMENT_RESTRICTED");
       const codes = [...grants, ...revocations];
       if (new Set(codes).size !== codes.length || codes.some((code) => !permissionCatalog.some((entry) => entry.code === code && entry.editable))) throw new AppError(400, "INVALID_PERMISSION_OVERRIDE");
       const before = permissionsDTO(member);

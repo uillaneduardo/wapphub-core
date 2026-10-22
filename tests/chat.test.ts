@@ -1433,3 +1433,49 @@ test('P1.2 readScope is stable across messages/status, changes with actual read 
   assert.notEqual((await request(recipient, 'GET', `/conversations/${c.id}`)).readScope, first.readScope);
   await request(recipient, 'GET', `/conversations/${c.id}/messages/${sent.id}`, undefined, 404);
 });
+
+test("AGENT waits for OWNER/SUPERVISOR assignment and cannot self-claim, inspect or send on unassigned conversations", async () => {
+  // Exercise the actual AGENT role. Other integration fixtures deliberately use
+  // unique role names to test permission-based access independently.
+  const existingRole = await db.role.findUnique({ where: { code: "AGENT" } });
+  const actualAgentRole = existingRole ?? await db.role.create({ data: { code: "AGENT" } });
+  if (!existingRole) roles.push(actualAgentRole.id);
+  for (const code of ["organization.read", ...agentPermissions]) {
+    const permission = await db.permission.upsert({ where: { code }, create: { code }, update: {} });
+    await db.rolePermission.upsert({
+      where: { roleId_permissionId: { roleId: actualAgentRole.id, permissionId: permission.id } },
+      create: { roleId: actualAgentRole.id, permissionId: permission.id },
+      update: {},
+    });
+  }
+  const assignedOnlyAgent = await auth(actualAgentRole.id, orgA);
+  const free = await conversation(supervisor);
+  const freeMessage = await send(supervisor, free.id, "Private before assignment");
+
+  const bootstrap = await request(assignedOnlyAgent, "GET", "/app/bootstrap");
+  for (const code of ["conversations.create", "conversations.assign", "conversations.transfer", "conversations.supervise"]) {
+    assert.ok(!bootstrap.permissions.includes(code), `Unexpected AGENT capability: ${code}`);
+  }
+  assert.ok(!(await request(assignedOnlyAgent, "GET", "/conversations?scope=mine")).items.some((row: { id: string }) => row.id === free.id));
+  await request(assignedOnlyAgent, "GET", "/conversations?scope=unassigned", undefined, 403);
+  await request(assignedOnlyAgent, "GET", "/conversations?scope=all", undefined, 403);
+  await request(assignedOnlyAgent, "GET", `/conversations/${free.id}`, undefined, 404);
+  await request(assignedOnlyAgent, "GET", `/conversations/${free.id}/messages`, undefined, 404);
+  await request(assignedOnlyAgent, "GET", `/conversations/${free.id}/messages/${freeMessage.id}`, undefined, 404);
+  await request(assignedOnlyAgent, "POST", `/conversations/${free.id}/messages`, { body: "Unauthorized", clientMessageId: randomUUID() }, 404);
+  await request(assignedOnlyAgent, "POST", `/conversations/${free.id}/notes`, { body: "Unauthorized" }, 404);
+  await request(assignedOnlyAgent, "POST", `/conversations/${free.id}/assign`, { userId: assignedOnlyAgent.userId }, 403);
+  await request(assignedOnlyAgent, "POST", "/conversations", { contactId: free.contactId }, 403);
+
+  await request(supervisor, "POST", `/conversations/${free.id}/assign`, { userId: assignedOnlyAgent.userId });
+  assert.equal((await request(assignedOnlyAgent, "GET", `/conversations/${free.id}`)).assignedUserId, assignedOnlyAgent.userId);
+  assert.ok((await request(assignedOnlyAgent, "GET", "/conversations?scope=mine")).items.some((row: { id: string }) => row.id === free.id));
+  assert.ok((await request(assignedOnlyAgent, "GET", `/conversations/${free.id}/messages`)).items.some((row: { id: string }) => row.id === freeMessage.id));
+  const reply = await send(assignedOnlyAgent, free.id, "Now assigned");
+  assert.equal(reply.senderUserId, assignedOnlyAgent.userId);
+  await request(assignedOnlyAgent, "POST", `/conversations/${free.id}/transfer`, { userId: recipient.userId, visibility: "FULL" }, 403);
+  await request(supervisor, "POST", `/conversations/${free.id}/transfer`, { userId: recipient.userId, visibility: "FULL" });
+  await request(assignedOnlyAgent, "GET", `/conversations/${free.id}`, undefined, 404);
+  await request(assignedOnlyAgent, "GET", `/conversations/${free.id}/messages`, undefined, 404);
+  await request(assignedOnlyAgent, "POST", `/conversations/${free.id}/messages`, { body: "After transfer", clientMessageId: randomUUID() }, 404);
+});

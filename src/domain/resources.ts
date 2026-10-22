@@ -41,12 +41,15 @@ export const permissionCatalog = resourceCatalog.flatMap((r) => r.permissions.ma
 export function permissionAvailable(code: string): boolean {
   return resourceCatalog.some((r) => r.permissions.includes(code) && r.availability === "AVAILABLE" && r.base && !r.entitlement && r.dependencies.every((d) => resourceCatalog.some((dependency) => dependency.code === d && dependency.availability === "AVAILABLE")));
 }
-export type PermissionSource = { role: { permissions: { permission: { code: string } }[] }; permissionOverrides?: { permission: { code: string }; effect: string }[] };
+export type PermissionSource = { role: { code?: string; permissions: { permission: { code: string } }[] }; permissionOverrides?: { permission: { code: string }; effect: string }[] };
 export function resolvePermissions(member: PermissionSource): string[] {
   const permissions = new Set(member.role.permissions.map((entry) => entry.permission.code));
   for (const override of member.permissionOverrides ?? []) if (override.effect === "GRANT") permissions.add(override.permission.code);
   for (const override of member.permissionOverrides ?? []) if (override.effect === "REVOKE") permissions.delete(override.permission.code);
-  return [...permissions].filter(permissionAvailable).sort();
+  // Role-level safety ceiling: an AGENT cannot self-assign, create a conversation
+  // to evade assignment, transfer responsibility or acquire supervision via overrides.
+  const agentRestricted = new Set(["conversations.create", "conversations.assign", "conversations.transfer", "conversations.supervise"]);
+  return [...permissions].filter((code) => permissionAvailable(code) && !(member.role.code === "AGENT" && agentRestricted.has(code))).sort();
 }
 
 for (const item of resourceCatalog) { Object.freeze(item.permissions); Object.freeze(item.dependencies); Object.freeze(item); }

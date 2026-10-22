@@ -513,7 +513,9 @@ test("CP4.6 administrative history API proves tenant/RBAC/CSRF, bounded prepare 
 
 test("CP4.6 synthetic producer to journal to SQL to websocket creates an old unassigned conversation without new messages", async () => {
  const directory = await mkdtemp(join(tmpdir(), "cp46-chain-")), key = randomBytes(32), vault = new Vault(directory, key); await vault.initialize();
- const s = { id: randomUUID(), from: new Date(Date.now() - 30 * 86400000).toISOString(), to: new Date().toISOString(), limits: { contacts: 500, conversations: 500, messages: 20 }, anchors: [{ chatId: "known@lid", messageId: "known", fromMe: false, timestamp: Date.now() }] };
+ // Use the same clock instant at both bounds so the 30-day window cannot exceed its limit by a few milliseconds.
+ const end = Date.now();
+ const s = { id: randomUUID(), from: new Date(end - 30 * 86400000).toISOString(), to: new Date(end).toISOString(), limits: { contacts: 500, conversations: 500, messages: 20 }, anchors: [{ chatId: "known@lid", messageId: "known", fromMe: false, timestamp: end }] };
  let requests = 0; const importer = new HistoryImporter(vault, scope(), async () => { requests++; return "synthetic-request"; }, async () => [], true), journal = new EventJournal(vault);
  const historyRoute = `${route}/${channelId}/history`, reader = await auth(orgA, ["conversations.read", "messages.read"]);
  const checkpoint = String((await db.realtimeEvent.findFirst({ orderBy: { id: "desc" } }))?.id ?? 0), frames: string[] = [], ws = new WebSocket(baseUrl.replace("http", "ws") + "/api/v1/realtime?lastEventId=" + checkpoint, { headers: { origin, cookie: reader.cookie } }); ws.on("message", (data) => frames.push(String(data)));
