@@ -468,6 +468,8 @@ test("OpenAPI preserves every foundation and M1 route and adds M2.1 permissions 
     "/auth/login",
     "/auth/logout",
     "/me",
+    "/me/profile",
+    "/me/organization-profile",
     "/me/organizations",
     "/session/organization",
     "/app/bootstrap",
@@ -878,5 +880,42 @@ test("the public API hostname grants no client origin permission and empty WEB_O
     assert.equal(ready.headers["access-control-allow-origin"], undefined);
   } finally {
     await closed.close();
+  }
+});
+
+test("self-service profile applies global name and organization-scoped attendant identity", async () => {
+  const auth = await login();
+  const headers = { cookie: auth.cookie, origin, "x-csrf-token": auth.csrf };
+  const call = (url: string, payload: object, custom: Record<string, string> = headers) =>
+    app.inject({ method: "PATCH", url, headers: custom, payload });
+  try {
+    assert.equal((await call("/api/v1/me/profile", { name: "  Ana   Costa  " }, { origin })).statusCode, 401);
+    assert.equal((await call("/api/v1/me/profile", { name: "Ana Costa" }, { cookie: auth.cookie, origin })).statusCode, 403);
+    assert.equal((await call("/api/v1/me/profile", { name: "Ana *Teste*" })).statusCode, 400);
+    const personal = await call("/api/v1/me/profile", { name: "  Ana   Costa " });
+    assert.equal(personal.statusCode, 200, personal.body);
+    assert.equal(personal.json().name, "Ana Costa");
+    assert.equal((await app.inject({ url: "/api/v1/me", headers: { cookie: auth.cookie } })).json().user.name, "Ana Costa");
+
+    assert.equal((await call("/api/v1/me/organization-profile", { displayName: "Atendente Ana" })).statusCode, 409);
+    assert.equal((await select(auth, orgA)).statusCode, 200);
+    const alias = await call("/api/v1/me/organization-profile", { displayName: "  Ana  •  Vendas " });
+    assert.equal(alias.statusCode, 200, alias.body);
+    assert.deepEqual(alias.json(), { displayName: "Ana • Vendas", effectiveDisplayName: "Ana • Vendas" });
+    const bootstrap = await app.inject({ url: "/api/v1/app/bootstrap", headers: { cookie: auth.cookie } });
+    assert.equal(bootstrap.json().membership.effectiveDisplayName, "Ana • Vendas");
+    assert.equal(bootstrap.json().membership.displayName, "Ana • Vendas");
+    assert.equal((await db.membership.findUniqueOrThrow({ where: { userId_organizationId: { userId: userA, organizationId: orgC } } })).displayName, null);
+    assert.equal((await db.membership.findUniqueOrThrow({ where: { userId_organizationId: { userId: userB, organizationId: orgB } } })).displayName, null);
+
+    assert.equal((await select(auth, orgC)).statusCode, 200);
+    const clear = await call("/api/v1/me/organization-profile", { displayName: null });
+    assert.equal(clear.statusCode, 200);
+    assert.equal(clear.json().effectiveDisplayName, "Ana Costa");
+    assert.equal((await app.inject({ url: "/api/v1/app/bootstrap", headers: { cookie: auth.cookie } })).json().membership.displayName, null);
+    assert.equal((await db.membership.findUniqueOrThrow({ where: { userId_organizationId: { userId: userA, organizationId: orgA } } })).displayName, "Ana • Vendas");
+  } finally {
+    await db.user.update({ where: { id: userA }, data: { name: "A" } });
+    await db.membership.updateMany({ where: { userId: userA }, data: { displayName: null } });
   }
 });

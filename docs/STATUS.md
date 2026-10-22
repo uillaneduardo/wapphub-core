@@ -1,3 +1,5 @@
+> Perfil autogerenciável por organização (22/10/2026): implementação proposta em branch, migration aditiva, rotas de edição, snapshot de autor e testes adicionados. **SEM MERGE/DEPLOY**, CI/banco de testes e homologação real pendentes. [Escopo e rollback](SELF_SERVICE_PROFILE_20261022.md).
+
 > P1.2 consulta pontual em revisão: Core156/156 + checks/OpenAPI aprovados; [contrato, segurança e rollback](WHATSAPP_WEB_REALTIME_P12.md). Sem merge/deploy.
 
 > P1.1/P1.2 em revisão, sem publicação: Core155/155, Provider151/151 e correção de voz/diagnóstico sanitizado; Chat em PRs separadas. [Evidências, limites e rollback](WHATSAPP_WEB_VOICE_P11.md). Homologação humana pendente.

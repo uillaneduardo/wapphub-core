@@ -9,7 +9,7 @@ const include = { user: true, role: { include: { permissions: { include: { permi
 type Member = Prisma.MembershipGetPayload<{ include: typeof include }>;
 export type OverridesInput = { expectedVersion: number; grants: string[]; revocations: string[] };
 function memberDTO(member: Member) {
-  return { id: member.id, userId: member.userId, name: member.user.name, email: member.user.email, role: member.role.code, status: member.status, userStatus: member.user.status };
+  return { id: member.id, userId: member.userId, name: member.displayName ?? member.user.name, email: member.user.email, role: member.role.code, status: member.status, userStatus: member.user.status };
 }
 function permissionsDTO(member: Member) {
   return { member: memberDTO(member), version: member.permissionVersion, inherited: member.role.permissions.map((row) => row.permission.code).sort(), grants: member.permissionOverrides.filter((row) => row.effect === "GRANT").map((row) => row.permission.code).sort(), revocations: member.permissionOverrides.filter((row) => row.effect === "REVOKE").map((row) => row.permission.code).sort(), effective: member.status === "ACTIVE" && member.user.status === "ACTIVE" ? resolvePermissions(member) : [] };

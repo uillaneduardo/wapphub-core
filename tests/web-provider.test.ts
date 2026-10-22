@@ -669,7 +669,7 @@ test("B2/B3 HTTP Core -> SQL outbox -> signed Provider -> durable journal -> SQL
     await inject(other, "POST", `/conversations/${opened.id}/messages`, body, 403);
     const persisted = await db.message.findUniqueOrThrow({ where: { id: queued.id } }); assert.equal(persisted.body, body.body); assert.equal(persisted.transmittedBody, `*${originalName}*\n${body.body}`); assert.equal(queued.senderName, originalName);
     await db.user.update({ where: { id: owner.userId }, data: { name: "Renamed attendant" } });
-    const repeated = (await inject(owner, "POST", `/conversations/${opened.id}/messages`, body)).json(); assert.equal(repeated.id, queued.id); assert.equal(repeated.body, body.body); assert.equal(repeated.senderName, "Renamed attendant");
+    const repeated = (await inject(owner, "POST", `/conversations/${opened.id}/messages`, body)).json(); assert.equal(repeated.id, queued.id); assert.equal(repeated.body, body.body); assert.equal(repeated.senderName, originalName);
     assert.equal(await db.providerCommand.count({ where: { organizationId: orgA, channelId, action: "send", payload: { path: "$.messageId", equals: queued.id } } }), 1);
     await activeWorker.runConnection(scope()); await sessions.settle(scope()); await activeWorker.runConnection(scope());
     assert.equal(sends, 1); assert.equal(transmitted[0]!.body, persisted.transmittedBody); assert.equal(transmitted[0]!.providerMessageId, persisted.providerMessageId); const confirmed = await db.message.findUniqueOrThrow({ where: { id: queued.id } }); assert.equal(confirmed.status, "READ"); assert.equal(confirmed.senderUserId, owner.userId); assert.equal(confirmed.deliveryOutcome, null);

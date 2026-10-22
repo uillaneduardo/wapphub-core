@@ -1371,7 +1371,7 @@ test("M1 contact search treats wildcard characters literally and validates bound
   await request(supervisor, "GET", `/contacts?q=abc&organizationId=${orgB}`, undefined, 400);
 });
 
-test("message authorship resolves persisted identities across history and user rename, never the viewing user or content prefixes", async () => {
+test("message authorship snapshots sent identity across history and user rename, never the viewing user or content prefixes", async () => {
  const writer = await auth(superRole, orgA), viewer = await auth(superRole, orgA);
  await db.user.update({ where: { id: writer.userId }, data: { name: "Autora original" } });
  await db.user.update({ where: { id: viewer.userId }, data: { name: "Pessoa visualizando" } });
@@ -1386,7 +1386,7 @@ test("message authorship resolves persisted identities across history and user r
  assert.equal(page.items.find((m: { id: string }) => m.id === inbound.id).senderName, "Contact");
  assert.ok(!page.items.some((m: { senderName: string | null }) => m.senderName === "Pessoa visualizando"));
  await db.user.update({ where: { id: writer.userId }, data: { name: "Autora renomeada" } });
- page = await request(viewer, "GET", `/conversations/${c.id}/messages`); const renamed = page.items.find((m: { id: string }) => m.id === sent.id); assert.equal(renamed.senderName, "Autora renomeada"); assert.equal(renamed.senderUserId, writer.userId); assert.equal(renamed.body, body);
+ page = await request(viewer, "GET", `/conversations/${c.id}/messages`); const renamed = page.items.find((m: { id: string }) => m.id === sent.id); assert.equal(renamed.senderName, "Autora original"); assert.equal(renamed.senderUserId, writer.userId); assert.equal(renamed.body, body);
  await db.contact.update({ where: { id: c.contactId }, data: { name: "Contato WhatsApp Web", providerName: null, primaryIdentifier: `web:${randomUUID()}:opaque@lid` } });
  assert.equal((await request(viewer, "GET", `/contacts/${c.contactId}`)).name, `Contato ${c.contactId.slice(0, 8)}`);
  assert.equal((await request(viewer, "GET", `/conversations/${c.id}`)).contactName, `Contato ${c.contactId.slice(0, 8)}`);
@@ -1478,4 +1478,26 @@ test("AGENT waits for OWNER/SUPERVISOR assignment and cannot self-claim, inspect
   await request(assignedOnlyAgent, "GET", `/conversations/${free.id}`, undefined, 404);
   await request(assignedOnlyAgent, "GET", `/conversations/${free.id}/messages`, undefined, 404);
   await request(assignedOnlyAgent, "POST", `/conversations/${free.id}/messages`, { body: "After transfer", clientMessageId: randomUUID() }, 404);
+});
+
+test("message author display names are immutable per organization, even when alias changes", async () => {
+  const thread = await conversation(supervisor);
+  try {
+    const firstUpdate = await request(supervisor, "PATCH", "/me/organization-profile", { displayName: "Ana Vendas" });
+    assert.equal(firstUpdate.effectiveDisplayName, "Ana Vendas");
+    const first = await send(supervisor, thread.id, "Primeiro envio");
+    assert.equal(first.senderName, "Ana Vendas");
+    await request(supervisor, "PATCH", "/me/organization-profile", { displayName: "Ana Suporte" });
+    const second = await send(supervisor, thread.id, "Segundo envio");
+    assert.equal(second.senderName, "Ana Suporte");
+    const history = await request(supervisor, "GET", `/conversations/${thread.id}/messages`);
+    assert.equal(history.items.find((item: { id: string }) => item.id === first.id)?.senderName, "Ana Vendas");
+    assert.equal(history.items.find((item: { id: string }) => item.id === second.id)?.senderName, "Ana Suporte");
+    const firstStored = await db.message.findFirstOrThrow({ where: { id: first.id, organizationId: orgA } });
+    assert.equal(firstStored.senderDisplayName, "Ana Vendas");
+    const otherMember = await db.membership.findUniqueOrThrow({ where: { userId_organizationId: { userId: supervisor.userId, organizationId: orgC } } });
+    assert.equal(otherMember.displayName, null);
+  } finally {
+    await request(supervisor, "PATCH", "/me/organization-profile", { displayName: null });
+  }
 });
