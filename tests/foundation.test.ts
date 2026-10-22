@@ -468,6 +468,8 @@ test("OpenAPI preserves every foundation and M1 route and adds M2.1 permissions 
     "/auth/login",
     "/auth/logout",
     "/me",
+    "/me/profile",
+    "/me/organization-profile",
     "/me/organizations",
     "/session/organization",
     "/app/bootstrap",
