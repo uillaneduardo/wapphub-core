@@ -109,6 +109,7 @@ export const messageDTO = (r: {
   id: string;
   conversationId: string;
   senderUserId: string | null;
+  senderDisplayName?: string | null;
   senderContactId: string | null;
   sender?: { name: string } | null;
   senderContact?: ContactPresentation | null;
@@ -127,7 +128,7 @@ export const messageDTO = (r: {
   conversationId: r.conversationId,
   senderUserId: r.senderUserId,
   senderContactId: r.senderContactId,
-  senderName: r.direction === "INBOUND" ? r.senderContact ? contactDisplayName(r.senderContact, includePhone) : null : r.senderUserId ? r.sender?.name ?? null : null,
+  senderName: r.direction === "INBOUND" ? r.senderContact ? contactDisplayName(r.senderContact, includePhone) : null : r.senderUserId ? r.senderDisplayName ?? r.sender?.name ?? null : null,
   clientMessageId: r.clientMessageId,
   direction: r.direction,
   type: r.type,
@@ -230,6 +231,7 @@ export class Chat {
       select: {
         permissionOverrides: { include: { permission: true } },
         id: true,
+        displayName: true,
         user: {
           select: {
             id: true,
@@ -254,7 +256,7 @@ export class Chat {
         const permissions = resolvePermissions(membership);
         return {
           userId: membership.user.id,
-          name: membership.user.name,
+          name: membership.displayName ?? membership.user.name,
           email: membership.user.email,
           status: "ACTIVE" as const,
           canReceiveAssignment:
@@ -938,6 +940,13 @@ export class Chat {
       }
       if (r.status === "ARCHIVED")
         throw new AppError(409, "CONVERSATION_ARCHIVED");
+      // Snapshot the organization-specific author name for every new message.
+      const identity = await tx.membership.findFirst({
+        where: { organizationId: c.organizationId, userId: c.userId, status: "ACTIVE" },
+        select: { displayName: true, user: { select: { name: true } } },
+      });
+      if (!identity) throw new AppError(403, "ORGANIZATION_ACCESS_DENIED");
+      const senderDisplayName = identity.displayName ?? identity.user.name;
       if (r.channelId) {
         const channel = await tx.channel.findFirst({
           where: { id: r.channelId, organizationId: c.organizationId },
@@ -953,9 +962,8 @@ export class Chat {
             media = mediaReferenceSchema.parse({ mediaId: record.id, type: record.type, mimeType: record.mimeType, fileName: record.fileName, size: record.size, sha256: record.sha256, state: "READY" });
           }
           const providerMessageId = randomUUID().replaceAll("-", "").toUpperCase();
-          const attendant = await tx.user.findUniqueOrThrow({ where: { id: c.userId }, select: { name: true } });
-          const transmittedBody = outboundSignature(data.body, attendant.name, !!media);
-          const message = await tx.message.create({ include: messageAuthors, data: { organizationId: c.organizationId, conversationId: id, channelId: channel.id, senderUserId: c.userId, clientMessageId: data.clientMessageId, providerMessageId, direction: "OUTBOUND", body: media && !data.body ? null : data.body, transmittedBody, status: "PENDING", ...(media ? { type: media.type, mediaMetadata: media } : {}) } });
+          const transmittedBody = outboundSignature(data.body, senderDisplayName, !!media);
+          const message = await tx.message.create({ include: messageAuthors, data: { organizationId: c.organizationId, conversationId: id, channelId: channel.id, senderUserId: c.userId, senderDisplayName, clientMessageId: data.clientMessageId, providerMessageId, direction: "OUTBOUND", body: media && !data.body ? null : data.body, transmittedBody, status: "PENDING", ...(media ? { type: media.type, mediaMetadata: media } : {}) } });
           if (media) await tx.media.update({ where: { id: media.mediaId }, data: { messageId: message.id } });
           await tx.providerCommand.create({ data: { id: randomUUID(), organizationId: c.organizationId, channelId: channel.id, actorUserId: c.userId, sessionId: p.session.id, action: "send", payload: { messageId: message.id, expiresAt: new Date(Date.now() + 6 * 86400000).toISOString() } } });
           await tx.conversation.update({ where: { organizationId_id: { organizationId: c.organizationId, id } }, data: { lastMessageAt: message.createdAt } });
@@ -983,6 +991,7 @@ export class Chat {
           organizationId: c.organizationId,
           conversationId: id,
           senderUserId: c.userId,
+          senderDisplayName,
           clientMessageId: data.clientMessageId,
           ...(r.channelId
             ? {
