@@ -884,7 +884,7 @@ test("the public API hostname grants no client origin permission and empty WEB_O
 test("self-service profile applies global name and organization-scoped attendant identity", async () => {
   const auth = await login();
   const headers = { cookie: auth.cookie, origin, "x-csrf-token": auth.csrf };
-  const call = (url: string, payload: unknown, custom = headers) =>
+  const call = (url: string, payload: object, custom: Record<string, string> = headers) =>
     app.inject({ method: "PATCH", url, headers: custom, payload });
   try {
     assert.equal((await call("/api/v1/me/profile", { name: "  Ana   Costa  " }, { origin })).statusCode, 401);
