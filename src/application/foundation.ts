@@ -15,6 +15,13 @@ export const publicUser = (u: User) => ({
   name: u.name,
   email: u.email,
 });
+function cleanProfileName(value: string, maxLength: number): string {
+  const name = value.normalize("NFC").trim().replace(/\\s+/gu, " ");
+  // Attendant names also appear in WhatsApp Markdown signatures.
+  if (name.length < 2 || name.length > maxLength || /[\\p{Cc}\\p{Cf}*_~`]/u.test(name))
+    throw new AppError(400, "INVALID_PROFILE_NAME");
+  return name;
+}
 export class Foundation {
   private dummy: Promise<string>;
   constructor(
@@ -115,6 +122,34 @@ export class Foundation {
       return null;
     return token;
   }
+  async updateProfile(principal: Principal, name: string) {
+    const cleaned = cleanProfileName(name, 120);
+    return this.db.$transaction(async (tx) => {
+      const saved = await tx.user.updateMany({ where: { id: principal.user.id, status: "ACTIVE" }, data: { name: cleaned } });
+      if (saved.count !== 1) throw new AppError(401, "UNAUTHENTICATED");
+      await tx.securityEvent.create({ data: { userId: principal.user.id, type: "PROFILE_UPDATED" } });
+      return publicUser(await tx.user.findUniqueOrThrow({ where: { id: principal.user.id } }));
+    });
+  }
+  async updateOrganizationProfile(principal: Principal, displayName: string | null) {
+    const organizationId = principal.session.currentOrganizationId;
+    if (!organizationId) throw new AppError(409, "ORGANIZATION_CONTEXT_REQUIRED");
+    const cleaned = displayName === null ? null : cleanProfileName(displayName, 80);
+    return this.db.$transaction(async (tx) => {
+      const member = await tx.membership.findFirst({
+        where: { userId: principal.user.id, organizationId, status: "ACTIVE", organization: { status: "ACTIVE" } },
+        select: { id: true, user: { select: { name: true } } },
+      });
+      if (!member) throw new AppError(403, "ORGANIZATION_ACCESS_DENIED");
+      const updated = await tx.membership.updateMany({
+        where: { id: member.id, userId: principal.user.id, organizationId, status: "ACTIVE", organization: { status: "ACTIVE" } },
+        data: { displayName: cleaned },
+      });
+      if (updated.count !== 1) throw new AppError(403, "ORGANIZATION_ACCESS_DENIED");
+      await tx.auditEvent.create({ data: { organizationId, actorUserId: principal.user.id, targetMembershipId: member.id, action: "MEMBER_DISPLAY_NAME_UPDATED" } });
+      return { displayName: cleaned, effectiveDisplayName: cleaned ?? member.user.name };
+    });
+  }
   async membership(
     userId: string,
     organizationId: string,
@@ -130,6 +165,7 @@ export class Foundation {
       include: {
         permissionOverrides: { include: { permission: true } },
         organization: true,
+        user: { select: { name: true } },
         role: { include: { permissions: { include: { permission: true } } } },
       },
     });
@@ -147,6 +183,8 @@ export class Foundation {
         permissionVersion: member.permissionVersion,
         role: member.role.code,
         consumesSeat: member.consumesSeat,
+        displayName: member.displayName,
+        effectiveDisplayName: member.displayName ?? member.user.name,
       },
       permissions,
       resources: resourceCatalog,
