@@ -1462,7 +1462,7 @@ test("AGENT waits for OWNER/SUPERVISOR assignment and cannot self-claim, inspect
   await request(assignedOnlyAgent, "GET", `/conversations/${free.id}`, undefined, 404);
   await request(assignedOnlyAgent, "GET", `/conversations/${free.id}/messages`, undefined, 404);
   await request(assignedOnlyAgent, "GET", `/conversations/${free.id}/messages/${freeMessage.id}`, undefined, 404);
-  await request(assignedOnlyAgent, "POST", `/conversations/${free.id}/messages`, { body: "Unauthorized", clientMessageId: randomUUID() }, 403);
+  await request(assignedOnlyAgent, "POST", `/conversations/${free.id}/messages`, { body: "Unauthorized", clientMessageId: randomUUID() }, 404);
   await request(assignedOnlyAgent, "POST", `/conversations/${free.id}/notes`, { body: "Unauthorized" }, 404);
   await request(assignedOnlyAgent, "POST", `/conversations/${free.id}/assign`, { userId: assignedOnlyAgent.userId }, 403);
   await request(assignedOnlyAgent, "POST", "/conversations", { contactId: free.contactId }, 403);
