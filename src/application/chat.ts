@@ -25,6 +25,7 @@ type DB = Prisma.TransactionClient;
 export type ChatContext = {
   organizationId: string;
   userId: string;
+  role: string;
   permissions: string[];
   webOutboundEnabled?: boolean;
   webMediaEnabled?: boolean;
@@ -206,7 +207,7 @@ export class Chat {
       : [permission];
     if (!requiredPermissions.some((required) => permissions.includes(required)))
       throw new AppError(403, "PERMISSION_DENIED");
-    return { organizationId, userId: principal.user.id, permissions, webOutboundEnabled: this.outboundExecutionEnabled, webMediaEnabled: this.mediaExecutionEnabled };
+    return { organizationId, userId: principal.user.id, role: m.role.code, permissions, webOutboundEnabled: this.outboundExecutionEnabled, webMediaEnabled: this.mediaExecutionEnabled };
   }
   async teamMembers(principal: Principal, q: PageQuery = {}) {
     const c = await this.context(principal, [
@@ -283,6 +284,7 @@ export class Chat {
     });
     if (
       !r ||
+      (c.role === "AGENT" && r.assignedUserId !== c.userId) ||
       (r.assignedUserId &&
         r.assignedUserId !== c.userId &&
         !c.permissions.includes("conversations.supervise"))
@@ -444,6 +446,8 @@ export class Chat {
   async conversations(p: Principal, q: PageQuery) {
     const c = await this.context(p, "conversations.read"),
       filter = q.scope ?? "mine";
+    // An AGENT must wait for assignment by OWNER/SUPERVISOR; no free queue visibility.
+    if (c.role === "AGENT" && filter !== "mine") throw new AppError(403, "PERMISSION_DENIED");
     if (filter === "all") this.require(c, "conversations.supervise");
     if (
       q.tagId &&
@@ -555,6 +559,7 @@ export class Chat {
   }
   async createWebConversation(p: Principal, data: { channelId: string; contactId?: string; phone?: string }) {
     const initial = await this.context(p, ["conversations.create", "conversations.read", "contacts.read"]);
+    if (initial.role === "AGENT") throw new AppError(403, "PERMISSION_DENIED");
     for (const permission of ["conversations.create", "conversations.read", "contacts.read"]) this.require(initial, permission);
     await this.webConnectionReady(this.db, initial.organizationId, data.channelId);
     if ((!data.contactId) === (!data.phone)) throw new AppError(400, "RECIPIENT_REQUIRED");
@@ -605,6 +610,7 @@ export class Chat {
   }
   async createConversation(p: Principal, contactId: string, reuseExisting = false) {
     return this.mutation(p, "conversations.create", async (tx, c) => {
+      if (c.role === "AGENT") throw new AppError(403, "PERMISSION_DENIED");
       if (
         !(await tx.contact.findFirst({
           where: { id: contactId, organizationId: c.organizationId },
@@ -672,6 +678,7 @@ export class Chat {
       p,
       transfer ? "conversations.transfer" : "conversations.assign",
       async (tx, c) => {
+        if (c.role === "AGENT") throw new AppError(403, "PERMISSION_DENIED");
         const r = await this.conversation(c, id, tx);
         if (r.status === "ARCHIVED")
           throw new AppError(409, "CONVERSATION_ARCHIVED");
