@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { Readable } from "node:stream";
 import { inspectDocumentBytes } from "../src/document-inspection.js";
 import { DOCUMENT_MIMES } from "../../../contracts/document-policy.js";
-const inspect = (data: Buffer, name: string, mime: string) => inspectDocumentBytes([data], name, mime, data.length);
+const inspect = (data: Buffer, name: string, mime: string) => inspectDocumentBytes(Readable.from([data]), name, mime, data.length);
 function archive(paths: string[]) {
   const local: Buffer[] = [], central: Buffer[] = []; let cursor = 0;
   for (const name of paths) {
