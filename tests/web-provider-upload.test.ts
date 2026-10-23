@@ -115,6 +115,15 @@ test("B5 HTTP binary upload streams through Core and signed Provider without blo
     const fakePdf = Buffer.from("MZ is not PDF");
     const fakeMeta = makeMeta({ type: "DOCUMENT", mimeType: "application/pdf", fileName: "fraude.pdf", size: fakePdf.length, sha256: createHash("sha256").update(fakePdf).digest("hex") });
     assert.equal((await upload(owner, fakeMeta, fakePdf)).statusCode, 415);
+    // G.2 follow-up: streaming text documents require valid UTF-8 and cannot hide binary bytes.
+    const textBytes = Buffer.from("conteudo valido", "utf8");
+    const textMeta = makeMeta({ type: "DOCUMENT", mimeType: "text/plain", fileName: "anotacoes.txt", size: textBytes.length, sha256: createHash("sha256").update(textBytes).digest("hex") });
+    const textResponse = await upload(owner, textMeta, textBytes);
+    assert.equal(textResponse.statusCode, 200, textResponse.body);
+    mediaIds.push(textMeta.mediaId);
+    const binaryBytes = Buffer.from([0, 1, 2, 3, 255]);
+    const binaryMeta = makeMeta({ type: "DOCUMENT", mimeType: "text/plain", fileName: "falso.txt", size: binaryBytes.length, sha256: createHash("sha256").update(binaryBytes).digest("hex") });
+    assert.equal((await upload(owner, binaryMeta, binaryBytes)).statusCode, 415);
     const cached = await readdir(join(vault.directory, "files")), cache = cached.find(name => name.endsWith(".cache")); assert.ok(cache); assert.ok((await stat(join(vault.directory, "files", cache))).mode % 0o1000 === 0o600); assert.ok(!cached.some(name => name.endsWith(".part")));
 
     const interruptedMeta = makeMeta();
