@@ -39,6 +39,7 @@ const conversation = obj({
   outboundEnabled: { type: "boolean" },
   contactName: { anyOf: [str, { type: "null" }] },
   lastMessagePreview: { anyOf: [str, { type: "null" }] },
+  hasUnread: { type: "boolean" },
   id: uuid,
   contactId: uuid,
   status: { type: "string", enum: ["OPEN", "PENDING", "ARCHIVED"] },
@@ -238,6 +239,18 @@ export async function chatRoutes(
     "/api/v1/conversations/:id",
     { schema: schema(conversation, false, { params: ids }) },
     async (r) => chat.getConversation(await principal(r), r.params.id),
+  );
+  app.post<{ Params: { id: string }; Body: { messageId: string } }>(
+    "/api/v1/conversations/:id/read",
+    {
+      schema: schema(obj({ conversationId: uuid, hasUnread: { type: "boolean" } }), true, {
+        params: ids,
+        body: obj({ messageId: uuid }),
+        description: "Advance only the current user's conversation read checkpoint through a visible message. No WhatsApp read receipt is sent.",
+        tags: ["M1 Internal Chat"],
+      }),
+    },
+    async (r) => chat.markConversationRead(await principal(r), r.params.id, r.body.messageId),
   );
   for (const [action, archived] of [
     ["archive", true],

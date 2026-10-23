@@ -578,6 +578,56 @@ test("message cursor supports progressive history with no overlap and refuses fo
     400,
   );
 });
+test("unread checkpoints belong to one tenant/user, advance monotonically and never send WhatsApp receipts", async () => {
+  const thread = await conversation();
+  await request(supervisor, "POST", `/conversations/${thread.id}/assign`, { userId: agent.userId });
+  const received = await db.message.create({ data: {
+    organizationId: orgA, conversationId: thread.id, senderContactId: thread.contactId,
+    direction: "INBOUND", type: "TEXT", status: "SENT", body: "Test received",
+    historical: false,
+  } });
+  const own = await request(agent, "GET", `/conversations/${thread.id}`);
+  assert.equal(own.hasUnread, true);
+  assert.equal((await request(supervisor, "GET", `/conversations/${thread.id}`)).hasUnread, true);
+  assert.equal((await request(agent, "GET", "/conversations?scope=mine")).items.find((row: {id:string}) => row.id === thread.id)?.hasUnread, true);
+  await request(denied, "POST", `/conversations/${thread.id}/read`, { messageId: received.id }, 403);
+  await request(tenantB, "POST", `/conversations/${thread.id}/read`, { messageId: received.id }, 404);
+
+  const marked = await request(agent, "POST", `/conversations/${thread.id}/read`, { messageId: received.id });
+  assert.deepEqual(marked, { conversationId: thread.id, hasUnread: false });
+  assert.equal((await request(agent, "GET", `/conversations/${thread.id}`)).hasUnread, false);
+  assert.equal((await request(supervisor, "GET", `/conversations/${thread.id}`)).hasUnread, true);
+  const before = await db.realtimeEvent.count({ where: { organizationId: orgA, type: "conversation.read.updated", audienceUserId: agent.userId, conversationId: thread.id } });
+  await request(agent, "POST", `/conversations/${thread.id}/read`, { messageId: received.id });
+  assert.equal(await db.realtimeEvent.count({ where: { organizationId: orgA, type: "conversation.read.updated", audienceUserId: agent.userId, conversationId: thread.id } }), before);
+  const latestReadEvent = await db.realtimeEvent.findFirst({
+    where: { organizationId: orgA, type: "conversation.read.updated", audienceUserId: agent.userId, conversationId: thread.id },
+    orderBy: { id: "desc" },
+  });
+  assert.ok(latestReadEvent);
+  const from = (latestReadEvent.id - 1n).toString();
+  const eventForAgent = await request(agent, "GET", `/realtime/events?lastEventId=${from}&limit=20`);
+  const eventForSupervisor = await request(supervisor, "GET", `/realtime/events?lastEventId=${from}&limit=20`);
+  assert.ok(eventForAgent.events.some((event: { type: string; entityId: string }) => event.type === "conversation.read.updated" && event.entityId === thread.id));
+  assert.ok(!eventForSupervisor.events.some((event: { type: string }) => event.type === "conversation.read.updated"));
+
+  const older = await send(supervisor, thread.id, "Colleague internal message");
+  assert.equal((await request(agent, "GET", `/conversations/${thread.id}`)).hasUnread, true);
+  assert.equal((await request(supervisor, "GET", `/conversations/${thread.id}`)).hasUnread, true);
+  await request(agent, "POST", `/conversations/${thread.id}/read`, { messageId: older.id });
+  assert.equal((await request(agent, "GET", `/conversations/${thread.id}`)).hasUnread, false);
+  await request(agent, "POST", `/conversations/${thread.id}/read`, { messageId: received.id });
+  assert.equal((await request(agent, "GET", `/conversations/${thread.id}`)).hasUnread, false);
+
+  await db.message.create({ data: {
+    organizationId: orgA, conversationId: thread.id, senderContactId: thread.contactId,
+    direction: "INBOUND", type: "TEXT", status: "SENT", body: "Imported older chat",
+    historical: true,
+  } });
+  assert.equal((await request(agent, "GET", `/conversations/${thread.id}`)).hasUnread, false);
+  await request(agent, "POST", `/conversations/${thread.id}/read`, { messageId: randomUUID() }, 404);
+});
+
 test("local message receipts allow monotonic delivered/read and reject invalid transitions", async () => {
   const c = await conversation(),
     m = await send(supervisor, c.id);

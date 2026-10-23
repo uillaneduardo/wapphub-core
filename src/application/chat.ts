@@ -76,12 +76,14 @@ const messageReadFloor = (c: ChatContext, r: Pick<Conversation, "organizationId"
 export const conversationDTO = (
   r: Conversation & { tags?: { tagId: string }[]; channel?: { provider: string; webConnection?: { outboundEnabled: boolean; mediaEnabled?: boolean; state?: string; errorCode?: string | null; lastCheckedAt?: Date | null } | null } | null; contact?: ContactPresentation; messages?: { body: string | null; sequence: bigint; historical?: boolean; importedAt?: Date }[] },
   c: ChatContext,
+  hasUnread = false,
 ) => {
   const floor = messageReadFloor(c, r);
   const latest = r.messages?.[0];
   return {
     id: r.id,
     contactId: r.contactId,
+    hasUnread: floor !== null && hasUnread,
     status: r.status,
     assignedUserId: r.assignedUserId,
     archivedAt: r.archivedAt?.toISOString() ?? null,
@@ -445,6 +447,72 @@ export class Chat {
       return contactDTO(r);
     });
   }
+  /** Latest relevant message per conversation in two bounded batched queries.
+   * Historical sync and the user's own messages never turn a thread unread.
+   * Uses the same tenant and visibility boundaries as message reads. */
+  private async unreadFlags(c: ChatContext, threads: Conversation[], tx: DB = this.db): Promise<Map<string, boolean>> {
+    const result = new Map<string, boolean>();
+    if (!c.permissions.includes("messages.read") || !threads.length) return result;
+    const ids = threads.map((thread) => thread.id);
+    const [checkpoints, latest] = await Promise.all([
+      tx.conversationReadState.findMany({
+        where: { organizationId: c.organizationId, userId: c.userId, conversationId: { in: ids } },
+        select: { conversationId: true, readThroughSequence: true },
+      }),
+      tx.message.groupBy({
+        by: ["conversationId"],
+        where: {
+          organizationId: c.organizationId,
+          conversationId: { in: ids },
+          historical: false,
+          OR: [{ direction: "INBOUND" }, { direction: "INTERNAL", senderUserId: { not: c.userId } }],
+        },
+        _max: { sequence: true },
+      }),
+    ]);
+    const read = new Map(checkpoints.map((row) => [row.conversationId, row.readThroughSequence]));
+    const incoming = new Map(latest.map((row) => [row.conversationId, row._max.sequence ?? 0n]));
+    for (const thread of threads) {
+      const floor = messageReadFloor(c, thread);
+      if (floor === null) continue;
+      const threshold = [read.get(thread.id) ?? 0n, floor > 0n ? floor - 1n : 0n].reduce((max, value) => value > max ? value : max, 0n);
+      result.set(thread.id, (incoming.get(thread.id) ?? 0n) > threshold);
+    }
+    return result;
+  }
+
+  /** Monotonic read acknowledgment of a message that was actually retrieved.
+   * Never mark future messages read and never emit provider read receipts. */
+  async markConversationRead(p: Principal, id: string, messageId: string) {
+    return this.mutation(p, "messages.read", async (tx, c) => {
+      const thread = await this.conversation(c, id, tx);
+      const floor = messageReadFloor(c, thread);
+      if (floor === null) throw new AppError(403, "PERMISSION_DENIED");
+      const seen = await tx.message.findFirst({
+        where: {
+          id: messageId, organizationId: c.organizationId, conversationId: id,
+          sequence: { gte: floor }, AND: [this.historicalMessageScope(c, thread)],
+        },
+        select: { sequence: true },
+      });
+      if (!seen) throw new AppError(404, "MESSAGE_NOT_FOUND");
+      const created = await tx.conversationReadState.createMany({
+        data: [{ organizationId: c.organizationId, conversationId: id, userId: c.userId, readThroughSequence: seen.sequence }],
+        skipDuplicates: true,
+      });
+      const changed = await tx.conversationReadState.updateMany({
+        where: {
+          organizationId: c.organizationId, conversationId: id, userId: c.userId,
+          readThroughSequence: { lt: seen.sequence },
+        },
+        data: { readThroughSequence: seen.sequence },
+      });
+      if (created.count || changed.count) await this.event(tx, c, "conversation.read.updated", id, id, undefined, c.userId);
+      const unread = await this.unreadFlags(c, [thread], tx);
+      return { conversationId: id, hasUnread: unread.get(id) ?? false };
+    });
+  }
+
   async conversations(p: Principal, q: PageQuery) {
     const c = await this.context(p, "conversations.read"),
       filter = q.scope ?? "mine";
@@ -517,8 +585,9 @@ export class Chat {
     if (filter === "all")
       await this.audit(this.db, c, "CONVERSATIONS_SUPERVISED");
     const last = rows[limit - 1];
+    const flags = await this.unreadFlags(c, rows.slice(0, limit));
     return {
-      items: rows.slice(0, limit).map((row) => conversationDTO(row, c)),
+      items: rows.slice(0, limit).map((row) => conversationDTO(row, c, flags.get(row.id))),
       nextCursor:
         rows.length > limit
           ? cursorEncode(
@@ -534,7 +603,8 @@ export class Chat {
       r = await this.conversation(c, id, this.db, true);
     if (c.permissions.includes("conversations.supervise"))
       await this.audit(this.db, c, "CONVERSATION_SUPERVISED");
-    return conversationDTO(r, c);
+    const flags = await this.unreadFlags(c, [r]);
+    return conversationDTO(r, c, flags.get(r.id));
   }
   async setWebCapabilities(p: Principal, channelId: string, data: { outboundEnabled: boolean; mediaEnabled: boolean }) {
     if (data.outboundEnabled && !this.outboundExecutionEnabled || data.mediaEnabled && !this.mediaExecutionEnabled) throw new AppError(409, "CAPABILITY_DISABLED");
@@ -1339,6 +1409,8 @@ export class Chat {
       return false;
     if (e.type === "provider.connection.updated") return c.permissions.includes("providers.manage");
     if (e.type === "contacts.updated") return c.permissions.includes("contacts.read");
+    // Never leak another agent’s read activity to supervisors or other members.
+    if (e.type === "conversation.read.updated" && e.audienceUserId !== c.userId) return false;
     // Former assignee receives only this identifier invalidation, never new content.
     if (
       e.type === "conversation.transferred" &&

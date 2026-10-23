@@ -3953,6 +3953,9 @@
                           "readScope": {
                             "type": "string",
                             "pattern": "^[a-f0-9]{64}$"
+                          },
+                          "hasUnread": {
+                            "type": "boolean"
                           }
                         },
                         "required": [
@@ -3962,6 +3965,7 @@
                           "outboundEnabled",
                           "contactName",
                           "lastMessagePreview",
+                          "hasUnread",
                           "id",
                           "contactId",
                           "status",
@@ -4435,6 +4439,9 @@
                     },
                     "reused": {
                       "type": "boolean"
+                    },
+                    "hasUnread": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -4444,6 +4451,7 @@
                     "outboundEnabled",
                     "contactName",
                     "lastMessagePreview",
+                    "hasUnread",
                     "id",
                     "contactId",
                     "status",
@@ -5290,6 +5298,9 @@
                     },
                     "reused": {
                       "type": "boolean"
+                    },
+                    "hasUnread": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -5299,6 +5310,7 @@
                     "outboundEnabled",
                     "contactName",
                     "lastMessagePreview",
+                    "hasUnread",
                     "id",
                     "contactId",
                     "status",
@@ -5746,6 +5758,9 @@
                     "readScope": {
                       "type": "string",
                       "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "hasUnread": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -5755,6 +5770,7 @@
                     "outboundEnabled",
                     "contactName",
                     "lastMessagePreview",
+                    "hasUnread",
                     "id",
                     "contactId",
                     "status",
@@ -6203,6 +6219,9 @@
                     "readScope": {
                       "type": "string",
                       "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "hasUnread": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -6212,6 +6231,7 @@
                     "outboundEnabled",
                     "contactName",
                     "lastMessagePreview",
+                    "hasUnread",
                     "id",
                     "contactId",
                     "status",
@@ -6660,6 +6680,9 @@
                     "readScope": {
                       "type": "string",
                       "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "hasUnread": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -6669,6 +6692,7 @@
                     "outboundEnabled",
                     "contactName",
                     "lastMessagePreview",
+                    "hasUnread",
                     "id",
                     "contactId",
                     "status",
@@ -12808,6 +12832,9 @@
                     "readScope": {
                       "type": "string",
                       "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "hasUnread": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -12817,6 +12844,7 @@
                     "outboundEnabled",
                     "contactName",
                     "lastMessagePreview",
+                    "hasUnread",
                     "id",
                     "contactId",
                     "status",
@@ -13305,6 +13333,9 @@
                     "readScope": {
                       "type": "string",
                       "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "hasUnread": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -13314,6 +13345,7 @@
                     "outboundEnabled",
                     "contactName",
                     "lastMessagePreview",
+                    "hasUnread",
                     "id",
                     "contactId",
                     "status",
@@ -16825,6 +16857,7 @@
                               "conversation.archived",
                               "conversation.assigned",
                               "conversation.transferred",
+                              "conversation.read.updated",
                               "message.created",
                               "message.updated",
                               "note.created",
@@ -26544,6 +26577,7 @@
                               "conversation.archived",
                               "conversation.assigned",
                               "conversation.transferred",
+                              "conversation.read.updated",
                               "message.created",
                               "message.updated",
                               "note.created",
@@ -26996,6 +27030,7 @@
                               "conversation.archived",
                               "conversation.assigned",
                               "conversation.transferred",
+                              "conversation.read.updated",
                               "message.created",
                               "message.updated",
                               "note.created",
@@ -30197,6 +30232,397 @@
             }
           },
           "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{id}/read": {
+      "post": {
+        "tags": [
+          "M1 Internal Chat"
+        ],
+        "description": "Advance only the current user's conversation read checkpoint through a visible message. No WhatsApp read receipt is sent.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "messageId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "messageId"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "webSession": [],
+            "csrf": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "conversationId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "hasUnread": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "conversationId",
+                    "hasUnread"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "requestId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
             "description": "Default Response",
             "content": {
               "application/json": {

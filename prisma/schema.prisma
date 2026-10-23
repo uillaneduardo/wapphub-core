@@ -10,6 +10,7 @@ datasource db {
 model User {
   assignedConversations Conversation[]                  @relation("ConversationAssignee")
   chatMessages          Message[]                       @relation("MessageSender")
+  conversationReads     ConversationReadState[]
   chatNotes             InternalNote[]                  @relation("NoteAuthor")
   chatAssignments       ConversationAssignmentHistory[] @relation("AssignmentActor")
   invitations           OrganizationInvitation[]        @relation("InvitationAuthor")
@@ -214,6 +215,7 @@ model Conversation {
   contact            Contact                         @relation(fields: [organizationId, contactId], references: [organizationId, id])
   assignee           User?                           @relation("ConversationAssignee", fields: [assignedUserId], references: [id])
   messages           Message[]
+  readStates         ConversationReadState[]
   tags               ConversationTag[]
   notes              InternalNote[]
   assignments        ConversationAssignmentHistory[]
@@ -223,6 +225,20 @@ model Conversation {
   @@index([organizationId, status, lastMessageAt, id])
   @@index([organizationId, assignedUserId, lastMessageAt, id])
   @@unique([organizationId, channelId, providerConversationId])
+}
+
+/** Per-user unread checkpoint; never conflated with WhatsApp read receipts. */
+model ConversationReadState {
+  organizationId     String       @db.Char(36)
+  conversationId     String       @db.Char(36)
+  userId             String       @db.Char(36)
+  readThroughSequence BigInt      @default(0)
+  updatedAt          DateTime     @updatedAt
+  conversation       Conversation @relation(fields: [organizationId, conversationId], references: [organizationId, id], onDelete: Cascade)
+  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([organizationId, conversationId, userId])
+  @@index([organizationId, userId])
 }
 
 model Message {
