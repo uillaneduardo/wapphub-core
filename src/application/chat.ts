@@ -953,7 +953,7 @@ export class Chat {
     const floor = messageReadFloor(c, thread);
     const message = floor === null ? null : await this.db.message.findFirst({ where: { id: messageId, organizationId: c.organizationId, conversationId, sequence: { gte: floor }, ...(thread.channel?.provider === "WHATSAPP_WEB" && !c.permissions.includes("conversations.supervise") && thread.visibility !== "FULL" ? { OR: [{ historical: false }, { historical: true, importedAt: { lte: thread.historyBoundaryAt ?? new Date(0) } }] } : {}) } });
     const meta = mediaReferenceSchema.safeParse(message?.mediaMetadata);
-    if (!message?.channelId || !meta.success || meta.data.type === "DOCUMENT" || !mediaUploadSchema.shape.mimeType.safeParse(meta.data.mimeType).success || !validMediaKind(meta.data.type, meta.data.mimeType) || meta.data.size > mediaLimit(meta.data.type) || !this.mediaExecutionEnabled || !this.webProvider?.readMedia) throw new AppError(404, "MEDIA_UNAVAILABLE");
+    if (!message?.channelId || !meta.success || !mediaUploadSchema.shape.mimeType.safeParse(meta.data.mimeType).success || !validMediaKind(meta.data.type, meta.data.mimeType) || meta.data.size > mediaLimit(meta.data.type) || !this.mediaExecutionEnabled || !this.webProvider?.readMedia) throw new AppError(404, "MEDIA_UNAVAILABLE");
     const connection = await this.db.providerConnection.findFirst({ where: { organizationId: c.organizationId, channelId: message.channelId, mediaEnabled: true } });
     if (!connection) throw new AppError(404, "MEDIA_UNAVAILABLE");
     let result;
