@@ -10,8 +10,9 @@ import { ServiceError } from "./errors.js";
 import { Vault, type Scope } from "./vault.js";
 import { mediaPath } from "./media-reference.js";
 import { inspectDocument } from "../../../contracts/document-policy.js";
+import { inspectDocumentBytes } from "./document-inspection.js";
 export function inspectMedia(prefix: Buffer, mime: string, fileName = "") {
-  if (fileName) { const check = inspectDocument(fileName, mime, prefix, 1); if (!check.ok) throw new ServiceError("MEDIA_TYPE_MISMATCH", 415); return; }
+  if (fileName) { const check = inspectDocument(fileName, mime, prefix, 1); if (!check.ok && check.code !== "DOCUMENT_NEEDS_CONTAINER_INSPECTION") throw new ServiceError("MEDIA_TYPE_MISMATCH", 415); return; }
   const recognized = mime === "image/jpeg" ? prefix[0] === 255 && prefix[1] === 216 && prefix[2] === 255 : mime === "image/png" ? prefix.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")) : mime === "image/webp" ? prefix.toString("ascii", 0, 4) === "RIFF" && prefix.toString("ascii", 8, 12) === "WEBP" : mime === "audio/ogg" ? prefix.toString("ascii", 0, 4) === "OggS" : mime === "audio/mpeg" ? prefix.toString("ascii", 0, 3) === "ID3" || prefix[0] === 255 && ((prefix[1] ?? 0) & 224) === 224 : mime === "audio/webm" ? prefix.subarray(0, 4).equals(Buffer.from("1a45dfa3", "hex")) : ["video/mp4", "audio/mp4"].includes(mime) ? prefix.toString("ascii", 4, 8) === "ftyp" : false;
   if (!recognized) throw new ServiceError("MEDIA_TYPE_MISMATCH", 415);
 }
@@ -96,6 +97,10 @@ export class ProviderMedia {
       if (this.vault.get(scope)?.media?.some(x => x.id === meta.mediaId)) throw new ServiceError("MEDIA_ID_CONFLICT", 409);
       cacheOwned = true; stage = 'STORE'; trace();
       await this.files.put(scope, meta.mediaId, source, meta, prefix => inspectMedia(prefix, meta.mimeType, meta.type === "DOCUMENT" ? meta.fileName : ""), signal);
+       if (meta.type === "DOCUMENT") {
+         try { await inspectDocumentBytes(await this.files.stream(scope, meta.mediaId, meta, signal), meta.fileName, meta.mimeType, meta.size); }
+         catch { throw new ServiceError("MEDIA_TYPE_MISMATCH", 415); }
+       }
       stage = 'PROBE'; trace();
       const probe = meta.type === "DOCUMENT" ? { streams: [], seconds: 0 } : await this.probe(scope, meta.mediaId, meta, signal, requestId);
       const codecsValid = meta.type === "IMAGE" ? probe.streams.every(x => x.codec_type === "video" && ["mjpeg", "png", "webp"].includes(x.codec_name)) : meta.type === "VIDEO" ? probe.streams.some(x => x.codec_type === "video" && x.codec_name === "h264") && probe.streams.every(x => x.codec_type === "video" && x.codec_name === "h264" || x.codec_type === "audio" && x.codec_name === "aac") : probe.streams.every(x => x.codec_type === "audio" && ["aac", "mp3", "opus", "vorbis"].includes(x.codec_name));
@@ -150,7 +155,12 @@ export class ProviderMedia {
         const reference = JSON.parse(record.reference, BufferJSON.reviver), directPath = mediaPath(reference.directPath, reference.url);
         if (!directPath || !reference.mediaKey || reference.mediaKey.length !== 32) throw new ServiceError("MEDIA_UNAVAILABLE", 404);
         const stream = await this.download({ directPath, mediaKey: reference.mediaKey }, record.type === "VOICE" ? "audio" : record.type.toLowerCase() as "image" | "audio" | "video", { host: "mmg.whatsapp.net", options: { redirect: "error", signal: transfer } });
-        try { await this.files.put(scope, id, stream, record, prefix => inspectMedia(prefix, record.mimeType, record.type === "DOCUMENT" ? record.fileName : ""), transfer); }
+        try { await this.files.put(scope, id, stream, record, prefix => inspectMedia(prefix, record.mimeType, record.type === "DOCUMENT" ? record.fileName : ""), transfer);
+          if (record.type === "DOCUMENT") {
+            try { await inspectDocumentBytes(await this.files.stream(scope, id, record, transfer), record.fileName, record.mimeType, record.size); }
+            catch { await this.files.remove(scope, id); throw new ServiceError("MEDIA_TYPE_MISMATCH", 415); }
+          }
+        }
         finally { stream.destroy(); }
       } catch (reason) {
         if (signal?.aborted) throw new ServiceError("MEDIA_TRANSFER_CANCELLED", 499);
