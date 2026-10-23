@@ -496,6 +496,7 @@ test("OpenAPI preserves every foundation and M1 route and adds M2.1 permissions 
     "/tags/{id}",
     "/conversations/{id}/tags/{tagId}",
     "/conversations/{id}/notes",
+    "/conversations/{id}/read",
     "/realtime/events",
     "/team/members",
     "/resources",
