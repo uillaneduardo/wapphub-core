@@ -106,6 +106,17 @@ test("B5 HTTP binary upload streams through Core and signed Provider without blo
     assert.equal(pdfAccepted.statusCode, 200, pdfAccepted.body);
     mediaIds.push(pdfMeta.mediaId);
     assert.equal((await db.media.findFirst({ where: { organizationId: orgA, id: pdfMeta.mediaId } }))?.type, "DOCUMENT");
+    const pdfMessage = await mediaApp.inject({ method: "POST", url: `/api/v1/conversations/${thread.id}/messages`, payload: { body: "", clientMessageId: randomUUID(), mediaId: pdfMeta.mediaId }, headers: { origin, cookie: owner.cookie, "x-csrf-token": owner.csrf } });
+    assert.equal(pdfMessage.statusCode, 200, pdfMessage.body);
+    const documentMessage = pdfMessage.json() as { id: string; type: string };
+    assert.equal(documentMessage.type, "DOCUMENT");
+    const pdfDownloadUrl = `/api/v1/conversations/${thread.id}/messages/${documentMessage.id}/media`;
+    const pdfDownloaded = await mediaApp.inject({ method: "GET", url: pdfDownloadUrl, headers: { cookie: owner.cookie } });
+    assert.equal(pdfDownloaded.statusCode, 200, pdfDownloaded.body);
+    assert.equal(pdfDownloaded.headers["content-disposition"], "attachment; filename*=UTF-8''documento.pdf");
+    assert.equal(pdfDownloaded.rawPayload.equals(pdfBytes), true);
+    assert.equal((await mediaApp.inject({ method: "GET", url: pdfDownloadUrl, headers: { cookie: other.cookie } })).statusCode, 404);
+
     assert.equal((await upload(denied, makeMeta({ type: "DOCUMENT", mimeType: "application/pdf", fileName: "privado.pdf", size: pdfBytes.length, sha256: pdfMeta.sha256 }), pdfBytes)).statusCode, 403);
     const fakePdf = Buffer.from("MZ is not PDF");
     const fakeMeta = makeMeta({ type: "DOCUMENT", mimeType: "application/pdf", fileName: "fraude.pdf", size: fakePdf.length, sha256: createHash("sha256").update(fakePdf).digest("hex") });
