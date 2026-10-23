@@ -69,7 +69,7 @@ function verifyOfficeArchive(bytes: Buffer, ext: "docx" | "xlsx") {
     if (!nameLength || next > end || flags & 1 || ![0, 8].includes(method) || localOffset + 30 > centralStart || bytes.readUInt32LE(localOffset) !== 0x04034b50) throw new Error("DOCUMENT_TYPE_MISMATCH");
     let name: string;
     try { name = decoder.decode(bytes.subarray(cursor + 46, cursor + 46 + nameLength)); } catch { throw new Error("DOCUMENT_TYPE_MISMATCH"); }
-    if (name.startsWith("/") || name.includes("\\") || name.split("/").some(segment => segment === ".." || !segment) && !name.endsWith("/") || /[\u0000-\u001f\u007f]/u.test(name) || names.has(name)) throw new Error("DOCUMENT_TYPE_MISMATCH");
+    if (name.startsWith("/") || name.includes("\\") || name.split("/").some(segment => segment === ".." || !segment) && !name.endsWith("/") || [...name].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) || names.has(name)) throw new Error("DOCUMENT_TYPE_MISMATCH");
     if (/vbaProject\.bin|(^|\/)activeX\/|(^|\/)embeddings\/|\.exe$/i.test(name)) throw new Error("DOCUMENT_TYPE_MISMATCH");
     sum += expanded;
     if (sum > 64 * 1024 * 1024 || expanded > 32 * 1024 * 1024 || compressed === 0 && expanded > 0 || compressed > 0 && expanded / compressed > 100) throw new Error("DOCUMENT_TYPE_MISMATCH");
