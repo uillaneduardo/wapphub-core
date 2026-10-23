@@ -600,6 +600,16 @@ test("unread checkpoints belong to one tenant/user, advance monotonically and ne
   const before = await db.realtimeEvent.count({ where: { organizationId: orgA, type: "conversation.read.updated", audienceUserId: agent.userId, conversationId: thread.id } });
   await request(agent, "POST", `/conversations/${thread.id}/read`, { messageId: received.id });
   assert.equal(await db.realtimeEvent.count({ where: { organizationId: orgA, type: "conversation.read.updated", audienceUserId: agent.userId, conversationId: thread.id } }), before);
+  const latestReadEvent = await db.realtimeEvent.findFirst({
+    where: { organizationId: orgA, type: "conversation.read.updated", audienceUserId: agent.userId, conversationId: thread.id },
+    orderBy: { id: "desc" },
+  });
+  assert.ok(latestReadEvent);
+  const from = (latestReadEvent.id - 1n).toString();
+  const eventForAgent = await request(agent, "GET", `/realtime/events?lastEventId=${from}&limit=20`);
+  const eventForSupervisor = await request(supervisor, "GET", `/realtime/events?lastEventId=${from}&limit=20`);
+  assert.ok(eventForAgent.events.some((event: { type: string; entityId: string }) => event.type === "conversation.read.updated" && event.entityId === thread.id));
+  assert.ok(!eventForSupervisor.events.some((event: { type: string }) => event.type === "conversation.read.updated"));
 
   const older = await send(supervisor, thread.id, "Colleague internal message");
   assert.equal((await request(agent, "GET", `/conversations/${thread.id}`)).hasUnread, true);
