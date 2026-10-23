@@ -20,7 +20,7 @@ export type DocumentAdmission = { ok: true; extension: DocumentExtension; mimeTy
  * Caller must also verify total byte count, stream hash, tenant and authorization.
  */
 export function inspectDocument(name: string, mime: string, prefix: Uint8Array, size: number): DocumentAdmission {
-  if (!name || name.length > 200 || /[\\/\u0000-\u001f\u007f]/u.test(name) || name.endsWith(".") || name.startsWith(".")) return { ok: false, code: "DOCUMENT_INVALID_NAME" };
+    if (!name || name.length > 200 || /[\\/]/u.test(name) || [...name].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) || name.endsWith(".") || name.startsWith(".")) return { ok: false, code: "DOCUMENT_INVALID_NAME" };
   if (!Number.isSafeInteger(size) || size < 1 || size > DOCUMENT_LIMIT) return { ok: false, code: "DOCUMENT_TOO_LARGE" };
   const ext = name.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase() as DocumentExtension | undefined;
   if (!ext || !(ext in DOCUMENT_MIMES)) return { ok: false, code: "DOCUMENT_UNSUPPORTED" };
