@@ -1409,6 +1409,8 @@ export class Chat {
       return false;
     if (e.type === "provider.connection.updated") return c.permissions.includes("providers.manage");
     if (e.type === "contacts.updated") return c.permissions.includes("contacts.read");
+    // Never leak another agent’s read activity to supervisors or other members.
+    if (e.type === "conversation.read.updated" && e.audienceUserId !== c.userId) return false;
     // Former assignee receives only this identifier invalidation, never new content.
     if (
       e.type === "conversation.transferred" &&
