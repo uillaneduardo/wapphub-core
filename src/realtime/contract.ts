@@ -8,6 +8,7 @@ export const chatEventTypes = [
   "conversation.archived",
   "conversation.assigned",
   "conversation.transferred",
+  "conversation.read.updated",
   "message.created",
   "message.updated",
   "note.created",
