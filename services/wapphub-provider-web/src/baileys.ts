@@ -358,7 +358,7 @@ export function baileysFactory(vault: Vault, createSocket: SocketCreator = makeW
       else {
         const { record, stream } = await media.read(scope, intent.media.mediaId);
         if (record.sha256 !== intent.media.sha256 || record.size !== intent.media.size || record.type !== intent.media.type) { stream.destroy(); throw new ServiceError("MEDIA_INTENT_MISMATCH", 409); }
-        const content = record.type === "IMAGE" ? { image: { stream }, mimetype: record.mimeType, caption: intent.body, jpegThumbnail: "" } : record.type === "VIDEO" ? { video: { stream }, mimetype: record.mimeType, caption: intent.body, jpegThumbnail: "" } : { audio: { stream }, mimetype: record.mimeType, ptt: record.type === "VOICE", seconds: record.seconds ?? 0, waveform: Buffer.alloc(0) };
+        const content = record.type === "DOCUMENT" ? { document: { stream }, mimetype: record.mimeType, fileName: record.fileName, caption: intent.body } : record.type === "IMAGE" ? { image: { stream }, mimetype: record.mimeType, caption: intent.body, jpegThumbnail: "" } : record.type === "VIDEO" ? { video: { stream }, mimetype: record.mimeType, caption: intent.body, jpegThumbnail: "" } : { audio: { stream }, mimetype: record.mimeType, ptt: record.type === "VOICE", seconds: record.seconds ?? 0, waveform: Buffer.alloc(0) };
         try { await socket.sendMessage(intent.destination, content, { messageId: intent.providerMessageId }); } finally { stream.destroy(); }
       }
     }, history: (control) => importer.command(control), close: () => { callbacks.diagnostic?.("LOCAL_SOCKET_CLOSE"); clearTimeout(bootstrapTimer); importer.close(); downloads.abort(); auth.disable(); void socket.end(new Error("CONTROLLED_SHUTDOWN")).catch(() => callbacks.failure()); }, logout: async () => {
