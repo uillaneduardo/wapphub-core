@@ -1,12 +1,12 @@
-# WappHub — contrato de execução e consolidação arquitetural (Codex no homelab)
+# WappHub — contrato de execução e consolidação arquitetural (GitHub ou Codex)
 
-**Vigência:** 2026-10-11. **Natureza:** norma de trabalho entre repositórios; não é autorização de alteração funcional ou deploy.
+**Vigência:** 2026-10-11; **revisão de executor:** 2026-10-23. **Natureza:** norma de trabalho entre repositórios; não é autorização de alteração funcional ou deploy.
 
 ## 1. Papéis e fonte da verdade
 
 - **Usuário/Product Owner:** define objetivos, prioridades, aprova a proposta arquitetural consolidada antes de iniciar mudanças funcionais e realiza a **homologação final no navegador** após deploy autorizado. Não solicitar aprovação repetitiva de tarefas técnicas já incluídas no escopo aprovado.
-- **Codex no homelab — executor técnico:** é a única instância responsável por inspecionar **estado real de execução** (Git, Docker, Compose, banco, filas, volumes, métricas, relatórios em `deploy-records`), propor/refatorar código, executar testes, abrir PRs, integrar e executar deploy quando autorizado. Pode consultar a fonte do SDK e o código instalado em `node_modules`. Não supor que o GitHub represente produção.
-- **ChatGPT nesta conversa — revisão técnica/produto:** ajuda a definir arquitetura, revisar diffs, PRs, evidências e trade-offs. Não afirmar que testou ou publicou no homelab sem evidência. GitHub é referência de código; relatório e medições locais comprovam execução em produção.
+- **Codex no homelab — executor opcional:** quando disponível, pode inspecionar **estado real de execução** (Git, Docker, Compose, banco, filas, volumes, métricas, relatórios em `deploy-records`), propor/refatorar código, executar testes, abrir PRs, integrar e executar deploy quando autorizado. Pode consultar a fonte do SDK e o código instalado em `node_modules`. Não supor que o GitHub represente produção.
+- **ChatGPT nesta conversa — executor GitHub e revisão:** pode inspecionar, planejar e implementar código nos repositórios GitHub, criar branches e PRs e verificar resultados reais de CI. Na ausência de acesso ao homelab, fornece comandos para sync/build/deploy ao usuário e não afirma testes locais ou publicação sem evidência. GitHub é referência de código; relatório e medições locais comprovam execução em produção.
 - **Core (`wapphub-core`) é autoridade** dos contratos, domínio, autorização, persistência, estados canônicos e do **acompanhamento** em `docs/WHATSAPP_WEB_CONSOLIDATION_PROGRESS.md`. Provider Web está em `services/wapphub-provider-web` no mesmo repositório; Chat e Platform têm repositórios próprios. Platform fica fora do escopo atual salvo dependência justificada.
 
 ## 2. Escopo de produto que orienta decisões
@@ -85,3 +85,12 @@ Se houver pausa de contexto, **ler o progresso antes de retomar**, conferir Git 
 - Não baixar arquivos de mídia de todas as conversas automaticamente; não transmitir material criptográfico ao navegador.
 - O homelab **não instala nem executa navegadores gráficos/Playwright** para homologação visual; são permitidos testes HTTP, API, integração e componentes sem navegador. O usuário homologa visualmente em seu notebook após deploy.
 - Nenhuma política acima derroga instruções de segurança/AGENTS do repositório; em caso de conflito, aplicar a regra mais restritiva e registrar.
+
+
+## 7. Modo de implementação direta por ChatGPT (revisão 2026-10-23)
+
+- Codex não é obrigatório. O pedido explícito do usuário para implementar autoriza o escopo já definido sem nova rodada de aprovação redundante. Publicação em produção e operação real de WhatsApp permanecem sujeitas às autorizações específicas.
+- Modificar branches e abrir PRs por repositório, verificar CI e testes negativos, registrar blockers honestamente; nunca mascarar funcionalidade ausente com documentação.
+- Não habilitar capability até Core/Provider/Chat terem contratos e testes ponta a ponta. Sem acesso ao runtime não se declara produção validada.
+- Após mudanças Core, coordenar build/restart de API/Worker/Provider; mudanças só de Chat não exigem reinício do Provider. Respeitar Compose, imagens, env, volumes e sessão do host; nada de `down -v`.
+- Entregar código/comandos de git fetch/pull, imagem rastreável por SHA, migração aplicável, up e health/logs; o usuário executa e homologa em navegador.

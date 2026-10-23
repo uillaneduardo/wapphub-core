@@ -1,4 +1,4 @@
-# Instruções para agentes e Codex
+# Instruções para agentes de desenvolvimento
 
 Leia antes de modificar este repositório:
 
@@ -71,17 +71,28 @@ Exemplos:
 - `fix(tenancy): enforce organization scope`
 - `docs(status): mark session security complete`
 
-## Fluxo obrigatório de execução — Codex no homelab (2026-10-11)
+## Fluxo de execução — GitHub direto ou Codex no homelab (revisado 2026-10-23)
 
 Este repositório é **coordenador** das mudanças inter-repositório do WappHub. Antes de qualquer trabalho de consolidação WhatsApp/Provider, ler:
 - `docs/WHATSAPP_WEB_CONSOLIDATION_EXECUTION.md` — papéis, gates, fluxo técnico e critérios de homologação.
 - `docs/WHATSAPP_WEB_CONSOLIDATION_PROGRESS.md` — estado atual, evidências e retomada.
 - `services/wapphub-provider-web/AGENTS.md` — responsabilidades específicas do adapter Baileys.
 
-**A execução acontece no Codex do homelab**, que inspeciona Git, Docker, Compose, versões, banco/filas, recursos e relatórios locais; ChatGPT revisa decisões e PRs; o **usuário aprova a arquitetura e homologa no navegador**. Não atribuir a repositório público o estado de produção sem prova local.
+**Executores:** ChatGPT com conexão GitHub pode avaliar, planejar, implementar código, abrir PRs e verificar CI; Codex no homelab é opcional. Somente um executor com acesso ao homelab pode verificar Docker/Compose, serviços, banco e deploy. Na ausência desse acesso, fornecer comandos reproduzíveis ao usuário; não afirmar teste local ou publicação sem evidência. O usuário homologa no navegador.
 
-**Gate inicial obrigatório:** A0/A1 auditoria detalhada → A2 proposta arquitetural revisável → **uma aprovação do usuário** antes de implementar/refatorar funcionalidades. Depois, etapas B1–B5 podem seguir internamente com testes, checkpoints e commits pequenos sem microaprovações; deploy exige autorização pertinente, preservação da sessão, backups/rollback. Nunca iniciar pareamento/solicitações históricas reais/envio real automaticamente. Homologação visual é exclusiva do usuário e nunca presumida.
+**Gate inicial obrigatório:** A0/A1 auditoria detalhada → A2 proposta arquitetural revisável → aprovação do usuário (incluindo pedido explícito de implementação). Não pedir nova aprovação redundante. Depois, etapas B1–B5 podem seguir internamente com testes, checkpoints e commits pequenos sem microaprovações; deploy exige autorização pertinente, preservação da sessão, backups/rollback. Nunca iniciar pareamento/solicitações históricas reais/envio real automaticamente. Homologação visual é exclusiva do usuário e nunca presumida.
 
 **Exigências funcionais incluídas no plano:** enviar e receber mensagens pelo Provider; iniciar nova conversa **por contato existente ou número ainda não cadastrado**, com validação de canal/destinatário/DDD/DDI, tenancy, RBAC, autoria, outbox/idempotência e status; texto, imagem, áudio e vídeo conforme capacidades reais do Baileys. Chamadas fora de escopo. Sincronização live é obrigação do canal ativo; histórico inicial é progressivo dentro do que o WhatsApp fornece. Preservar Demo.
 
 **Retomada:** atualizar o arquivo de progresso **ao iniciar e terminar cada fase**, com ambiente, SHAs, mudanças, comandos/testes, evidências, riscos e próximo passo. Ao reabrir uma sessão, ler progresso e conferir estado real antes de agir. Não afirmar sucesso por testes sintéticos apenas.
+
+
+## Fluxo GitHub-first quando Codex estiver indisponível (2026-10-23)
+
+1. Inspecionar código, contratos, AGENTS e CI; registrar limites de acesso ao runtime.
+2. Implementar na branch de cada repositório, com testes negativos de RBAC/tenant e regressão. Abrir PR; nunca escrever diretamente em main.
+3. Executar os testes disponíveis e inspecionar os checks do CI, distinguindo CI verde de homologação real. Não chamar documentação ou build não executado de funcionalidade entregue.
+4. Implementar alterações completas entre Core/Worker/Provider/Chat antes de anunciar novas capabilities. Sem merge de CI vermelho; progresso e dependências registrados.
+5. Fornecer comandos de git sync, builds Docker, migrations somente se necessárias, up dos serviços impactados, health/logs e rollback, baseados nos Compose reais. Core alterado exige coordenar API/Worker/Provider; Chat isolado não exige restart do Core.
+6. Preservar banco, volumes, chaves, sessão QR e flags; não executar ações reais na conta WhatsApp automaticamente. Nenhum `down -v` ou prune destrutivo.
+7. Registrar separadamente IMPLEMENTADO_NO_GITHUB, CI_VERDE, PUBLICADO e HOMOLOGADO. O usuário executa deploy e homologa UI quando o executor não tem acesso ao homelab.
