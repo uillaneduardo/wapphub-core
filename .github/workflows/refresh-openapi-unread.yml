@@ -1,0 +1,47 @@
+# Temporary feature-branch task; removed before merge.
+name: Generate unread OpenAPI
+on:
+  push:
+    branches: [feat/conversation-read-state-20261023]
+permissions:
+  contents: write
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: mysql://wapphub_test:test-only-pass@127.0.0.1:3306/wapphub_m21_test
+      REDIS_URL: redis://127.0.0.1:6379
+      WEB_ORIGINS: https://web-client.example.test
+      ENCRYPTION_KEY: '1111111111111111111111111111111111111111111111111111111111111111'
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_DATABASE: wapphub_m21_test
+          MARIADB_USER: wapphub_test
+          MARIADB_PASSWORD: test-only-pass
+          MARIADB_ROOT_PASSWORD: test-only-root
+        ports: ['3306:3306']
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=5s --health-timeout=5s --health-retries=20
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+        options: --health-cmd="redis-cli ping" --health-interval=5s --health-timeout=3s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run openapi
+      - name: Persist only regenerated contract
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/openapi.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'docs(core): update versioned OpenAPI for unread markers'
+          git push origin HEAD:refs/heads/feat/conversation-read-state-20261023
