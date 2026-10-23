@@ -9,7 +9,9 @@ import { normalizeSyncMessage } from "./sync-normalization.js";
 import { ServiceError } from "./errors.js";
 import { Vault, type Scope } from "./vault.js";
 import { mediaPath } from "./media-reference.js";
-export function inspectMedia(prefix: Buffer, mime: string) {
+import { inspectDocument } from "../../../contracts/document-policy.js";
+export function inspectMedia(prefix: Buffer, mime: string, fileName = "") {
+  if (fileName) { const check = inspectDocument(fileName, mime, prefix, 1); if (!check.ok) throw new ServiceError("MEDIA_TYPE_MISMATCH", 415); return; }
   const recognized = mime === "image/jpeg" ? prefix[0] === 255 && prefix[1] === 216 && prefix[2] === 255 : mime === "image/png" ? prefix.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")) : mime === "image/webp" ? prefix.toString("ascii", 0, 4) === "RIFF" && prefix.toString("ascii", 8, 12) === "WEBP" : mime === "audio/ogg" ? prefix.toString("ascii", 0, 4) === "OggS" : mime === "audio/mpeg" ? prefix.toString("ascii", 0, 3) === "ID3" || prefix[0] === 255 && ((prefix[1] ?? 0) & 224) === 224 : mime === "audio/webm" ? prefix.subarray(0, 4).equals(Buffer.from("1a45dfa3", "hex")) : ["video/mp4", "audio/mp4"].includes(mime) ? prefix.toString("ascii", 4, 8) === "ftyp" : false;
   if (!recognized) throw new ServiceError("MEDIA_TYPE_MISMATCH", 415);
 }
@@ -34,8 +36,8 @@ export class ProviderMedia {
   private allowed(scope: Scope) { if (!this.enabled) throw new ServiceError("MEDIA_DISABLED", 403); if (!this.vault.get(scope)) throw new ServiceError("SESSION_NOT_FOUND", 404); }
   async retain(scope: Scope, message: WAMessage) {
     const normalized = normalizeSyncMessage(scope, message);
-    if (normalized?.kind !== "message" || normalized.message.content.type === "TEXT" || normalized.message.content.type === "DOCUMENT") return;
-    const meta = normalized.message.content.media, raw = normalizeMessageContent(message.message), data = raw?.imageMessage ?? raw?.audioMessage ?? raw?.videoMessage;
+    if (normalized?.kind !== "message" || normalized.message.content.type === "TEXT") return;
+    const meta = normalized.message.content.media, raw = normalizeMessageContent(message.message), data = raw?.imageMessage ?? raw?.audioMessage ?? raw?.videoMessage ?? raw?.documentMessage;
     const directPath = mediaPath(data?.directPath, data?.url);
     if (!directPath) { this.diagnostic("MEDIA_REFERENCE_REJECTED"); return; }
     if (!data?.mediaKey || data.mediaKey.length !== 32 || !meta.sha256 || !meta.size || !validMediaKind(meta.type as MediaUpload["type"], meta.mimeType) || meta.size > mediaLimit(meta.type as MediaUpload["type"])) { this.diagnostic("MEDIA_METADATA_REJECTED"); return; }
@@ -93,11 +95,11 @@ export class ProviderMedia {
     try {
       if (this.vault.get(scope)?.media?.some(x => x.id === meta.mediaId)) throw new ServiceError("MEDIA_ID_CONFLICT", 409);
       cacheOwned = true; stage = 'STORE'; trace();
-      await this.files.put(scope, meta.mediaId, source, meta, prefix => inspectMedia(prefix, meta.mimeType), signal);
+      await this.files.put(scope, meta.mediaId, source, meta, prefix => inspectMedia(prefix, meta.mimeType, meta.type === "DOCUMENT" ? meta.fileName : ""), signal);
       stage = 'PROBE'; trace();
-      const probe = await this.probe(scope, meta.mediaId, meta, signal, requestId);
+      const probe = meta.type === "DOCUMENT" ? { streams: [], seconds: 0 } : await this.probe(scope, meta.mediaId, meta, signal, requestId);
       const codecsValid = meta.type === "IMAGE" ? probe.streams.every(x => x.codec_type === "video" && ["mjpeg", "png", "webp"].includes(x.codec_name)) : meta.type === "VIDEO" ? probe.streams.some(x => x.codec_type === "video" && x.codec_name === "h264") && probe.streams.every(x => x.codec_type === "video" && x.codec_name === "h264" || x.codec_type === "audio" && x.codec_name === "aac") : probe.streams.every(x => x.codec_type === "audio" && ["aac", "mp3", "opus", "vorbis"].includes(x.codec_name));
-      if (!probe.streams.length || !codecsValid || meta.type === "VIDEO" && (!Number.isFinite(probe.seconds) || probe.seconds < 0 || probe.seconds > 600)) throw new ServiceError("MEDIA_CODEC_INVALID", 415);
+      if (meta.type !== "DOCUMENT" && (!probe.streams.length || !codecsValid || meta.type === "VIDEO" && (!Number.isFinite(probe.seconds) || probe.seconds < 0 || probe.seconds > 600))) throw new ServiceError("MEDIA_CODEC_INVALID", 415);
       let output = { size: meta.size, sha256: meta.sha256, mimeType: meta.mimeType as string, fileName: meta.fileName };
       if (meta.mimeType === "audio/webm" || meta.type === "VOICE" && (meta.mimeType !== "audio/ogg" || probe.streams.some(x => x.codec_name !== "opus"))) {
         stage = 'CONVERT'; trace();
@@ -148,7 +150,7 @@ export class ProviderMedia {
         const reference = JSON.parse(record.reference, BufferJSON.reviver), directPath = mediaPath(reference.directPath, reference.url);
         if (!directPath || !reference.mediaKey || reference.mediaKey.length !== 32) throw new ServiceError("MEDIA_UNAVAILABLE", 404);
         const stream = await this.download({ directPath, mediaKey: reference.mediaKey }, record.type === "VOICE" ? "audio" : record.type.toLowerCase() as "image" | "audio" | "video", { host: "mmg.whatsapp.net", options: { redirect: "error", signal: transfer } });
-        try { await this.files.put(scope, id, stream, record, prefix => inspectMedia(prefix, record.mimeType), transfer); }
+        try { await this.files.put(scope, id, stream, record, prefix => inspectMedia(prefix, record.mimeType, record.type === "DOCUMENT" ? record.fileName : ""), transfer); }
         finally { stream.destroy(); }
       } catch (reason) {
         if (signal?.aborted) throw new ServiceError("MEDIA_TRANSFER_CANCELLED", 499);

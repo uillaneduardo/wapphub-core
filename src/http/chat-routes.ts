@@ -288,7 +288,7 @@ export async function chatRoutes(
     const cancelStream = () => result.stream.destroy();
     cancellation.signal.addEventListener("abort", cancelStream, { once: true });
     result.stream.once("close", () => cancellation.signal.removeEventListener("abort", cancelStream));
-    reply.header("cache-control", "no-store, private").header("content-type", result.mimeType).header("content-length", result.size).header("x-content-type-options", "nosniff").header("content-disposition", "inline");
+    reply.header("cache-control", "no-store, private").header("content-type", result.mimeType).header("content-length", result.size).header("x-content-type-options", "nosniff").header("content-disposition", result.mimeType.startsWith("image/") || result.mimeType.startsWith("audio/") || result.mimeType.startsWith("video/") ? "inline" : "attachment; filename*=UTF-8\x27\x27" + encodeURIComponent(result.fileName));
     const range = r.headers.range;
     if (!range) return reply.header("accept-ranges", "bytes").send(result.stream);
     const parsed = /^bytes=(\d*)-(\d*)$/.exec(range);

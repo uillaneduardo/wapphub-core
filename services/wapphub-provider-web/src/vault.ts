@@ -25,7 +25,7 @@ export type Session = Scope & {
   lastDisconnect?: { occurredAt: string; code?: number; cause?: import("./transport.js").TransportCause };
   lastAuthenticatedAt?: string;
   invalidated?: "SESSION_REVOKED" | "SESSION_REPLACED" | "BAD_SESSION";
-  media?: { id: string; reference?: string; type: "IMAGE" | "AUDIO" | "VOICE" | "VIDEO"; mimeType: string; fileName: string; size: number; sha256: string; expiresAt: number; seconds?: number }[];
+  media?: { id: string; reference?: string; type: "IMAGE" | "AUDIO" | "VOICE" | "VIDEO" | "DOCUMENT"; mimeType: string; fileName: string; size: number; sha256: string; expiresAt: number; seconds?: number }[];
   sends?: { id: string; digest: string; providerMessageId: string; mediaId?: string; outcome: "DISPATCHED" | "UNKNOWN" | "NOT_SENT"; expiresAt: string; errorCode?: string }[];
   events: Delivery[]; dedup: string[]; commands: { id: string; digest: string }[];
   pairingPhase?: string;

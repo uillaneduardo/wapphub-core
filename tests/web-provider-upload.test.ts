@@ -99,6 +99,22 @@ test("B5 HTTP binary upload streams through Core and signed Provider without blo
     callbacks.text({ id: "b5-live-during-upload", chatId: "5581999999999@s.whatsapp.net", body: "Synthetic live during upload", fromMe: false, timestamp: Date.now() }); await sessions.settle(scopeValue);
     assert.ok((await journal.pull(scopeValue, 20)).some(item => item.event.type === "message.received")); continueUpload();
     const accepted = await pendingUpload; assert.equal(accepted.statusCode, 200, `${accepted.body}; provider=${providerCodes.join(",")}`); mediaIds.push(validMeta.mediaId);
+    // G.2: a PDF is authorized, streamed, hashed and persisted in the same tenant.
+    const pdfBytes = Buffer.from("%PDF-1.7\\n1 0 obj <<>> endobj\\n%%EOF", "utf8");
+    const pdfMeta = makeMeta({ type: "DOCUMENT", mimeType: "application/pdf", fileName: "documento.pdf", size: pdfBytes.length, sha256: createHash("sha256").update(pdfBytes).digest("hex") });
+    const pdfAccepted = await upload(owner, pdfMeta, pdfBytes);
+    assert.equal(pdfAccepted.statusCode, 200, pdfAccepted.body);
+    mediaIds.push(pdfMeta.mediaId);
+    assert.equal((await db.media.findFirst({ where: { organizationId: orgA, id: pdfMeta.mediaId } }))?.type, "DOCUMENT");
+    // The signed Provider also serves the same encrypted document bytes.
+    const storedPdf = await client.readMedia(scopeValue, pdfMeta.mediaId);
+    const pdfChunks: Buffer[] = [];
+    for await (const chunk of storedPdf.stream) pdfChunks.push(Buffer.from(chunk));
+    assert.equal(Buffer.concat(pdfChunks).equals(pdfBytes), true);
+    assert.equal((await upload(denied, makeMeta({ type: "DOCUMENT", mimeType: "application/pdf", fileName: "privado.pdf", size: pdfBytes.length, sha256: pdfMeta.sha256 }), pdfBytes)).statusCode, 403);
+    const fakePdf = Buffer.from("MZ is not PDF");
+    const fakeMeta = makeMeta({ type: "DOCUMENT", mimeType: "application/pdf", fileName: "fraude.pdf", size: fakePdf.length, sha256: createHash("sha256").update(fakePdf).digest("hex") });
+    assert.equal((await upload(owner, fakeMeta, fakePdf)).statusCode, 415);
     const cached = await readdir(join(vault.directory, "files")), cache = cached.find(name => name.endsWith(".cache")); assert.ok(cache); assert.ok((await stat(join(vault.directory, "files", cache))).mode % 0o1000 === 0o600); assert.ok(!cached.some(name => name.endsWith(".part")));
 
     const interruptedMeta = makeMeta();
