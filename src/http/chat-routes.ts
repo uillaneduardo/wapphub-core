@@ -39,6 +39,7 @@ const conversation = obj({
   outboundEnabled: { type: "boolean" },
   contactName: { anyOf: [str, { type: "null" }] },
   lastMessagePreview: { anyOf: [str, { type: "null" }] },
+  hasUnread: { type: "boolean" },
   id: uuid,
   contactId: uuid,
   status: { type: "string", enum: ["OPEN", "PENDING", "ARCHIVED"] },
