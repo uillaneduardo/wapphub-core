@@ -1,4 +1,4 @@
-# Codex — WappHub WhatsApp Web Provider (Baileys)
+# Agentes — WappHub WhatsApp Web Provider (Baileys)
 
 Este diretório implementa um **adapter de canal**, não um segundo backend de negócio.
 Este arquivo complementa `../../AGENTS.md` e os documentos:
@@ -23,7 +23,7 @@ Este arquivo complementa `../../AGENTS.md` e os documentos:
 
 1. Ler `../../docs/WHATSAPP_WEB_CONSOLIDATION_PROGRESS.md` e comparar main, branch, tag/imagens Docker e Compose realmente publicados. Nunca supor ambiente de produção a partir do GitHub.
 2. Inventariar chamadas/handlers do SDK e medir fluxos reais e limites. Auditar também `src/baileys.ts`, `src/sessions.ts`, `src/history-operation.ts`, `src/history.ts`, `src/events.ts`, `src/vault.ts`, `src/sync-normalization.ts` e integração Core/Worker, considerando a PR #23. Identificar fluxos mortos ou duplicações **com provas**, não por intuição.
-3. Atualizar a fase A1/A2 do documento de progresso e gerar proposta enxuta `existente → alteração mínima → teste → risco`. **Aguardar aprovação da arquitetura pelo usuário.**
+3. Atualizar a fase A1/A2 do documento de progresso e gerar proposta enxuta `existente → alteração mínima → teste → risco`. **Considerar o pedido explícito do usuário de implementação como aprovação do escopo; evitar nova aprovação redundante.**
 4. Após a aprovação: implementar em passos internos com testes de contrato/regressão (sem nova camada ou fila desnecessária); documentar gatilhos de execução real, flags e rollback; atualizar progresso a cada gate; abrir PRs e rodar lint/typecheck/build/CI.
 5. Deploy só conforme autorização existente; preservar sessão, volumes e chaves; backup/restauração isolada e rollback. Não provocar novo QR, logout, re-pareamento, envio real, upload real nem solicitação histórica real fora da autorização explícita.
 6. Deixar a homologação no navegador com o usuário; não marcar `HOMOLOGADO` com base em testes automatizados.
@@ -33,3 +33,8 @@ Este arquivo complementa `../../AGENTS.md` e os documentos:
 QR inicial, reconexão preservada, bootstrap parcial/vazio, históricos acima do limite, importação progressiva, idempotência entre live e histórico, PN/LID, contato conhecido/desconhecido, validação de número, `sendMessage` de texto e mídia com mocks, erro de destino e falha/timeout/resultado incerto, recebimento live concorrente, ordem, perfis sem permissão, isolamento multi-tenant, assinatura/HMAC de comandos, cancelamento e restart. Testes não enviam mensagens reais.
 
 **Sem funcionalidades extras:** grupos, status, chamadas, marketing ou IA não são escopo desta consolidação, salvo mudança de produto expressa pelo usuário.
+
+
+## Executor alternativo ChatGPT/GitHub (2026-10-23)
+
+Codex é opcional. ChatGPT pode implementar no repositório via branch/PR, com contratos, testes e CI. Sem acesso ao Docker do homelab, entregar comandos de build e verificação operacional e não declarar serviço publicado. Core modificado requer planejamento e verificação conjunta de API/Worker/Provider. Preservar volume de sessão, secrets, flags e QR; não parear ou enviar mídia real automaticamente.
