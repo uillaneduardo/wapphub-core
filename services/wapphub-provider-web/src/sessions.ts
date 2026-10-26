@@ -48,7 +48,7 @@ export class Sessions {
       ["FAILED", "DISCONNECTED"].includes(record.state) &&
       !["SESSION_REVOKED", "SESSION_REPLACED", "BAD_SESSION"].includes(record.errorCode ?? "") &&
       record.termination?.action !== "logout" && !["RUNNING", "AUTHENTICATED"].includes(record.recovery?.state ?? "") &&
-      [undefined, "RECONNECT_LIMIT", "CONNECTION_LOST", "PAIRING_TIMEOUT", "PAIRING_TRANSPORT_CLOSED", "PAIRING_START_FAILED", "PAIRING_INTERRUPTED", "RECOVERY_TIMEOUT", "RECOVERY_INTERRUPTED", "EXISTING_AUTH_REQUIRED"].includes(record.errorCode);
+      [undefined, "RECONNECT_LIMIT", "CONNECTION_LOST", "PAIRING_TIMEOUT", "PAIRING_TRANSPORT_CLOSED", "PAIRING_START_FAILED", "PAIRING_INTERRUPTED", "RECOVERY_TIMEOUT", "RECOVERY_INTERRUPTED", "EXISTING_AUTH_REQUIRED", "SYNC_BACKPRESSURE", "EVENT_QUEUE_FULL"].includes(record.errorCode);
   }
   private pairingAuthorized(scope: Scope) {
     const r = this.vault.get(scope);
@@ -204,6 +204,26 @@ export class Sessions {
       catch (error) { await this.processingFailure(scope, actor, generation, error); }
     }).catch((error: unknown) => this.processingFailure(scope, actor, generation, error));
   }
+  // Capacity failures do not revoke auth. Resume only after durable queues drain;
+  // never reconnect into the same full staging buffer.
+  private scheduleCapacityRecovery(scope: Scope, actor: Actor, generation: number) {
+    actor.cancel?.();
+    actor.cancel = this.schedule(() => {
+      void this.enqueue(scope, actor, generation, async () => {
+        const record = this.vault.get(scope);
+        if (!record || !record.desired || record.state !== "FAILED" ||
+            !["SYNC_BACKPRESSURE", "EVENT_QUEUE_FULL"].includes(record.errorCode ?? "")) return;
+        const pending = record.sync?.pending.length ?? 0;
+        const outgoing = record.events.filter(entry => !entry.dead).length;
+        if (pending > 250 || outgoing > 64) {
+          this.scheduleCapacityRecovery(scope, actor, generation);
+          return;
+        }
+        // Keep the existing bounded reconnect budget and session credentials.
+        await this.start(scope, actor);
+      });
+    }, 15_000);
+  }
   private async processingFailure(scope: Scope, actor: Actor, generation: number, error: unknown) {
 
       if (actor.generation !== generation || this.stopping) return;
@@ -225,6 +245,10 @@ export class Sessions {
         record.pairingPhase = "IDLE";
         record.processingFailure = { id: randomUUID(), code: code as NonNullable<typeof record.processingFailure>["code"], stage: capacity ? "QUEUE" : "PERSISTENCE", occurredAt: new Date(this.now()).toISOString() };
       }).catch(() => { actor.storageFailed = true; this.failedStorage = true; this.log("DIAGNOSTIC_PERSISTENCE_FAILED"); });
+      if (capacity && ["SYNC_BACKPRESSURE", "EVENT_QUEUE_FULL"].includes(code) && !actor.storageFailed &&
+          this.vault.get(scope)?.desired && this.linked(scope)) {
+        this.scheduleCapacityRecovery(scope, actor, closedGeneration);
+      }
   }
   private async transition(scope: Scope, state: State, errorCode?: string, retryable = false) {
     const qr = this.actor(scope).qr;
