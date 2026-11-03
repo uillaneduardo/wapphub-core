@@ -1,3 +1,4 @@
+/* global process, URL, console */
 import http from "node:http";
 import {Pool} from "pg";
 const port=Number(process.env.PORT||3080);
