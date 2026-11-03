@@ -1,0 +1,119 @@
+openapi: 3.1.0
+info:
+  title: WappHub Core Next API
+  version: 0.1.0
+  description: Contract proposal. Only /health/live and /health/ready are implemented in the M0 service.
+servers:
+  - url: /api/v1
+paths:
+  /health/live:
+    get:
+      operationId: live
+      responses:
+        '200': {description: Process alive}
+  /health/ready:
+    get:
+      operationId: ready
+      responses:
+        '200': {description: Database reachable}
+        '503': {description: Not ready}
+  /me:
+    get:
+      operationId: me
+      security: [{sessionCookie: []}]
+      responses:
+        '200': {description: User and memberships}
+        '401': {description: Unauthenticated}
+  /conversations:
+    get:
+      operationId: listConversations
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+        - {name: channelId, in: query, schema: {type: string, format: uuid}}
+      responses:
+        '200': {description: Paginated authorized conversations}
+        '403': {description: Forbidden}
+  /conversations/{conversationId}/messages:
+    parameters:
+      - {name: conversationId, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      operationId: listMessages
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: before, in: query, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses:
+        '200': {description: Messages in sequence order with opaque nextCursor}
+        '403': {description: Forbidden}
+    post:
+      operationId: sendMessage
+      security: [{sessionCookie: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SendMessage'}
+      responses:
+        '201': {description: Accepted and committed}
+        '403': {description: Forbidden}
+        '409': {description: Idempotency conflict}
+        '422': {description: Invalid message}
+  /conversations/{conversationId}/messages/{messageId}:
+    parameters:
+      - {name: conversationId, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: messageId, in: path, required: true, schema: {type: string, format: uuid}}
+    patch:
+      operationId: editMessage
+      security: [{sessionCookie: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EditMessage'}
+      responses:
+        '200': {description: Edited with a new immutable revision}
+        '403': {description: Forbidden}
+        '409': {description: Revision conflict}
+        '422': {description: Invalid body}
+  /conversations/{conversationId}/messages/{messageId}/revisions:
+    parameters:
+      - {name: conversationId, in: path, required: true, schema: {type: string, format: uuid}}
+      - {name: messageId, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      operationId: listRevisions
+      security: [{sessionCookie: []}]
+      responses:
+        '200': {description: Paginated authorized immutable revisions}
+        '403': {description: Forbidden}
+  /sync/events:
+    get:
+      operationId: syncEvents
+      security: [{sessionCookie: []}]
+      parameters:
+        - {name: after, in: query, schema: {type: string}}
+      responses:
+        '200': {description: Authorized incremental events}
+        '409': {description: Resync required}
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: wapphub_session
+  schemas:
+    SendMessage:
+      type: object
+      required: [clientMessageId, type, body]
+      properties:
+        clientMessageId: {type: string, minLength: 8, maxLength: 128}
+        type: {type: string, const: text}
+        body: {type: string, minLength: 1, maxLength: 4096}
+        replyToMessageId: {type: [string, 'null'], format: uuid}
+    EditMessage:
+      type: object
+      required: [body, expectedRevision]
+      properties:
+        body: {type: string, minLength: 1, maxLength: 4096}
+        expectedRevision: {type: integer, minimum: 1}
