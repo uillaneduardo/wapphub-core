@@ -1,0 +1,25 @@
+name: Core Next M0
+on:
+  push:
+    paths:
+      - 'core-next/**'
+      - '.github/workflows/core-next-ci.yml'
+  pull_request:
+    paths:
+      - 'core-next/**'
+      - '.github/workflows/core-next-ci.yml'
+jobs:
+  domain-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: core-next
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --ignore-scripts
+      - run: npm run check
+      - run: npm test
+      - run: docker build -t wapphub-core-next:m0 .
